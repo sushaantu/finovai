@@ -3,6 +3,7 @@ name = "finovai"
 main = "worker/index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
+account_id = "711cb78717605db93e601e6a06e7eeec"
 
 # Static assets configuration
 [assets]
@@ -12,7 +13,7 @@ directory = "./dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "finovai-db"
-database_id = "7e77211c-5e36-4d61-a0fd-c067b3b5edc9"
+database_id = "f618ec3b-b453-49dd-b16a-b4a5a2778314"
 
 # AI binding for Cloudflare Workers AI
 [ai]
@@ -21,3 +22,6 @@ binding = "AI"
 # Environment variables
 [vars]
 ENVIRONMENT = "production"
+
+# Custom domain - configured via Cloudflare dashboard
+# To set up: Go to Workers & Pages > finovai > Settings > Domains & Routes > Add custom domain
