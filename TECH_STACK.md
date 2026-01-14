@@ -150,12 +150,19 @@ Vite proxy forwards `/api/*` requests to the worker.
 
 ## Current Status
 
+**Last Updated:** January 14, 2025
+
 ### Active Features
 - Landing page with financial coaching positioning
 - Guest chat (no login required) with AI advisor
-- Phone + WhatsApp OTP authentication
+- Phone + WhatsApp OTP authentication (UI complete, awaiting Meta verification)
 - Persistent conversations for logged-in users
 - User profile management
+
+### Pending Setup
+- **Meta Business Verification** - Submitted for Eleva Consultores, ~2 business days
+- **Kapso Phone Number ID** - Set after Meta approves: `bunx wrangler secret put KAPSO_PHONE_NUMBER_ID`
+- **Kapso API Key** - Already configured in Cloudflare secrets
 
 ### Legacy Code (May Remove Later)
 | Item | Notes |
@@ -180,6 +187,10 @@ Vite proxy forwards `/api/*` requests to the worker.
 - [x] Guest chat without login
 - [x] Value exchange flow (chat → offer report → request phone)
 - [x] Clean up unused code
+- [x] Kapso WhatsApp integration (code complete)
+- [ ] Complete Meta Business Verification (in progress)
+- [ ] Set KAPSO_PHONE_NUMBER_ID secret
+- [ ] Test real WhatsApp OTPs
 - [ ] Improve AI responses quality
 
 ### Phase 3: Real-Time Features
@@ -237,3 +248,66 @@ Vite proxy forwards `/api/*` requests to the worker.
 **Paid Services (when scaling):**
 - Kapso Pro: $25/month for 100k messages
 - Custom domain: ~$10/year
+
+---
+
+## Resume Guide (After Meta Verification)
+
+When Meta Business Verification is approved, follow these steps:
+
+### 1. Complete Kapso Setup
+```bash
+# Go to Kapso dashboard
+open https://kapso.ai/dashboard
+
+# Connect your verified WhatsApp Business number
+# Copy the Phone Number ID (looks like: 647015955153740)
+```
+
+### 2. Set the Secret
+```bash
+cd /Users/sushaantu/Developer/finovai
+bunx wrangler secret put KAPSO_PHONE_NUMBER_ID
+# Paste your Phone Number ID when prompted
+```
+
+### 3. Test WhatsApp OTP
+```bash
+# Start local dev servers
+bunx wrangler dev --port 8788  # Terminal 1
+bun run dev                     # Terminal 2
+
+# Test the flow:
+# 1. Go to localhost:5173
+# 2. Open chat, send 5+ messages
+# 3. Click "Quiero mi diagnóstico"
+# 4. Enter your test phone: +56920403095
+# 5. Check WhatsApp for OTP
+```
+
+### 4. Deploy to Production
+```bash
+bun run build && bunx wrangler deploy
+```
+
+### 5. Verify Production
+- Visit https://finov.ai (or workers.dev URL)
+- Test full OTP flow with real WhatsApp
+
+---
+
+## Quick Reference
+
+| Resource | URL |
+|----------|-----|
+| Production | https://finovai.my-cloudflare-711.workers.dev |
+| Custom Domain | https://finov.ai |
+| Kapso Dashboard | https://kapso.ai/dashboard |
+| Cloudflare Dashboard | https://dash.cloudflare.com |
+| Meta Business | https://business.facebook.com |
+| GitHub Repo | https://github.com/sushaantu/finovai |
+
+| Secret | Status |
+|--------|--------|
+| KAPSO_API_KEY | Configured |
+| KAPSO_PHONE_NUMBER_ID | Pending (after Meta verification) |
