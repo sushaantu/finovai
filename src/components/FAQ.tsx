@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 const FAQS = [
   {
@@ -28,17 +28,39 @@ const FAQS = [
 ]
 
 export default function FAQ() {
+  const sectionRef = useRef<HTMLElement>(null)
+  const [isVisible, setIsVisible] = useState(false)
   const [openIndex, setOpenIndex] = useState<number | null>(null)
 
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true)
+        }
+      },
+      { threshold: 0.2 }
+    )
+
+    if (sectionRef.current) {
+      observer.observe(sectionRef.current)
+    }
+
+    return () => observer.disconnect()
+  }, [])
+
   return (
-    <section id="faq" className="py-24 px-6 bg-neutral-950">
-      <div className="max-w-6xl mx-auto">
+    <section ref={sectionRef} id="faq" className="relative py-32 px-6 bg-[--color-bg-secondary]">
+      {/* Background */}
+      <div className="absolute inset-0 grid-bg opacity-10" />
+
+      <div className="relative max-w-7xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-12">
-          <span className="inline-flex items-center px-3 py-1 rounded-full bg-neutral-800/60 border border-neutral-700/50 text-xs uppercase tracking-wider text-neutral-400 mb-4">
+        <div className={`text-center mb-16 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
+          <span className="inline-flex items-center px-4 py-2 rounded-full glass text-[11px] uppercase tracking-widest text-[--color-text-dim] font-semibold mb-8">
             FAQ
           </span>
-          <h2 className="font-display text-3xl md:text-4xl text-neutral-100">
+          <h2 className="font-display text-4xl md:text-5xl text-[--color-text]">
             Preguntas frecuentes
           </h2>
         </div>
@@ -48,33 +70,40 @@ export default function FAQ() {
           {FAQS.map((faq, index) => (
             <div
               key={index}
-              className="rounded-xl bg-neutral-900/50 border border-neutral-800 overflow-hidden"
+              className={`rounded-2xl bg-gradient-to-b from-white/[0.03] to-transparent border border-white/[0.06] overflow-hidden transition-all duration-500 ${
+                isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
+              }`}
+              style={{ transitionDelay: `${index * 80 + 200}ms` }}
             >
               <button
                 onClick={() => setOpenIndex(openIndex === index ? null : index)}
-                className="w-full flex items-center justify-between p-5 text-left hover:bg-neutral-800/30 transition-colors"
+                className="w-full flex items-center justify-between p-6 text-left hover:bg-white/[0.02] transition-colors group"
               >
-                <span className="font-medium text-neutral-200 pr-4">
+                <span className="font-medium text-[--color-text] pr-4 group-hover:text-emerald-400 transition-colors">
                   {faq.question}
                 </span>
-                <svg
-                  className={`w-5 h-5 text-neutral-500 flex-shrink-0 transition-transform duration-200 ${
-                    openIndex === index ? 'rotate-180' : ''
-                  }`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 9l-7 7-7-7" />
-                </svg>
+                <div className={`w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0 transition-all duration-300 ${
+                  openIndex === index ? 'bg-emerald-500/10' : ''
+                }`}>
+                  <svg
+                    className={`w-4 h-4 text-[--color-text-dim] transition-all duration-300 ${
+                      openIndex === index ? 'rotate-180 text-emerald-400' : ''
+                    }`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
               </button>
               <div
-                className={`overflow-hidden transition-all duration-200 ${
-                  openIndex === index ? 'max-h-48' : 'max-h-0'
+                className={`overflow-hidden transition-all duration-300 ease-out ${
+                  openIndex === index ? 'max-h-48 opacity-100' : 'max-h-0 opacity-0'
                 }`}
               >
-                <div className="px-5 pb-5">
-                  <p className="text-neutral-400">
+                <div className="px-6 pb-6">
+                  <p className="text-[--color-text-muted] leading-relaxed">
                     {faq.answer}
                   </p>
                 </div>
@@ -84,10 +113,10 @@ export default function FAQ() {
         </div>
 
         {/* Contact */}
-        <div className="text-center mt-10">
-          <p className="text-neutral-500">
+        <div className={`text-center mt-12 transition-all duration-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`} style={{ transitionDelay: '700ms' }}>
+          <p className="text-[--color-text-muted]">
             ¿Tienes otra pregunta?{' '}
-            <a href="mailto:hola@finov.ai" className="text-emerald-400 hover:text-emerald-300 transition-colors">
+            <a href="mailto:hola@finov.ai" className="text-emerald-400 hover:text-emerald-300 transition-colors underline underline-offset-4">
               Escríbenos
             </a>
           </p>

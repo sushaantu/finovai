@@ -12,7 +12,7 @@ export default function Banks() {
 
   return (
     <section className="py-24 px-6 bg-stone-950">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
           {/* Left: Content */}
           <div>

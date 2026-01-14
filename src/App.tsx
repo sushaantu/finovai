@@ -16,7 +16,7 @@ function App() {
   const closeChat = () => setIsChatOpen(false)
 
   return (
-    <div className="min-h-screen bg-neutral-950">
+    <div className="min-h-screen bg-[--color-bg]">
       {/* Navigation */}
       <Navbar onChatOpen={openChat} />
 
