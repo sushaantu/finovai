@@ -1,0 +1,23 @@
+# FinovAI - Cloudflare Workers Configuration
+name = "finovai"
+main = "worker/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Static assets configuration
+[assets]
+directory = "./dist"
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "finovai-db"
+database_id = "7e77211c-5e36-4d61-a0fd-c067b3b5edc9"
+
+# AI binding for Cloudflare Workers AI
+[ai]
+binding = "AI"
+
+# Environment variables
+[vars]
+ENVIRONMENT = "production"

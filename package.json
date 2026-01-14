@@ -1,0 +1,33 @@
+{
+  "name": "finovai",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "worker:dev": "wrangler dev",
+    "worker:deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create finovai-db",
+    "db:migrate": "wrangler d1 execute finovai-db --file=./worker/schema.sql",
+    "db:migrate:local": "wrangler d1 execute finovai-db --file=./worker/schema.sql --local",
+    "dev:full": "bun run build && bun run worker:dev"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260109.0",
+    "@types/bun": "latest",
+    "@types/react": "^19.2.8",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.58.0"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@vitejs/plugin-react": "^5.1.2",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "tailwindcss": "^4.1.18",
+    "vite": "^7.3.1"
+  }
+}
