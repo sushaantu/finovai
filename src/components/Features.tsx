@@ -7,7 +7,7 @@ export default function Features() {
         </svg>
       ),
       title: "Índice de Orden Financiero",
-      description: "Tu score de 0-100 que mide qué tan ordenadas están tus finanzas.",
+      description: "Tu score de 0-100 que mide qué tan ordenadas están tus finanzas. Trackea tu progreso mes a mes.",
     },
     {
       icon: (
@@ -16,16 +16,7 @@ export default function Features() {
         </svg>
       ),
       title: "Pregúntale a FinovAI",
-      description: "Tu asesor financiero 24/7 con respuestas personalizadas.",
-    },
-    {
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-        </svg>
-      ),
-      title: "Conexión bancaria",
-      description: "Conecta tus cuentas de forma segura y automática.",
+      description: "Tu asesor financiero 24/7. Pregunta lo que sea sobre tus finanzas y recibe respuestas personalizadas.",
     },
     {
       icon: (
@@ -34,7 +25,7 @@ export default function Features() {
         </svg>
       ),
       title: "Plan personalizado",
-      description: "Tu plan basado en tu situación real, no templates genéricos.",
+      description: "No templates genéricos. Tu plan basado en tu situación real, tus metas y tu tolerancia al riesgo.",
     },
     {
       icon: (
@@ -43,7 +34,7 @@ export default function Features() {
         </svg>
       ),
       title: "Alertas inteligentes",
-      description: "Te avisamos cuando algo no cuadra o hay oportunidades.",
+      description: "Te avisamos cuando algo no cuadra: gastos inusuales, oportunidades de ahorro, fechas importantes.",
     },
     {
       icon: (
@@ -52,23 +43,34 @@ export default function Features() {
         </svg>
       ),
       title: "Tracking de metas",
-      description: "Visualiza tu progreso hacia tus objetivos financieros.",
+      description: "Visualiza tu progreso hacia tus objetivos financieros. Celebra cada milestone alcanzado.",
+    },
+    {
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+        </svg>
+      ),
+      title: "Contenido educativo",
+      description: "Aprende sobre finanzas personales con guías prácticas y lecciones diseñadas para ti.",
     },
   ]
 
   return (
-    <section id="caracteristicas" className="py-24 px-6 bg-stone-900">
-      <div className="max-w-5xl mx-auto">
+    <section id="caracteristicas" className="py-24 px-6 bg-neutral-900">
+      <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="text-center mb-16">
-          <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-sm text-amber-400 mb-4">
+          <span className="inline-flex items-center px-3 py-1 rounded-full bg-neutral-800/60 border border-neutral-700/50 text-xs uppercase tracking-wider text-neutral-400 mb-4">
             Características
           </span>
-          <h2 className="font-display text-3xl md:text-4xl lg:text-5xl text-stone-100">
+          <h2 className="font-display text-3xl md:text-4xl lg:text-5xl text-neutral-100">
             Todo lo que necesitas
+            <br />
+            <span className="text-emerald-400 font-serif italic">en un solo lugar</span>
           </h2>
-          <p className="text-lg text-stone-400 mt-4 max-w-xl mx-auto">
-            Herramientas diseñadas para darte claridad y control.
+          <p className="text-lg text-neutral-400 mt-4 max-w-xl mx-auto">
+            Herramientas diseñadas para darte claridad, control y confianza sobre tu dinero.
           </p>
         </div>
 
@@ -77,15 +79,15 @@ export default function Features() {
           {features.map((feature, index) => (
             <div
               key={index}
-              className="p-6 rounded-2xl bg-stone-800/30 border border-stone-800"
+              className="p-6 rounded-2xl bg-neutral-800/30 border border-neutral-800 hover:border-neutral-700 transition-colors"
             >
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-neutral-800 flex items-center justify-center text-neutral-400 mb-4">
                 {feature.icon}
               </div>
-              <h3 className="font-medium text-stone-100 mb-2">
+              <h3 className="font-medium text-neutral-100 mb-2">
                 {feature.title}
               </h3>
-              <p className="text-sm text-stone-400">
+              <p className="text-sm text-neutral-400">
                 {feature.description}
               </p>
             </div>

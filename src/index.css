@@ -1,41 +1,40 @@
 @import "tailwindcss";
 
-/* FinovAI Design System - Origin-inspired Dark Premium */
+/* FinovAI Design System - Clean Dark with Emerald Accent */
 @theme {
-  /* Backgrounds - Warm stone */
-  --color-bg: #0c0a09;
-  --color-bg-secondary: #1c1917;
-  --color-bg-tertiary: #292524;
-  --color-surface: #292524;
-  --color-surface-light: #44403c;
+  /* Backgrounds - Neutral dark */
+  --color-bg: #0a0a0a;
+  --color-bg-secondary: #141414;
+  --color-bg-tertiary: #1f1f1f;
+  --color-surface: #1a1a1a;
+  --color-surface-light: #2a2a2a;
 
-  /* Text - Warm whites */
-  --color-text: #fafaf9;
-  --color-text-secondary: #e7e5e4;
-  --color-text-muted: #a8a29e;
-  --color-text-dim: #78716c;
+  /* Text - Pure whites */
+  --color-text: #ffffff;
+  --color-text-secondary: #e5e5e5;
+  --color-text-muted: #a3a3a3;
+  --color-text-dim: #737373;
 
-  /* Accent - Warm amber */
-  --color-accent: #fbbf24;
-  --color-accent-bright: #fcd34d;
+  /* Accent - Fresh emerald */
+  --color-accent: #34d399;
+  --color-accent-bright: #6ee7b7;
 
-  /* Secondary - Emerald for positive/growth */
+  /* Secondary colors */
   --color-positive: #34d399;
   --color-positive-dim: rgba(52, 211, 153, 0.2);
 
-  /* Stage colors - Warm progression */
-  --color-warning: #fbbf24;
+  /* Stage colors */
   --color-stage-0: #fbbf24;
-  --color-stage-1: #f59e0b;
+  --color-stage-1: #a78bfa;
   --color-stage-2: #34d399;
 
   /* Borders */
-  --color-border: rgba(168, 162, 158, 0.2);
-  --color-border-light: rgba(168, 162, 158, 0.1);
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-border-light: rgba(255, 255, 255, 0.05);
 }
 
 /* Import fonts */
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@300;400;500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&display=swap');
 
 /* Base styles */
 html {
@@ -51,17 +50,17 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Typography - Sans-serif display */
+/* Typography - Clean sans-serif display */
 .font-display {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   font-weight: 700;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
 }
 
 /* Elegant serif for accent text */
 .font-serif {
-  font-family: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
-  font-weight: 500;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 400;
 }
 
 .font-mono {
