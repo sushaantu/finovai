@@ -31,7 +31,7 @@ FinovAI is a Spanish-language financial coaching platform built as a full-stack 
 | **Cloudflare Workers** | Serverless compute (edge) |
 | **Cloudflare D1** | SQLite database (edge) |
 | **Cloudflare Workers AI** | LLM inference |
-| **Twilio WhatsApp API** | OTP delivery |
+| **Kapso WhatsApp API** | OTP delivery (2,000 free/month) |
 
 **AI Model:**
 - `@cf/meta/llama-3.1-8b-instruct` (Meta Llama 3.1 8B)
@@ -232,7 +232,8 @@ Vite proxy forwards `/api/*` requests to the worker.
 - Cloudflare Workers: 100k requests/day free
 - Cloudflare D1: 5M rows read/day, 100k writes/day free
 - Workers AI: 10k neurons/day free
+- Kapso WhatsApp: 2,000 messages/month free
 
-**Paid Services:**
-- Twilio WhatsApp: ~$0.05 per OTP message
+**Paid Services (when scaling):**
+- Kapso Pro: $25/month for 100k messages
 - Custom domain: ~$10/year

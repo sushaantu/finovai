@@ -23,5 +23,13 @@ binding = "AI"
 [vars]
 ENVIRONMENT = "production"
 
+# Kapso WhatsApp API (secrets - set via `wrangler secret put`)
+# Run these commands to configure:
+#   wrangler secret put KAPSO_API_KEY
+#   wrangler secret put KAPSO_PHONE_NUMBER_ID
+#
+# Get these values from: https://kapso.ai/dashboard
+# Free tier: 2,000 messages/month
+
 # Custom domain - configured via Cloudflare dashboard
 # To set up: Go to Workers & Pages > finovai > Settings > Domains & Routes > Add custom domain
