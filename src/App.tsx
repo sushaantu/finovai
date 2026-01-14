@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AuthProvider } from './hooks/useAuth'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
 import Journey from './components/Journey'
@@ -7,7 +8,7 @@ import FinancialIndex from './components/FinancialIndex'
 import FAQ from './components/FAQ'
 import CTA from './components/CTA'
 import Footer from './components/Footer'
-import ChatBot from './components/ChatBot'
+import { ChatSidebar } from './components/chat'
 
 function App() {
   const [isChatOpen, setIsChatOpen] = useState(false)
@@ -16,6 +17,7 @@ function App() {
   const closeChat = () => setIsChatOpen(false)
 
   return (
+    <AuthProvider>
     <div className="min-h-screen bg-[--color-bg]">
       {/* Navigation */}
       <Navbar onChatOpen={openChat} />
@@ -41,9 +43,10 @@ function App() {
       {/* Footer */}
       <Footer />
 
-      {/* Chat modal */}
-      <ChatBot isOpen={isChatOpen} onClose={closeChat} />
+      {/* Chat sidebar */}
+      <ChatSidebar isOpen={isChatOpen} onClose={closeChat} />
     </div>
+    </AuthProvider>
   )
 }
 
