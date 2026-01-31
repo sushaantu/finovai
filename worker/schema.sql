@@ -66,12 +66,16 @@ CREATE TABLE IF NOT EXISTS conversations (
   owner_id INTEGER,
   couple_id INTEGER,
   title TEXT,
+  metadata TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT,
   last_message_at TEXT,
   FOREIGN KEY (owner_id) REFERENCES users(id),
   FOREIGN KEY (couple_id) REFERENCES couples(id)
 );
+
+-- Migration: Add metadata column to conversations if it doesn't exist
+-- ALTER TABLE conversations ADD COLUMN metadata TEXT;
 
 -- Conversation participants: access control
 CREATE TABLE IF NOT EXISTS conversation_participants (
