@@ -40,7 +40,7 @@ const INITIAL_AI_MESSAGE = `¡Hola! Soy el asistente de FinovAI.
 
 Estoy aquí para ayudarte a entender tu situación financiera actual y ver cómo podemos ayudarte a ordenar tu casa financiera.
 
-¿Te gustaría conocer tu **Índice Financiero**? Es un diagnóstico rápido de 5 preguntas.`
+¿Te gustaría conocer tu Índice Financiero? Es un diagnóstico rápido de 5 preguntas.`
 
 const INITIAL_BUTTONS: ButtonOption[] = [
   { label: '✨ Sí, vamos', value: 'start_quiz', variant: 'primary' },

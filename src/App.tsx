@@ -4,7 +4,6 @@ import Navbar from './components/Navbar'
 import Hero from './components/Hero'
 import Journey from './components/Journey'
 import Features from './components/Features'
-import FinancialIndex from './components/FinancialIndex'
 import FAQ from './components/FAQ'
 import CTA from './components/CTA'
 import Footer from './components/Footer'
@@ -30,9 +29,6 @@ function App() {
 
       {/* Features grid */}
       <Features />
-
-      {/* Financial Index Quiz */}
-      <FinancialIndex />
 
       {/* FAQ */}
       <FAQ />

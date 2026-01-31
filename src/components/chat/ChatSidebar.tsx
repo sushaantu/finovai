@@ -28,16 +28,103 @@ interface Conversation {
 
 const INITIAL_MESSAGE: Message = {
   role: 'assistant',
-  content: `¡Hola! Soy el asistente de FinovAI 👋
+  content: `¡Hola! Soy el asistente de FinovAI.
 
 Estoy aquí para ayudarte a entender tu situación financiera actual y ver cómo podemos ayudarte a ordenar tu casa financiera.
 
-Para empezar, cuéntame: **¿Cómo describirías tu relación actual con el dinero?**
+¿Te gustaría conocer tu Índice Financiero? Es un diagnóstico rápido de 5 preguntas.`,
+}
 
-Por ejemplo:
-• ¿Tienes control de lo que entra y sale cada mes?
-• ¿Logras ahorrar algo consistentemente?
-• ¿O sientes que el dinero "se va" sin saber bien a dónde?`,
+interface QuizButtonOption {
+  label: string
+  value: string
+  variant: 'primary' | 'secondary'
+}
+
+const INITIAL_QUIZ_BUTTONS: QuizButtonOption[] = [
+  { label: '✨ Sí, vamos', value: 'start_quiz', variant: 'primary' },
+  { label: 'Tal vez después', value: 'skip_quiz', variant: 'secondary' },
+]
+
+interface QuizQuestion {
+  id: string
+  text: string
+  options: { value: number; label: string }[]
+}
+
+const QUIZ_QUESTIONS: QuizQuestion[] = [
+  {
+    id: 'income_tracking',
+    text: '¿Sabes exactamente cuánto dinero entra cada mes?',
+    options: [
+      { value: 3, label: 'Sí, al centavo' },
+      { value: 2, label: 'Más o menos' },
+      { value: 1, label: 'No realmente' },
+      { value: 0, label: 'No tengo idea' },
+    ],
+  },
+  {
+    id: 'expense_tracking',
+    text: '¿Sabes en qué se va tu dinero cada mes?',
+    options: [
+      { value: 3, label: 'Sí, tengo todo categorizado' },
+      { value: 2, label: 'Tengo una idea general' },
+      { value: 1, label: 'Solo las cosas grandes' },
+      { value: 0, label: 'El dinero desaparece' },
+    ],
+  },
+  {
+    id: 'savings',
+    text: '¿Logras ahorrar algo cada mes?',
+    options: [
+      { value: 3, label: 'Sí, automáticamente' },
+      { value: 2, label: 'A veces, cuando puedo' },
+      { value: 1, label: 'Rara vez' },
+      { value: 0, label: 'No me queda nada' },
+    ],
+  },
+  {
+    id: 'emergency_fund',
+    text: '¿Tienes un fondo de emergencia?',
+    options: [
+      { value: 3, label: 'Sí, más de 3 meses de gastos' },
+      { value: 2, label: 'Algo, pero no suficiente' },
+      { value: 1, label: 'Muy poco' },
+      { value: 0, label: 'No tengo nada guardado' },
+    ],
+  },
+  {
+    id: 'debt',
+    text: '¿Cómo está tu situación de deudas?',
+    options: [
+      { value: 3, label: 'No tengo deudas / solo hipoteca' },
+      { value: 2, label: 'Deudas controladas, pago a tiempo' },
+      { value: 1, label: 'Tengo deudas que me cuestan' },
+      { value: 0, label: 'Las deudas me abruman' },
+    ],
+  },
+]
+
+function getScoreResult(score: number): { stage: string; message: string; color: string } {
+  if (score >= 70) {
+    return {
+      stage: 'Etapa 2',
+      message: 'Estás listo para invertir con sistema. Tu base financiera es sólida.',
+      color: 'emerald',
+    }
+  }
+  if (score >= 40) {
+    return {
+      stage: 'Etapa 1',
+      message: 'Tienes base, pero necesitas crear más margen antes de invertir.',
+      color: 'amber',
+    }
+  }
+  return {
+    stage: 'Etapa 0',
+    message: 'Empecemos ordenando tu casa financiera. Es el primer paso hacia la libertad.',
+    color: 'violet',
+  }
 }
 
 // Number of user messages before offering the report
@@ -53,6 +140,12 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
   const [guestInput, setGuestInput] = useState('')
   const [isGuestLoading, setIsGuestLoading] = useState(false)
   const [hasOfferedReport, setHasOfferedReport] = useState(false)
+  const [activeButtons, setActiveButtons] = useState<QuizButtonOption[] | null>(INITIAL_QUIZ_BUTTONS)
+  const [quizState, setQuizState] = useState<{
+    active: boolean
+    currentQuestion: number
+    answers: Record<string, number>
+  }>({ active: false, currentQuestion: 0, answers: {} })
 
   // Authenticated state
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -191,9 +284,121 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
     }
   }
 
+  const handleQuizButtonClick = (button: QuizButtonOption) => {
+    setActiveButtons(null)
+
+    if (button.value === 'start_quiz') {
+      // Start the quiz
+      setQuizState({ active: true, currentQuestion: 0, answers: {} })
+      setGuestMessages((prev) => [
+        ...prev,
+        { role: 'user', content: button.label },
+      ])
+
+      const firstQuestion = QUIZ_QUESTIONS[0]
+      setGuestMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: `¡Perfecto! Empecemos con tu diagnóstico financiero.\n\nPregunta 1 de ${QUIZ_QUESTIONS.length}:\n${firstQuestion.text}`,
+        },
+      ])
+      setActiveButtons(
+        firstQuestion.options.map((opt, idx) => ({
+          label: opt.label,
+          value: `quiz_${firstQuestion.id}_${opt.value}`,
+          variant: idx === 0 ? 'primary' : 'secondary' as 'primary' | 'secondary',
+        }))
+      )
+    } else if (button.value === 'skip_quiz') {
+      setGuestMessages((prev) => [
+        ...prev,
+        { role: 'user', content: button.label },
+        {
+          role: 'assistant',
+          content: '¡Sin problema! Cuando quieras conocer tu índice financiero, solo dímelo.\n\n¿En qué puedo ayudarte hoy?',
+        },
+      ])
+    } else if (button.value.startsWith('quiz_')) {
+      // Handle quiz answer
+      const parts = button.value.replace('quiz_', '').split('_')
+      const answerValue = parseInt(parts[parts.length - 1])
+      const questionId = parts.slice(0, -1).join('_')
+
+      const newAnswers = { ...quizState.answers, [questionId]: answerValue }
+      const nextQuestionIndex = quizState.currentQuestion + 1
+
+      setGuestMessages((prev) => [
+        ...prev,
+        { role: 'user', content: button.label },
+      ])
+
+      if (nextQuestionIndex < QUIZ_QUESTIONS.length) {
+        // Next question
+        const nextQuestion = QUIZ_QUESTIONS[nextQuestionIndex]
+        setQuizState({
+          active: true,
+          currentQuestion: nextQuestionIndex,
+          answers: newAnswers,
+        })
+        setGuestMessages((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: `Pregunta ${nextQuestionIndex + 1} de ${QUIZ_QUESTIONS.length}:\n${nextQuestion.text}`,
+          },
+        ])
+        setActiveButtons(
+          nextQuestion.options.map((opt, idx) => ({
+            label: opt.label,
+            value: `quiz_${nextQuestion.id}_${opt.value}`,
+            variant: idx === 0 ? 'primary' : 'secondary' as 'primary' | 'secondary',
+          }))
+        )
+      } else {
+        // Quiz complete - calculate score
+        const total = Object.values(newAnswers).reduce((sum, val) => sum + val, 0)
+        const maxPossible = QUIZ_QUESTIONS.length * 3
+        const score = Math.round((total / maxPossible) * 100)
+        const { stage, message, color } = getScoreResult(score)
+
+        setQuizState({ active: false, currentQuestion: 0, answers: {} })
+
+        const colorEmoji = color === 'emerald' ? '🟢' : color === 'amber' ? '🟡' : '🟣'
+
+        setGuestMessages((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: `${colorEmoji} Tu Índice Financiero: ${score}/100\n\n${stage}\n${message}\n\n¿Qué te gustaría hacer ahora?`,
+          },
+        ])
+        setActiveButtons([
+          { label: '📋 Ver mi plan personalizado', value: 'view_plan', variant: 'primary' },
+          { label: '💬 Hablar con un asesor', value: 'talk_advisor', variant: 'secondary' },
+          { label: '🔄 Volver a hacer el test', value: 'start_quiz', variant: 'secondary' },
+        ])
+      }
+    } else if (button.value === 'view_plan' || button.value === 'talk_advisor') {
+      setGuestMessages((prev) => [
+        ...prev,
+        { role: 'user', content: button.label },
+      ])
+      setActiveButtons(null)
+      setPendingReportRequest(true)
+      setShowAuth(true)
+    }
+  }
+
   const handleGuestSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!guestInput.trim() || isGuestLoading) return
+
+    // If quiz is active, ignore free text
+    if (quizState.active) {
+      setGuestInput('')
+      return
+    }
 
     const userMessage: Message = { role: 'user', content: guestInput.trim() }
     setGuestMessages((prev) => [...prev, userMessage])
@@ -220,7 +425,7 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
       // After enough messages, offer the report (only once)
       if (userMessageCount >= MESSAGES_BEFORE_REPORT_OFFER && !hasOfferedReport) {
         setHasOfferedReport(true)
-        aiMessage += `\n\n---\n\n📊 **¿Te gustaría recibir un diagnóstico personalizado?**\n\nBasado en lo que me has contado, puedo prepararte un mini-reporte con:\n• Tu etapa financiera actual\n• 3 acciones prioritarias para tu caso\n• Recursos específicos para empezar\n\nSolo necesito tu WhatsApp para enviártelo.`
+        aiMessage += `\n\n---\n\n📊 ¿Te gustaría recibir un diagnóstico personalizado?\n\nBasado en lo que me has contado, puedo prepararte un mini-reporte con:\n• Tu etapa financiera actual\n• 3 acciones prioritarias para tu caso\n• Recursos específicos para empezar\n\nSolo necesito tu WhatsApp para enviártelo.`
       }
 
       setGuestMessages((prev) => [...prev, { role: 'assistant', content: aiMessage }])
@@ -347,6 +552,29 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                         </motion.div>
                       ))}
 
+                      {/* Quiz buttons */}
+                      {activeButtons && activeButtons.length > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="flex flex-wrap gap-2 py-2"
+                        >
+                          {activeButtons.map((button, index) => (
+                            <button
+                              key={index}
+                              onClick={() => handleQuizButtonClick(button)}
+                              className={`rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
+                                button.variant === 'primary'
+                                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30'
+                                  : 'bg-white/5 text-zinc-300 hover:bg-white/10'
+                              }`}
+                            >
+                              {button.label}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+
                       {/* Typing indicator */}
                       {isGuestLoading && (
                         <motion.div
@@ -393,9 +621,9 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                         type="text"
                         value={guestInput}
                         onChange={(e) => setGuestInput(e.target.value)}
-                        placeholder="Escribe tu mensaje..."
+                        placeholder={activeButtons ? 'Selecciona una opción arriba...' : 'Escribe tu mensaje...'}
                         className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-zinc-500 outline-none transition-all focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20"
-                        disabled={isGuestLoading}
+                        disabled={isGuestLoading || !!activeButtons}
                       />
                       <button
                         type="submit"
@@ -425,6 +653,8 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                       onClick={() => {
                         setGuestMessages([INITIAL_MESSAGE])
                         setHasOfferedReport(false)
+                        setActiveButtons(INITIAL_QUIZ_BUTTONS)
+                        setQuizState({ active: false, currentQuestion: 0, answers: {} })
                         setView('chat')
                       }}
                       className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-500/10 py-3 text-sm font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20"

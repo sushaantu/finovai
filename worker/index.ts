@@ -746,7 +746,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
           )
             .bind(
               conversationId,
-              `¡Perfecto! Empecemos con tu diagnóstico financiero.\n\n**Pregunta 1 de ${QUIZ_QUESTIONS.length}:**\n${firstQuestion.text}`,
+              `¡Perfecto! Empecemos con tu diagnóstico financiero.\n\nPregunta 1 de ${QUIZ_QUESTIONS.length}:\n${firstQuestion.text}`,
               JSON.stringify({ buttons })
             )
             .run()
@@ -754,7 +754,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
           aiMessage = {
             id: aiMsgResult.meta.last_row_id,
             sender_type: 'ai',
-            content: `¡Perfecto! Empecemos con tu diagnóstico financiero.\n\n**Pregunta 1 de ${QUIZ_QUESTIONS.length}:**\n${firstQuestion.text}`,
+            content: `¡Perfecto! Empecemos con tu diagnóstico financiero.\n\nPregunta 1 de ${QUIZ_QUESTIONS.length}:\n${firstQuestion.text}`,
             message_type: 'buttons',
             metadata: JSON.stringify({ buttons }),
             created_at: new Date().toISOString(),
@@ -806,7 +806,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
               )
                 .bind(
                   conversationId,
-                  `**Pregunta ${quizState.currentQuestion + 1} de ${QUIZ_QUESTIONS.length}:**\n${nextQuestion.text}`,
+                  `Pregunta ${quizState.currentQuestion + 1} de ${QUIZ_QUESTIONS.length}:\n${nextQuestion.text}`,
                   JSON.stringify({ buttons })
                 )
                 .run()
@@ -814,7 +814,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
               aiMessage = {
                 id: aiMsgResult.meta.last_row_id,
                 sender_type: 'ai',
-                content: `**Pregunta ${quizState.currentQuestion + 1} de ${QUIZ_QUESTIONS.length}:**\n${nextQuestion.text}`,
+                content: `Pregunta ${quizState.currentQuestion + 1} de ${QUIZ_QUESTIONS.length}:\n${nextQuestion.text}`,
                 message_type: 'buttons',
                 metadata: JSON.stringify({ buttons }),
                 created_at: new Date().toISOString(),
