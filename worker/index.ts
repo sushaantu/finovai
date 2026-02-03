@@ -44,19 +44,31 @@ function generateSessionToken(): string {
 }
 
 function normalizePhone(phone: string): string {
-  // Remove all non-digit characters except +
+  // Keep digits and normalize to a single leading '+'
   let normalized = phone.replace(/[^\d+]/g, '')
-  // Ensure it starts with +
-  if (!normalized.startsWith('+')) {
-    normalized = '+' + normalized
-  }
-  return normalized
+  normalized = normalized.replace(/\+/g, '')
+  return '+' + normalized
+}
+
+function isValidPhoneE164(phone: string): boolean {
+  // E.164 max is 15 digits; practical minimum for real numbers ~10 digits
+  const digits = phone.replace(/\D/g, '')
+  return digits.length >= 10 && digits.length <= 15
 }
 
 async function sendWhatsAppOTP(env: Env, phone: string, code: string): Promise<boolean> {
-  if (!env.KAPSO_API_KEY || !env.KAPSO_PHONE_NUMBER_ID) {
-    console.log('Kapso not configured, OTP code:', code)
-    return true // Dev mode: pretend it sent
+  const kapsoConfigured = Boolean(env.KAPSO_API_KEY && env.KAPSO_PHONE_NUMBER_ID)
+
+  // In production, never "pretend" OTP was sent.
+  if (!kapsoConfigured) {
+    if (env.ENVIRONMENT === 'production') {
+      console.error('Kapso not configured in production')
+      return false
+    }
+
+    // Dev/staging: log the OTP so local testing is possible without WhatsApp.
+    console.log('Kapso not configured (dev), OTP code:', code)
+    return true
   }
 
   // Remove + prefix for WhatsApp API (expects just digits)
@@ -234,7 +246,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       const body = (await request.json()) as { phone: string }
       const phone = normalizePhone(body.phone)
 
-      if (!phone || phone.length < 10) {
+      if (!phone || !isValidPhoneE164(phone)) {
         return error('Numero de telefono invalido')
       }
 
@@ -252,13 +264,14 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
 
       // Generate and store OTP
       const otpCode = generateOTP()
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString() // 5 minutes
 
+      // IMPORTANT: store timestamps using SQLite/D1 datetime() so comparisons like
+      // `expires_at > datetime('now')` work reliably.
       await env.DB.prepare(
         `INSERT INTO otp_verifications (phone, otp_code, purpose, expires_at, created_at)
-         VALUES (?, ?, 'login', ?, datetime('now'))`
+         VALUES (?, ?, 'login', datetime('now', '+5 minutes'), datetime('now'))`
       )
-        .bind(phone, otpCode, expiresAt)
+        .bind(phone, otpCode)
         .run()
 
       // Send via WhatsApp
@@ -276,8 +289,12 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       const phone = normalizePhone(body.phone)
       const code = body.code?.trim()
 
-      if (!phone || !code) {
+      if (!phone || !isValidPhoneE164(phone) || !code) {
         return error('Telefono y codigo son requeridos')
+      }
+
+      if (!/^[0-9]{6}$/.test(code)) {
+        return error('Codigo invalido', 400)
       }
 
       // Find valid OTP
@@ -335,13 +352,12 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
 
       // Create session
       const sessionToken = generateSessionToken()
-      const sessionExpires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days
 
       await env.DB.prepare(
         `INSERT INTO sessions (user_id, token, expires_at, created_at, last_used_at)
-         VALUES (?, ?, ?, datetime('now'), datetime('now'))`
+         VALUES (?, ?, datetime('now', '+30 days'), datetime('now'), datetime('now'))`
       )
-        .bind(user!.id, sessionToken, sessionExpires)
+        .bind(user!.id, sessionToken)
         .run()
 
       return json({
