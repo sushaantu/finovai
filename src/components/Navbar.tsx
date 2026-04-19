@@ -49,13 +49,16 @@ export default function Navbar({ onChatOpen }: NavbarProps) {
 
         {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-8">
-          <a href="#como-funciona" className="text-sm text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 focus-visible:outline-none focus-visible:underline">
+          <a href="/#como-funciona" className="text-sm text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 focus-visible:outline-none focus-visible:underline">
             Cómo funciona
           </a>
-          <a href="#caracteristicas" className="text-sm text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 focus-visible:outline-none focus-visible:underline">
+          <a href="/#herramientas" className="text-sm text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 focus-visible:outline-none focus-visible:underline">
+            Herramientas
+          </a>
+          <a href="/#caracteristicas" className="text-sm text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 focus-visible:outline-none focus-visible:underline">
             Características
           </a>
-          <a href="#faq" className="text-sm text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 focus-visible:outline-none focus-visible:underline">
+          <a href="/#faq" className="text-sm text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 focus-visible:outline-none focus-visible:underline">
             FAQ
           </a>
         </div>
@@ -142,13 +145,16 @@ export default function Navbar({ onChatOpen }: NavbarProps) {
       {/* Mobile menu */}
       {isMenuOpen && (
         <div className="md:hidden max-w-7xl mx-auto mt-2 px-6 py-5 space-y-4 bg-white/[0.08] backdrop-blur-2xl rounded-2xl border border-white/[0.15] shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]">
-          <a href="#como-funciona" className="block text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 py-2">
+          <a href="/#como-funciona" className="block text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 py-2">
             Cómo funciona
           </a>
-          <a href="#caracteristicas" className="block text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 py-2">
+          <a href="/#herramientas" className="block text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 py-2">
+            Herramientas
+          </a>
+          <a href="/#caracteristicas" className="block text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 py-2">
             Características
           </a>
-          <a href="#faq" className="block text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 py-2">
+          <a href="/#faq" className="block text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300 py-2">
             FAQ
           </a>
           {isAuthenticated ? (

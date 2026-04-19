@@ -1,7 +1,6 @@
 interface Env {
   DB: D1Database
   AI: Ai
-  ASSETS: Fetcher
   ENVIRONMENT: string
   KAPSO_API_KEY?: string
   KAPSO_PHONE_NUMBER_ID?: string
@@ -150,18 +149,19 @@ function normalizePhone(phone: string): string {
   return normalized
 }
 
-async function sendWhatsAppOTP(env: Env, phone: string, code: string): Promise<boolean> {
+async function sendWhatsAppOTP(env: Env, phone: string, code: string): Promise<{ success: boolean; error?: string }> {
   if (!env.KAPSO_API_KEY || !env.KAPSO_PHONE_NUMBER_ID) {
     console.log('Kapso not configured, OTP code:', code)
-    return true
+    return { success: true }
   }
 
   const whatsappNumber = phone.startsWith('+') ? phone.slice(1) : phone
 
   try {
-    const response = await fetch(
-      `https://api.kapso.ai/meta/whatsapp/v24.0/${env.KAPSO_PHONE_NUMBER_ID}/messages`,
-      {
+    const apiUrl = `https://api.kapso.ai/meta/whatsapp/v24.0/${env.KAPSO_PHONE_NUMBER_ID}/messages`
+    console.log('Kapso request:', apiUrl, 'to:', whatsappNumber)
+
+    const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'X-API-Key': env.KAPSO_API_KEY,
@@ -169,25 +169,42 @@ async function sendWhatsAppOTP(env: Env, phone: string, code: string): Promise<b
         },
         body: JSON.stringify({
           messaging_product: 'whatsapp',
-          recipient_type: 'individual',
           to: whatsappNumber,
-          type: 'text',
-          text: {
-            body: `Tu código de verificación de FinovAI es: ${code}\n\nVálido por 5 minutos.`,
+          type: 'template',
+          template: {
+            name: 'finovai_otp',
+            language: { code: 'es_MX' },
+            components: [
+              {
+                type: 'body',
+                parameters: [
+                  { type: 'text', text: code },
+                ],
+              },
+              {
+                type: 'button',
+                sub_type: 'url',
+                index: '0',
+                parameters: [
+                  { type: 'text', text: code },
+                ],
+              },
+            ],
           },
         }),
       }
     )
 
     if (!response.ok) {
-      console.error('Kapso API error:', await response.text())
-      return false
+      const errorText = await response.text()
+      console.error('Kapso API error:', response.status, errorText)
+      return { success: false, error: `Kapso ${response.status}: ${errorText}` }
     }
 
-    return true
+    return { success: true }
   } catch (error) {
     console.error('Failed to send WhatsApp OTP:', error)
-    return false
+    return { success: false, error: String(error) }
   }
 }
 
@@ -341,7 +358,7 @@ export default {
       return handleAPI(request, env, url)
     }
 
-    return env.ASSETS.fetch(request)
+    return new Response('Not Found', { status: 404 })
   },
 }
 
@@ -394,9 +411,10 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         .bind(phone, otpCode, expiresAt)
         .run()
 
-      const sent = await sendWhatsAppOTP(env, phone, otpCode)
-      if (!sent) {
-        return error('Error enviando codigo. Intenta de nuevo.', 500)
+      const result = await sendWhatsAppOTP(env, phone, otpCode)
+      if (!result.success) {
+        console.error('OTP send failed:', result.error)
+        return error(`Error enviando codigo: ${result.error}`, 500)
       }
 
       return json({ success: true, expiresIn: 300 })

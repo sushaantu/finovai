@@ -136,7 +136,7 @@ export default function AuthFlow({ isOpen, onClose, onSuccess }: AuthFlowProps) 
             transition={{ type: 'spring', duration: 0.5 }}
             className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 px-4"
           >
-            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-zinc-900 p-6 shadow-2xl">
+            <div className="relative rounded-3xl border border-white/10 bg-zinc-900 p-6 shadow-2xl">
               {/* Decorative gradient */}
               <div className="pointer-events-none absolute -top-24 left-1/2 size-48 -translate-x-1/2 rounded-full bg-emerald-500/20 blur-3xl" />
 

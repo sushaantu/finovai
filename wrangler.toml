@@ -8,6 +8,8 @@ account_id = "711cb78717605db93e601e6a06e7eeec"
 # Static assets configuration
 [assets]
 directory = "./dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
 
 # D1 Database binding
 [[d1_databases]]

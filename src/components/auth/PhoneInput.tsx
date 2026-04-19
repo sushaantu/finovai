@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion } from 'motion/react'
-import { Phone, ChevronDown, Loader2 } from 'lucide-react'
+import { Phone, Loader2 } from 'lucide-react'
 
 interface PhoneInputProps {
   onSubmit: (phone: string) => Promise<void>
@@ -8,40 +8,17 @@ interface PhoneInputProps {
   error?: string | null
 }
 
-const countryCodes = [
-  { code: '+52', country: 'MX', flag: '🇲🇽' },
-  { code: '+1', country: 'US', flag: '🇺🇸' },
-  { code: '+34', country: 'ES', flag: '🇪🇸' },
-  { code: '+57', country: 'CO', flag: '🇨🇴' },
-  { code: '+54', country: 'AR', flag: '🇦🇷' },
-  { code: '+56', country: 'CL', flag: '🇨🇱' },
-  { code: '+51', country: 'PE', flag: '🇵🇪' },
-]
-
 export default function PhoneInput({ onSubmit, isLoading, error }: PhoneInputProps) {
-  const [selectedCountry, setSelectedCountry] = useState(countryCodes[0])
   const [phoneNumber, setPhoneNumber] = useState('')
-  const [showDropdown, setShowDropdown] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setShowDropdown(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const fullPhone = `${selectedCountry.code}${phoneNumber.replace(/\D/g, '')}`
+    const fullPhone = `+52${phoneNumber.replace(/\D/g, '')}`
     await onSubmit(fullPhone)
   }
 
@@ -78,45 +55,11 @@ export default function PhoneInput({ onSubmit, isLoading, error }: PhoneInputPro
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="flex gap-2">
-          {/* Country code selector */}
-          <div className="relative" ref={dropdownRef}>
-            <button
-              type="button"
-              onClick={() => setShowDropdown(!showDropdown)}
-              className="flex h-12 items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-3 text-white transition-colors hover:border-white/20 hover:bg-white/10"
-            >
-              <span className="text-lg">{selectedCountry.flag}</span>
-              <span className="text-sm text-zinc-300">{selectedCountry.code}</span>
-              <ChevronDown className="size-4 text-zinc-500" />
-            </button>
-
-            {showDropdown && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="absolute left-0 top-full z-50 mt-2 w-40 overflow-hidden rounded-xl border border-white/10 bg-zinc-900 shadow-xl"
-              >
-                {countryCodes.map((country) => (
-                  <button
-                    key={country.code}
-                    type="button"
-                    onClick={() => {
-                      setSelectedCountry(country)
-                      setShowDropdown(false)
-                    }}
-                    className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/5 ${
-                      selectedCountry.code === country.code ? 'bg-emerald-500/10' : ''
-                    }`}
-                  >
-                    <span className="text-lg">{country.flag}</span>
-                    <span className="text-sm text-zinc-300">{country.code}</span>
-                  </button>
-                ))}
-              </motion.div>
-            )}
+          <div className="flex h-12 items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-3">
+            <span className="text-lg">🇲🇽</span>
+            <span className="text-sm text-zinc-300">+52</span>
           </div>
 
-          {/* Phone input */}
           <input
             ref={inputRef}
             type="tel"

@@ -354,6 +354,41 @@ body {
   animation: shimmer 3s linear infinite;
 }
 
+.tool-slider {
+  width: 100%;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+  cursor: pointer;
+}
+
+.tool-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--color-accent-bright);
+  border: 3px solid var(--color-bg-secondary);
+  box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.12);
+}
+
+.tool-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--color-accent-bright);
+  border: 3px solid var(--color-bg-secondary);
+  box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.12);
+}
+
+.tool-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* === CUSTOM SCROLLBAR === */
 ::-webkit-scrollbar {
   width: 8px;

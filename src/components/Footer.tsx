@@ -21,17 +21,22 @@ export default function Footer() {
             <h4 className="text-[11px] uppercase tracking-widest text-[--color-text-dim] font-semibold mb-5">Producto</h4>
             <ul className="space-y-4">
               <li>
-                <a href="#como-funciona" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
+                <a href="/#como-funciona" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
                   Cómo funciona
                 </a>
               </li>
               <li>
-                <a href="#caracteristicas" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
+                <a href="/#herramientas" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
+                  Herramientas
+                </a>
+              </li>
+              <li>
+                <a href="/#caracteristicas" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
                   Características
                 </a>
               </li>
               <li>
-                <a href="#faq" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
+                <a href="/#faq" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
                   FAQ
                 </a>
               </li>
