@@ -817,6 +817,14 @@ async function findEmailBySyncfyUserId(env: Env, syncfyUserId: string): Promise<
   return row?.email || null
 }
 
+async function findSyncfyUserByEmail(env: Env, email: string): Promise<SyncfyUserRow | null> {
+  await ensureSyncfyTables(env)
+
+  return env.DB.prepare(`SELECT * FROM syncfy_users WHERE email = ?`)
+    .bind(email)
+    .first<SyncfyUserRow>()
+}
+
 async function storeSyncfyCredential(
   env: Env,
   payload: unknown,
@@ -824,10 +832,16 @@ async function storeSyncfyCredential(
   fallbackEmail?: string | null
 ): Promise<SyncfyCredentialRow | null> {
   const credential = extractSyncfyCredentialPayload(payload)
-  if (!credential.syncfyUserId || !credential.syncfyCredentialId) return null
+  if (!credential.syncfyCredentialId) return null
 
-  const email = fallbackEmail || await findEmailBySyncfyUserId(env, credential.syncfyUserId)
+  const email = fallbackEmail || (credential.syncfyUserId ? await findEmailBySyncfyUserId(env, credential.syncfyUserId) : null)
   if (!email) return null
+
+  const syncfyUser = credential.syncfyUserId
+    ? null
+    : await findSyncfyUserByEmail(env, email)
+  const syncfyUserId = credential.syncfyUserId || syncfyUser?.syncfy_user_id
+  if (!syncfyUserId) return null
 
   const now = new Date().toISOString()
   const successfulSyncAt = isSyncfyRefreshEvent(eventType) && isSyncfySuccessfulStatus(credential.status) ? now : null
@@ -852,7 +866,7 @@ async function storeSyncfyCredential(
     .bind(
       crypto.randomUUID(),
       email,
-      credential.syncfyUserId,
+      syncfyUserId,
       credential.syncfyCredentialId,
       credential.syncfySiteId,
       credential.siteName,
@@ -3832,6 +3846,71 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         email: normalizedEmail,
         credentials: credentials.map(syncfyCredentialToApi),
       } satisfies SyncfyCredentialsResponse)
+    }
+
+    if (url.pathname === '/api/syncfy/credential' && request.method === 'POST') {
+      const body = (await request.json()) as {
+        email?: string
+        eventType?: string
+        payload?: unknown
+      }
+      const normalizedEmail = normalizeSignupEmail(body.email)
+      if (!normalizedEmail) {
+        return error('Email invalido')
+      }
+
+      await ensureSyncfyTables(env)
+
+      const eventType = body.eventType || 'widget.success'
+      const payload = body.payload ?? body
+      const credential = await storeSyncfyCredential(env, payload, eventType, normalizedEmail)
+      if (!credential) {
+        return error('Syncfy aun no regreso una credencial lista. Esperando webhook de refresh.', 422)
+      }
+
+      const transactionEndpoints = getSyncfyWebhookEndpointPaths(payload, 'transactions')
+      let importResult: SyncfyTransactionImportResult | null = null
+
+      if (transactionEndpoints.length > 0) {
+        try {
+          importResult = await importSyncfyTransactionsFromEndpoints(
+            env,
+            normalizedEmail,
+            credential.syncfy_credential_id,
+            transactionEndpoints
+          )
+        } catch (err) {
+          if (err instanceof SyncfyRequestError) {
+            await storeSyncfyError(env, {
+              email: normalizedEmail,
+              syncfyUserId: credential.syncfy_user_id,
+              syncfyCredentialId: credential.syncfy_credential_id,
+              rid: err.rid,
+              statusCode: err.status,
+              errorCode: err.code,
+              message: err.message,
+              source: 'syncfy-widget-import',
+              payload: err.responseBody,
+            })
+          } else {
+            throw err
+          }
+        }
+      }
+
+      const credentials = await loadSyncfyCredentialsForEmail(env, normalizedEmail)
+      const dashboard = importResult ? await getFinanceDashboard(env, normalizedEmail) : null
+      return json({
+        ...(dashboard || {}),
+        success: true,
+        email: normalizedEmail,
+        credential: syncfyCredentialToApi(credential),
+        credentials: credentials.map(syncfyCredentialToApi),
+        syncfy: importResult,
+        message: importResult
+          ? `${importResult.imported} movimientos sincronizados desde Syncfy.`
+          : 'Credencial Syncfy guardada. Ya puedes sincronizar transacciones.',
+      })
     }
 
     if (url.pathname === '/api/syncfy/refresh' && request.method === 'POST') {

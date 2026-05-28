@@ -42,6 +42,14 @@ interface SyncfyCredentialsResponse {
   credentials: SyncfyCredential[]
 }
 
+interface SyncfyCredentialCaptureResponse {
+  success: boolean
+  credential?: SyncfyCredential | null
+  credentials: SyncfyCredential[]
+  message?: string
+  transactions?: unknown[]
+}
+
 interface SyncfySessionResponse {
   success: boolean
   token: string | null
@@ -94,6 +102,7 @@ function getCredentialLabel(credential: SyncfyCredential) {
 export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps) {
   const widgetContainerRef = useRef<HTMLDivElement | null>(null)
   const widgetRef = useRef<SyncfyWidgetInstance | null>(null)
+  const pollTimeoutRef = useRef<number | null>(null)
   const [credentials, setCredentials] = useState<SyncfyCredential[]>([])
   const [session, setSession] = useState<SyncfySessionResponse | null>(null)
   const [widgetMode, setWidgetMode] = useState<WidgetMode>('create')
@@ -110,6 +119,82 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
       `/api/syncfy/credentials?email=${encodeURIComponent(email)}`
     )
     setCredentials(response.credentials)
+    return response.credentials
+  }
+
+  const clearCredentialPolling = () => {
+    if (pollTimeoutRef.current) {
+      window.clearTimeout(pollTimeoutRef.current)
+      pollTimeoutRef.current = null
+    }
+  }
+
+  const pollForCredential = (attemptRefresh: boolean) => {
+    clearCredentialPolling()
+    let attempts = 0
+
+    const tick = async () => {
+      attempts += 1
+      const nextCredentials = await loadCredentials().catch(() => [])
+      const nextCredential = nextCredentials[0]
+
+      if (nextCredential) {
+        setMessage(attemptRefresh
+          ? 'Credencial Syncfy detectada. Sincronizando transacciones.'
+          : 'Credencial Syncfy detectada.')
+        if (attemptRefresh) {
+          void refreshTransactions(nextCredential.syncfyCredentialId)
+        }
+        return
+      }
+
+      if (attempts < 10) {
+        pollTimeoutRef.current = window.setTimeout(() => {
+          void tick()
+        }, 3000)
+      } else {
+        setMessage('Syncfy aun no confirma la credencial. Si ya terminaste el banco, espera el webhook o intenta actualizar.')
+      }
+    }
+
+    pollTimeoutRef.current = window.setTimeout(() => {
+      void tick()
+    }, 2000)
+  }
+
+  const captureWidgetCredential = async (eventType: string, args: unknown[]) => {
+    const payload = args.length <= 1 ? args[0] ?? {} : args
+
+    try {
+      const response = await apiJson<SyncfyCredentialCaptureResponse>('/api/syncfy/credential', {
+        method: 'POST',
+        body: JSON.stringify({
+          email,
+          eventType,
+          payload,
+        }),
+      })
+
+      setCredentials(response.credentials)
+      if (response.message) {
+        setMessage(response.message)
+        onStatus?.(response.message)
+      }
+      if (Array.isArray(response.transactions)) {
+        onSynced?.(response)
+      }
+
+      const nextCredential = response.credential || response.credentials[0]
+      if (nextCredential?.syncfyCredentialId) {
+        window.setTimeout(() => {
+          void refreshTransactions(nextCredential.syncfyCredentialId)
+        }, 1200)
+      }
+
+      return true
+    } catch {
+      return false
+    }
   }
 
   useEffect(() => {
@@ -127,6 +212,10 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
       cancelled = true
     }
   }, [email])
+
+  useEffect(() => () => {
+    clearCredentialPolling()
+  }, [])
 
   useEffect(() => {
     if (!session?.widgetEnabled || !session.token || !widgetContainerRef.current) return
@@ -155,25 +244,32 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
         widget.open()
       }
 
-      widget.on('success', () => {
-        setMessage('Syncfy conectó la institución. Esperando refresh para importar transacciones.')
-        onStatus?.('Syncfy conectado. Esperando webhook de refresh.')
-        window.setTimeout(() => {
-          void loadCredentials()
-        }, 2500)
+      widget.on('success', (...args: unknown[]) => {
+        clearCredentialPolling()
+        setMessage('Syncfy conectó la institución. Guardando credencial e importando transacciones.')
+        onStatus?.('Syncfy conectado. Guardando credencial.')
+        void captureWidgetCredential('widget.success', args).then((captured) => {
+          if (!captured) pollForCredential(true)
+        })
       })
-      widget.on('updated', () => {
-        setMessage('Credencial Syncfy actualizada. Reintentando lectura de transacciones.')
+      widget.on('updated', (...args: unknown[]) => {
+        clearCredentialPolling()
+        setMessage('Credencial Syncfy actualizada. Sincronizando transacciones.')
         onStatus?.('Credencial Syncfy actualizada.')
-        window.setTimeout(() => {
-          void refreshTransactions(activeCredentialId || undefined)
-        }, 1500)
+        void captureWidgetCredential('widget.updated', args).then((captured) => {
+          if (!captured) {
+            window.setTimeout(() => {
+              void refreshTransactions(activeCredentialId || undefined)
+            }, 1500)
+          }
+        })
       })
       widget.on('error', () => {
         const rid = widget.getLastRid?.()
         setMessage(rid ? `Syncfy reportó un error. RID: ${rid}` : 'Syncfy reportó un error.')
       })
       widget.on('closed', () => {
+        clearCredentialPolling()
         void loadCredentials()
       })
     }).catch(() => {
