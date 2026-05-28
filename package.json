@@ -4,7 +4,9 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "vite",
+    "dev": "bun scripts/dev.ts",
+    "dev:web": "vite",
+    "dev:api": "wrangler dev --port 8788",
     "build": "vite build",
     "preview": "vite preview",
     "worker:dev": "wrangler dev",
@@ -13,7 +15,7 @@
     "db:create": "wrangler d1 create finovai-db",
     "db:migrate": "wrangler d1 execute finovai-db --file=./worker/schema.sql",
     "db:migrate:local": "wrangler d1 execute finovai-db --file=./worker/schema.sql --local",
-    "dev:full": "bun run build && bun run worker:dev"
+    "dev:full": "bun run dev"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260109.0",

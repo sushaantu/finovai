@@ -107,7 +107,7 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
   const [session, setSession] = useState<SyncfySessionResponse | null>(null)
   const [widgetMode, setWidgetMode] = useState<WidgetMode>('create')
   const [activeCredentialId, setActiveCredentialId] = useState<string | null>(null)
-  const [message, setMessage] = useState('Conecta tu banco con Syncfy para que FinovAI lea transacciones reales.')
+  const [message, setMessage] = useState('Conecta una institución con Syncfy para que FinovAI lea transacciones reales.')
   const [isLoading, setIsLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
@@ -355,9 +355,9 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
     <Card className="rounded-lg border-[#2B7AE8]/20 bg-card/95">
       <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <CardTitle>Conecta tu banco con Syncfy</CardTitle>
+          <CardTitle>Conecta tus cuentas con Syncfy</CardTitle>
           <CardDescription>
-            Lectura autorizada de transacciones en México vía Syncfy. La API key nunca toca el navegador.
+            Bancos, SAT, Bitso, American Express y fuentes compatibles en México. La API key nunca toca el navegador.
           </CardDescription>
         </div>
         <Badge variant={credentials.length > 0 ? 'secondary' : 'outline'}>
@@ -374,7 +374,7 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
               <div className="min-w-0">
                 <p className="text-sm font-medium">Solo lectura</p>
                 <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                  Syncfy maneja el acceso bancario y FinovAI recibe movimientos para detectar fugas y oportunidades de ahorro.
+                  Syncfy maneja el acceso a instituciones compatibles y FinovAI recibe movimientos para detectar fugas y oportunidades de ahorro.
                 </p>
               </div>
             </div>
@@ -387,7 +387,7 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
               disabled={isLoading}
             >
               {isLoading && widgetMode === 'create' ? <Loader2 className="size-4 animate-spin" /> : <Landmark data-icon="inline-start" />}
-              Conectar banco
+              Conectar institución
             </Button>
             <Button
               type="button"

@@ -266,7 +266,7 @@ const DASHBOARD_CHAT_SUGGESTIONS = [
 ]
 const DASHBOARD_PAGES: Array<{ id: DashboardPage; label: string; icon: typeof Sparkles }> = [
   { id: 'inicio', label: 'Inicio', icon: LayoutDashboard },
-  { id: 'syncfy', label: 'Conectar banco', icon: Landmark },
+  { id: 'syncfy', label: 'Conectar cuenta', icon: Landmark },
   { id: 'movimientos', label: 'Movimientos', icon: ReceiptText },
   { id: 'categorias', label: 'Categorías', icon: ChartPie },
   { id: 'analisis', label: 'Análisis', icon: ChartNoAxesColumn },
@@ -278,8 +278,8 @@ const PAGE_META: Record<DashboardPage, { title: string; description: string }> =
     description: 'Tus fugas, patrones y oportunidades para ahorrar e invertir.',
   },
   syncfy: {
-    title: 'Conectar banco',
-    description: 'Vincula tus cuentas con Syncfy para traer transacciones reales.',
+    title: 'Conectar cuenta',
+    description: 'Vincula bancos, SAT, Bitso, American Express y fuentes compatibles con Syncfy.',
   },
   cartola: {
     title: 'Importación de respaldo',
@@ -655,7 +655,7 @@ function buildDashboardChatOpening(transactions: AnalysisTransaction[], draftCou
   }
 
   if (transactions.length === 0) {
-    return 'Conecta tu banco con Syncfy. En cuanto entren transacciones, puedo encontrar fugas, patrones y oportunidades para ahorrar.'
+    return 'Conecta una cuenta con Syncfy. En cuanto entren transacciones, puedo encontrar fugas, patrones y oportunidades para ahorrar.'
   }
 
   return 'Ya tengo movimientos conectados. Pregúntame dónde se fuga tu dinero, qué patrón se repite o cuánto podrías ahorrar e invertir.'
@@ -669,7 +669,7 @@ function buildDashboardChatAnswer(
   isDraftAnalysis = false
 ) {
   if (transactions.length === 0) {
-    return 'Todavía no tengo transacciones para analizar. Conecta tu banco con Syncfy para que FinovAI lea movimientos reales.'
+    return 'Todavía no tengo transacciones para analizar. Conecta una cuenta con Syncfy para que FinovAI lea movimientos reales.'
   }
 
   const normalized = normalizeQuestion(question)
@@ -761,7 +761,7 @@ function buildDashboardChatReasoning(
   isDraftAnalysis = false
 ) {
   if (transactions.length === 0) {
-    return 'Estoy revisando si hay transacciones disponibles. Sin conexión bancaria, la respuesta solo puede orientar el siguiente paso.'
+    return 'Estoy revisando si hay transacciones disponibles. Sin una cuenta conectada, la respuesta solo puede orientar el siguiente paso.'
   }
 
   const normalized = normalizeQuestion(question)
@@ -795,7 +795,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
   const [draftRows, setDraftRows] = useState<CartolaDraftRow[]>([])
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set())
   const [currentImport, setCurrentImport] = useState<CartolaImportResponse | null>(null)
-  const [status, setStatus] = useState('Identifícate con email para conectar tu banco con Syncfy.')
+  const [status, setStatus] = useState('Identifícate con email para conectar una cuenta con Syncfy.')
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -832,7 +832,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
         setData(response)
         setStatus(response.transactions.length > 0
           ? 'Transacciones listas para análisis.'
-          : 'Conecta tu banco con Syncfy para analizar tus datos reales.')
+          : 'Conecta una cuenta con Syncfy para analizar tus datos reales.')
       })
       .catch((error: Error) => {
         if (cancelled) return
@@ -922,7 +922,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
     ? 'Estás viendo datos preliminares. FinovAI puede analizarlos antes de guardar, pero todavía debes confirmar las filas.'
     : hasTransactions
       ? `FinovAI está leyendo ${transactions.length} transacciones para responder con fugas, patrones y ahorro posible.`
-      : 'Conecta tu banco con Syncfy para que FinovAI pueda darte una lectura real.'
+      : 'Conecta una cuenta con Syncfy para que FinovAI pueda darte una lectura real.'
 
   useEffect(() => {
     if (!activeEmail) {
@@ -1495,7 +1495,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
           disabled={Boolean(pendingChatAnswer)}
         >
           <Landmark data-icon="inline-start" />
-          Conectar banco
+          Conectar cuenta
         </PromptSuggestion>
       ) : null}
       {DASHBOARD_CHAT_SUGGESTIONS.map((question) => (
@@ -1662,7 +1662,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                     ? 'Pregunta por estos movimientos.'
                     : hasTransactions
                       ? 'Pregunta por tus fugas y patrones.'
-                      : 'Conecta tu banco para empezar.'}
+                      : 'Conecta una cuenta para empezar.'}
                 </CardDescription>
               </div>
             </div>
@@ -1685,7 +1685,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                   fill
                   variant={hasDraftRows ? 'warning' : 'action'}
                   icon={<Bot className="size-4" />}
-                  cta={!hasTransactions && !hasDraftRows ? { label: 'Conectar banco', onClick: () => setActivePage('syncfy') } : undefined}
+                  cta={!hasTransactions && !hasDraftRows ? { label: 'Conectar cuenta', onClick: () => setActivePage('syncfy') } : undefined}
                 >
                   {chatSystemMessage}
                 </SystemMessage>
@@ -1724,7 +1724,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
             />
             <PromptInputActions className="justify-between gap-2 pt-1">
               <div className="flex min-w-0 items-center gap-1">
-                <PromptInputAction tooltip="Conectar banco">
+                <PromptInputAction tooltip="Conectar cuenta">
                   <Button
                     type="button"
                     variant="ghost"
@@ -1732,7 +1732,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                     className="size-8 rounded-full"
                     onClick={() => setActivePage('syncfy')}
                     disabled={Boolean(pendingChatAnswer)}
-                    aria-label="Conectar banco"
+                    aria-label="Conectar cuenta"
                   >
                     <Landmark className="size-4" />
                   </Button>
@@ -1855,7 +1855,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
               <div className="flex flex-wrap gap-2">
                 <Button type="button" onClick={() => setActivePage('syncfy')}>
                   <Landmark data-icon="inline-start" />
-                  Conectar banco
+                  Conectar cuenta
                 </Button>
               </div>
             </header>
@@ -2076,7 +2076,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                         )
                       ) : (
                         <div className="rounded-lg border border-dashed border-border p-5 text-sm text-muted-foreground">
-                          Conecta tu banco con Syncfy para activar gráficos con datos reales.
+                          Conecta una cuenta con Syncfy para activar gráficos con datos reales.
                         </div>
                       )}
                     </CardContent>
@@ -2087,13 +2087,13 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                       <CardHeader>
                         <CardTitle>Empieza con Syncfy</CardTitle>
                         <CardDescription>
-                          Conecta tu banco para que FinovAI encuentre fugas, patrones y ahorro que puedas convertir en inversión.
+                          Conecta una cuenta para que FinovAI encuentre fugas, patrones y ahorro que puedas convertir en inversión.
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="flex flex-col gap-3 sm:flex-row">
                         <Button type="button" onClick={() => setActivePage('syncfy')}>
                           <Landmark data-icon="inline-start" />
-                          Conectar banco
+                          Conectar cuenta
                         </Button>
                       </CardContent>
                     </Card>
@@ -2603,13 +2603,13 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                   <CardHeader>
                     <CardTitle>Sin transacciones conectadas</CardTitle>
                     <CardDescription>
-                      Conecta tu banco con Syncfy para llenar este historial con movimientos reales.
+                      Conecta una cuenta con Syncfy para llenar este historial con movimientos reales.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <Button type="button" onClick={() => setActivePage('syncfy')}>
                       <Landmark data-icon="inline-start" />
-                      Conectar banco
+                      Conectar cuenta
                     </Button>
                   </CardContent>
                 </Card>
@@ -2726,7 +2726,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                       </div>
                     ) : (
                       <div className="rounded-lg border border-dashed border-border p-5 text-sm text-muted-foreground">
-                        Aún no hay gastos para agrupar. Conecta tu banco para traer transacciones.
+                        Aún no hay gastos para agrupar. Conecta una cuenta para traer transacciones.
                       </div>
                     )}
                   </CardContent>
@@ -2879,7 +2879,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                           </div>
                         ))
                       ) : (
-                        <p className="text-sm text-muted-foreground">Conecta tu banco para generar análisis.</p>
+                        <p className="text-sm text-muted-foreground">Conecta una cuenta para generar análisis.</p>
                       )}
                     </CardContent>
                   </Card>
@@ -2952,7 +2952,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                     <div className="rounded-lg bg-secondary/20 p-4">
                       <p className="text-sm font-medium">Fuente de datos</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Syncfy es la fuente principal para leer transacciones bancarias y detectar fugas.
+                        Syncfy es la fuente principal para leer transacciones de bancos, SAT, Bitso, American Express y fuentes compatibles.
                       </p>
                     </div>
                     <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
@@ -3019,7 +3019,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
             <CardHeader>
               <CardTitle>Entrar a FinovAI</CardTitle>
               <CardDescription>
-                Usa tu email para conectar tu banco con Syncfy y activar el análisis de fugas, patrones y ahorro invertible.
+                Usa tu email para conectar una cuenta con Syncfy y activar el análisis de fugas, patrones y ahorro invertible.
               </CardDescription>
             </CardHeader>
             <CardContent>

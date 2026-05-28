@@ -324,7 +324,6 @@ const SYNCFY_WIDGET_CONFIG = {
   locale: 'es',
   entrypoint: {
     country: 'MX',
-    siteOrganizationType: '56cf4f5b784806cf028b4568',
   },
   navigation: {
     displayErrorsInToast: true,
@@ -1028,7 +1027,7 @@ function buildSyncfyUserMessage(error: SyncfyRequestError): string {
     return 'Syncfy no respondio correctamente. Intenta de nuevo mas tarde.'
   }
 
-  return 'No pudimos completar la conexion bancaria. Revisa los datos o intenta otra vez.'
+  return 'No pudimos completar la conexion con la institucion. Revisa los datos o intenta otra vez.'
 }
 
 function getSyncfySecretFromRequest(request: Request): string | null {
@@ -2894,7 +2893,7 @@ Analizar transacciones autorizadas, encontrar fugas de dinero, explicar patrones
 FILOSOFÍA CORE:
 - Primero detectas la fuga, luego decides que hacer con ese margen.
 - FinovAI trabaja con lectura transaccional; no inicia pagos, retiros ni inversiones.
-- Syncfy es la fuente principal de conexión bancaria y fiscal.
+- Syncfy es la fuente principal de conexion transaccional, bancaria, fiscal y de fuentes compatibles.
 - Las proyecciones de inversión son ilustrativas, no garantías.
 
 TU ROL EN ESTA CONVERSACIÓN:
@@ -2902,7 +2901,7 @@ TU ROL EN ESTA CONVERSACIÓN:
 2. Priorizar fugas accionables: comercios repetidos, días de gasto, suscripciones y picos inusuales.
 3. Estimar ahorro posible de forma conservadora.
 4. Explicar como ese ahorro podria convertirse en aportacion hacia una plataforma de inversion aliada.
-5. Ser claro cuando faltan transacciones conectadas y pedir conectar banco con Syncfy.
+5. Ser claro cuando faltan transacciones conectadas y pedir conectar una cuenta con Syncfy.
 
 TONO:
 - Cercano pero profesional
