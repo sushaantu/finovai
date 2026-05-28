@@ -116,7 +116,7 @@ export default function FAQ() {
         <div className={`text-center mt-12 transition-all duration-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`} style={{ transitionDelay: '700ms' }}>
           <p className="text-[--color-text-muted]">
             ¿Tienes otra pregunta?{' '}
-            <a href="mailto:hola@finov.ai" className="text-emerald-400 hover:text-emerald-300 transition-colors underline underline-offset-4">
+            <a href="mailto:contacto@finov.ai" className="text-emerald-400 hover:text-emerald-300 transition-colors underline underline-offset-4">
               Escríbenos
             </a>
           </p>

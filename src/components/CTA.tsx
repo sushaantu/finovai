@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import EmailSignup from './EmailSignup'
 
 interface CTAProps {
-  onChatOpen: () => void
+  onSignupSuccess: (email: string) => void
 }
 
-export default function CTA({ onChatOpen }: CTAProps) {
+export default function CTA({ onSignupSuccess }: CTAProps) {
   const sectionRef = useRef<HTMLElement>(null)
   const [isVisible, setIsVisible] = useState(false)
 
@@ -61,17 +62,8 @@ export default function CTA({ onChatOpen }: CTAProps) {
               Empieza ordenando tu casa financiera. Nuestro asesor IA te guiará en tu diagnóstico inicial.
             </p>
 
-            {/* CTA Button */}
-            <div className={`transition-all duration-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`} style={{ transitionDelay: '500ms' }}>
-              <button
-                onClick={onChatOpen}
-                className="group inline-flex items-center gap-3 px-10 py-5 bg-emerald-500 text-white font-semibold rounded-full transition-all duration-300 hover:bg-emerald-400 hover:scale-[1.02] hover:shadow-[0_30px_60px_rgba(16,185,129,0.4)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
-              >
-                <span className="text-lg">Habla con FinovAI</span>
-                <svg className="w-5 h-5 transition-transform duration-300 group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                </svg>
-              </button>
+            <div className={`mx-auto mt-8 flex justify-center transition-all duration-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`} style={{ transitionDelay: '500ms' }}>
+              <EmailSignup source="final-cta" onSuccess={onSignupSuccess} />
             </div>
 
             {/* Trust note */}

@@ -216,7 +216,7 @@ Vite proxy forwards `/api/*` requests to the worker.
 - [ ] Detailed financial reports
 - [ ] Goal tracking
 - [ ] Budget categories
-- [ ] Bank connection (Plaid/Belvo)
+- [ ] Syncfy bank connection
 - [ ] Subscription model
 
 ---

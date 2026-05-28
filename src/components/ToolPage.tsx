@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Calculator, Clock3, Sparkles, TrendingUp } from 'lucide-react'
+import { ArrowLeft, Calculator, Clock3, Sparkles, TrendingUp } from 'lucide-react'
 
-type ToolSlug = 'compound' | 'rule72' | 'opportunity'
+export type ToolSlug = 'compound' | 'rule72' | 'opportunity'
 
 interface ToolPageProps {
-  onChatOpen: () => void
   tool: ToolSlug
 }
 
@@ -155,7 +154,7 @@ function getMilestones(points: ProjectionPoint[]) {
     .filter((point): point is ProjectionPoint => Boolean(point))
 }
 
-export default function ToolPage({ onChatOpen, tool }: ToolPageProps) {
+export default function ToolPage({ tool }: ToolPageProps) {
   const sectionRef = useRef<HTMLElement>(null)
   const [isVisible, setIsVisible] = useState(false)
   const [principal, setPrincipal] = useState(10000)
@@ -501,16 +500,14 @@ export default function ToolPage({ onChatOpen, tool }: ToolPageProps) {
               <div className="rounded-[1.75rem] border border-white/[0.08] bg-black/20 p-6">
                 <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">Próximo paso</p>
                 <p className="text-base leading-relaxed text-zinc-300">
-                  Mientras esta herramienta sale, el mejor flujo es usar el chat para entender el contexto del usuario y luego llevarlo a simulaciones más profundas.
+                  Mientras esta herramienta sale, el mejor flujo es cargar movimientos y dejar que FinovAI analice el gasto real.
                 </p>
-                <button
-                  type="button"
-                  onClick={onChatOpen}
+                <a
+                  href="/#registro"
                   className="mt-6 inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-3 text-sm font-semibold text-black transition-all hover:bg-emerald-400"
                 >
-                  Hablar con FinovAI
-                  <ArrowRight className="size-4" />
-                </button>
+                  Analizar mis gastos
+                </a>
               </div>
             </div>
           </div>

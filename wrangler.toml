@@ -33,5 +33,22 @@ ENVIRONMENT = "production"
 # Get these values from: https://kapso.ai/dashboard
 # Free tier: 2,000 messages/month
 
+# Syncfy API (secret + optional vars)
+#   wrangler secret put SYNCFY_API_KEY
+#   wrangler secret put SYNCFY_WEBHOOK_SECRET
+# Optional if Syncfy account uses non-default auth/base URL:
+#   SYNCFY_API_BASE_URL defaults to https://sync.paybook.com/v1
+#   SYNCFY_AUTH_HEADER_NAME defaults to Authorization
+#   SYNCFY_AUTH_HEADER_VALUE defaults to "api_key api_key={api_key}"
+#   SYNCFY_TRANSACTIONS_PATH can override the default credential transaction path if needed
+# Webhook URL:
+#   https://finov.ai/api/syncfy/webhook
+
+# Prometeo banking API (secret + optional vars)
+#   wrangler secret put PROMETEO_API_KEY
+# Optional:
+#   PROMETEO_API_BASE_URL defaults to https://banking.sandbox.prometeoapi.com
+#   PROMETEO_PROXY_URL can point to a trusted proxy when a runtime is blocked by Prometeo
+
 # Custom domain - configured via Cloudflare dashboard
 # To set up: Go to Workers & Pages > finovai > Settings > Domains & Routes > Add custom domain

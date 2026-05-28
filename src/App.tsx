@@ -1,24 +1,41 @@
-import { useState } from 'react'
-import { AuthProvider } from './hooks/useAuth'
+import { useEffect, useState } from 'react'
 import Navbar from './components/Navbar'
-import Hero from './components/Hero'
-import Journey from './components/Journey'
-import Features from './components/Features'
-import Tools from './components/Tools'
-import ToolPage from './components/ToolPage'
-import FAQ from './components/FAQ'
-import CTA from './components/CTA'
+import Dashboard from './components/Dashboard'
+import LandingPage from './components/LandingPage'
+import ToolPage, { type ToolSlug } from './components/ToolPage'
+import StaticPage, { getStaticPage } from './components/StaticPage'
 import Footer from './components/Footer'
-import { ChatSidebar } from './components/chat'
 
 function App() {
-  const [isChatOpen, setIsChatOpen] = useState(false)
-  const pathname = typeof window !== 'undefined' ? window.location.pathname.replace(/\/+$/, '') || '/' : '/'
+  const [pathname, setPathname] = useState(() => getPathname())
+  const [signupEmail, setSignupEmail] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    return localStorage.getItem('finovai_signup_email')
+  })
 
-  const openChat = () => setIsChatOpen(true)
-  const closeChat = () => setIsChatOpen(false)
+  useEffect(() => {
+    const handlePopState = () => setPathname(getPathname())
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
 
-  let page = 'home'
+  const navigate = (path: string) => {
+    window.history.pushState({}, '', path)
+    setPathname(getPathname())
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+  const handleSignupSuccess = (email: string) => {
+    localStorage.setItem('finovai_signup_email', email)
+    setSignupEmail(email)
+    navigate('/dashboard')
+  }
+  const handleLogout = () => {
+    localStorage.removeItem('finovai_signup_email')
+    setSignupEmail(null)
+    navigate('/')
+  }
+
+  let page: 'home' | ToolSlug = 'home'
 
   if (pathname === '/tools/interes-compuesto') {
     page = 'compound'
@@ -28,44 +45,45 @@ function App() {
     page = 'opportunity'
   }
 
+  const isDashboard = pathname === '/dashboard'
+  const staticPage = getStaticPage(pathname)
+  const isHome = !isDashboard && page === 'home'
+  const isStaticPage = Boolean(staticPage)
+
   return (
-    <AuthProvider>
-    <div className="min-h-screen bg-[--color-bg]">
-      {/* Navigation */}
-      <Navbar onChatOpen={openChat} />
+    <div className={isDashboard || isStaticPage || isHome ? 'min-h-screen' : 'min-h-screen bg-[--color-bg]'}>
+      {!isDashboard && !isHome && !isStaticPage ? (
+        <Navbar
+          email={signupEmail}
+          onDashboard={() => navigate('/dashboard')}
+          onLoginSuccess={handleSignupSuccess}
+          onLogout={handleLogout}
+        />
+      ) : null}
 
-      {page === 'home' ? (
-        <>
-          {/* Hero with background image */}
-          <Hero onChatOpen={openChat} />
-
-          {/* Journey - How it works */}
-          <Journey />
-
-          {/* Features grid */}
-          <Features />
-
-          {/* Tools */}
-          <Tools />
-
-          {/* FAQ */}
-          <FAQ />
-
-          {/* CTA */}
-          <CTA onChatOpen={openChat} />
-        </>
+      {isDashboard ? (
+        <Dashboard email={signupEmail} onBackHome={() => navigate('/')} onLogout={handleLogout} />
+      ) : staticPage ? (
+        <StaticPage slug={staticPage} />
+      ) : page === 'home' ? (
+        <LandingPage
+          email={signupEmail}
+          onConnect={() => navigate('/dashboard')}
+          onLogout={handleLogout}
+          onSignupSuccess={handleSignupSuccess}
+        />
       ) : (
-        <ToolPage onChatOpen={openChat} tool={page} />
+        <ToolPage tool={page} />
       )}
 
-      {/* Footer */}
-      <Footer />
-
-      {/* Chat sidebar */}
-      <ChatSidebar isOpen={isChatOpen} onClose={closeChat} />
+      {!isDashboard && !isHome && !isStaticPage ? <Footer /> : null}
     </div>
-    </AuthProvider>
   )
+}
+
+function getPathname() {
+  if (typeof window === 'undefined') return '/'
+  return window.location.pathname.replace(/\/+$/, '') || '/'
 }
 
 export default App

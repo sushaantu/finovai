@@ -2,9 +2,9 @@ export default function Footer() {
   return (
     <footer className="relative py-20 px-6 bg-[--color-bg] border-t border-white/5">
       <div className="max-w-7xl mx-auto">
-        <div className="grid md:grid-cols-4 gap-12">
+        <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-5">
           {/* Brand */}
-          <div className="md:col-span-2">
+          <div className="lg:col-span-2">
             <span className="font-display text-2xl text-[--color-text]">
               FinovAI
             </span>
@@ -44,21 +44,57 @@ export default function Footer() {
           </div>
 
           <div>
+            <h4 className="text-[11px] uppercase tracking-widest text-[--color-text-dim] font-semibold mb-5">Empresa</h4>
+            <ul className="space-y-4">
+              <li>
+                <a href="/sobre-nosotros" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
+                  Sobre nosotros
+                </a>
+              </li>
+              <li>
+                <a href="/empresas" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
+                  Para empresas
+                </a>
+              </li>
+              <li>
+                <a href="/aliados" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
+                  Aliados
+                </a>
+              </li>
+              <li>
+                <a href="/carreras" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
+                  Carreras
+                </a>
+              </li>
+              <li>
+                <a href="/prensa" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
+                  Prensa
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div>
             <h4 className="text-[11px] uppercase tracking-widest text-[--color-text-dim] font-semibold mb-5">Legal</h4>
             <ul className="space-y-4">
               <li>
-                <a href="#" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
+                <a href="/privacidad" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
                   Privacidad
                 </a>
               </li>
               <li>
-                <a href="#" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
+                <a href="/terminos" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
                   Términos
                 </a>
               </li>
               <li>
-                <a href="#" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
+                <a href="/seguridad" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
                   Seguridad
+                </a>
+              </li>
+              <li>
+                <a href="/cookies" className="text-[--color-text-muted] hover:text-[--color-text] transition-colors duration-300">
+                  Cookies
                 </a>
               </li>
             </ul>

@@ -59,7 +59,7 @@ export default function Tools() {
     <section
       ref={sectionRef}
       id="herramientas"
-      className="relative overflow-hidden bg-[--color-bg-secondary] px-6 py-32"
+      className="relative overflow-hidden bg-[--color-bg-secondary] px-5 py-24 sm:px-6 sm:py-32"
     >
       <div className="absolute inset-0 grid-bg opacity-15" />
       <div className="glow-emerald -left-48 top-24 opacity-20" />
@@ -81,7 +81,7 @@ export default function Tools() {
           </p>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid min-w-0 gap-4 lg:grid-cols-3">
           {toolCards.map((tool, index) => {
             const Icon = tool.icon
 
@@ -89,16 +89,16 @@ export default function Tools() {
               <a
                 key={tool.title}
                 href={tool.href}
-                className={`group rounded-3xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent p-6 transition-all duration-700 hover:-translate-y-1 hover:border-white/14 ${
+                className={`group min-w-0 rounded-3xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent p-5 transition-all duration-700 hover:-translate-y-1 hover:border-white/14 sm:p-6 ${
                   isVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
                 }`}
                 style={{ transitionDelay: `${index * 100 + 120}ms` }}
               >
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2 sm:justify-between sm:gap-3">
+                  <span className="min-w-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500 [overflow-wrap:anywhere] sm:tracking-[0.2em]">
                     {tool.eyebrow}
                   </span>
-                  <div className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${tool.accent}`}>
+                  <div className={`inline-flex max-w-full rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] [overflow-wrap:anywhere] sm:tracking-[0.18em] ${tool.accent}`}>
                     {tool.status}
                   </div>
                 </div>

@@ -57,7 +57,6 @@ export default function MessageThread({
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isSending, setIsSending] = useState(false)
-  const [hasMore, setHasMore] = useState(false)
   const [activeButtons, setActiveButtons] = useState<ButtonOption[] | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -83,7 +82,6 @@ export default function MessageThread({
       if (response.ok) {
         const data = await response.json()
         setMessages(data.messages)
-        setHasMore(data.hasMore)
 
         // If no messages, show initial AI greeting with buttons
         if (data.messages.length === 0) {

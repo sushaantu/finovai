@@ -1,41 +1,21 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'motion/react'
 import { Button } from '@/components/ui/button'
-import { ChevronRight, ArrowDown, Shield, Sparkles } from 'lucide-react'
+import { ArrowDown, Shield, Sparkles } from 'lucide-react'
 import { IPhoneMockup } from 'react-device-mockup'
+import EmailSignup from './EmailSignup'
 
 interface HeroProps {
-  onChatOpen: () => void
+  onSignupSuccess: (email: string) => void
 }
 
-export default function Hero({ onChatOpen }: HeroProps) {
-  const [displayText, setDisplayText] = useState('')
-  const fullText = '¿En qué se me va el dinero?'
-  const [isTyping, setIsTyping] = useState(true)
+export default function Hero({ onSignupSuccess }: HeroProps) {
   const [chartVisible, setChartVisible] = useState(false)
 
   useEffect(() => {
     const timer = setTimeout(() => setChartVisible(true), 800)
     return () => clearTimeout(timer)
   }, [])
-
-  useEffect(() => {
-    if (isTyping && displayText.length < fullText.length) {
-      const timeout = setTimeout(() => {
-        setDisplayText(fullText.slice(0, displayText.length + 1))
-      }, 70)
-      return () => clearTimeout(timeout)
-    } else if (displayText.length === fullText.length) {
-      const timeout = setTimeout(() => {
-        setIsTyping(false)
-        setTimeout(() => {
-          setDisplayText('')
-          setIsTyping(true)
-        }, 2500)
-      }, 1500)
-      return () => clearTimeout(timeout)
-    }
-  }, [displayText, isTyping])
 
   const chartBars = [35, 42, 38, 55, 48, 62, 58, 70, 65, 78, 73]
 
@@ -49,70 +29,73 @@ export default function Hero({ onChatOpen }: HeroProps) {
             <div className="max-w-xl text-center lg:max-w-2xl lg:text-left">
               {/* Tagline */}
               <motion.div
-                initial={{ opacity: 0, y: 20 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6 }}
               >
                 <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-3 py-1.5 text-xs sm:px-4 sm:py-2 sm:text-sm text-emerald-400">
                   <Sparkles className="size-3.5 sm:size-4" />
-                  Tu asesor financiero con IA
+                  Tu análisis de gastos en minutos
                 </span>
               </motion.div>
 
               {/* Headline */}
               <motion.h1
                 className="mt-6 text-balance text-4xl font-medium tracking-tight sm:mt-8 sm:text-5xl md:text-6xl lg:mt-10 xl:text-7xl"
-                initial={{ opacity: 0, y: 20 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.1 }}
               >
-                <span className="text-white">Ordena tu casa</span>
+                <span className="text-white">Entiende en qué se va</span>
                 <br />
                 <span className="bg-gradient-to-r from-emerald-400 via-emerald-300 to-teal-400 bg-clip-text text-transparent">
-                  financiera
+                  tu dinero
                 </span>
               </motion.h1>
 
-              {/* Typing effect */}
+              {/* Outcome line */}
               <motion.div
-                className="mt-4 h-7 sm:mt-6 sm:h-8"
-                initial={{ opacity: 0 }}
+                className="mt-4 sm:mt-6"
+                initial={false}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.6, delay: 0.2 }}
               >
-                <span className="text-base italic text-zinc-400 sm:text-lg">
-                  "{displayText}
-                  <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-emerald-400 sm:h-5" />
-                  "
+                <span className="inline-flex rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm text-zinc-300 backdrop-blur sm:text-base">
+                  Primero responde: dónde gastaste más, qué se repite y qué puedes ahorrar.
                 </span>
               </motion.div>
 
               {/* Description */}
               <motion.p
                 className="mt-4 text-balance text-base text-zinc-400 sm:mt-6 sm:text-lg"
-                initial={{ opacity: 0, y: 20 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.3 }}
               >
-                FinovAI te ayuda a entender tus finanzas, crear estructura y, cuando estés listo, invertir con claridad.
-                <span className="text-zinc-300"> Sin humo, con proceso.</span>
+                Conecta tu banco con Syncfy. FinovAI te muestra categorías, gastos repetidos,
+                días raros y oportunidades de ahorro que puedes convertir en inversión.
               </motion.p>
 
-              {/* CTAs */}
+              {/* Email signup */}
               <motion.div
-                className="mt-8 flex flex-col items-center gap-3 sm:mt-10 sm:flex-row sm:justify-center lg:justify-start"
-                initial={{ opacity: 0, y: 20 }}
+                className="mt-8 flex flex-col items-center lg:items-start"
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.4 }}
               >
-                <Button
-                  onClick={onChatOpen}
-                  size="lg"
-                  className="h-11 w-full rounded-full bg-emerald-500 px-6 text-base font-medium text-white hover:bg-emerald-400 hover:shadow-[0_20px_40px_rgba(16,185,129,0.25)] sm:h-12 sm:w-auto sm:pl-6 sm:pr-4"
-                >
-                  <span className="text-nowrap">Habla con FinovAI</span>
-                  <ChevronRight className="ml-1 size-5" />
-                </Button>
+                <p className="mb-3 text-sm font-medium text-zinc-300">
+                  Empieza con tu email
+                </p>
+                <EmailSignup source="hero" onSuccess={onSignupSuccess} />
+              </motion.div>
+
+              {/* CTAs */}
+              <motion.div
+                className="mt-5 flex flex-col items-center gap-3 sm:flex-row sm:justify-center lg:justify-start"
+                initial={false}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.45 }}
+              >
                 <Button
                   asChild
                   size="lg"
@@ -129,42 +112,42 @@ export default function Hero({ onChatOpen }: HeroProps) {
               {/* Trust indicators */}
               <motion.div
                 className="mt-8 flex flex-wrap items-center justify-center gap-4 text-xs sm:mt-10 sm:gap-6 sm:text-sm lg:justify-start"
-                initial={{ opacity: 0 }}
+                initial={false}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.6, delay: 0.5 }}
               >
                 <span className="flex items-center gap-2 text-zinc-500">
                   <Shield className="size-4 text-emerald-500" />
-                  Datos protegidos
+                  Conexión vía Syncfy
                 </span>
                 <span className="size-1 rounded-full bg-zinc-700" />
                 <span className="flex items-center gap-2 text-zinc-500">
                   <svg className="size-4 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                   </svg>
-                  Gratis para empezar
+                  Solo lectura
                 </span>
               </motion.div>
 
-              {/* Partner collaboration feature */}
+              {/* Outcome preview */}
               <motion.div
                 className="mt-6 flex justify-center sm:mt-8 lg:justify-start"
-                initial={{ opacity: 0, y: 10 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.6 }}
               >
-                <div className="inline-flex items-center gap-3 rounded-2xl border border-pink-500/20 bg-pink-500/5 px-4 py-3">
-                  <div className="flex -space-x-2">
-                    <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-xs font-semibold text-white ring-2 ring-zinc-900">
-                      T
-                    </div>
-                    <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-pink-400 to-pink-600 text-xs font-semibold text-white ring-2 ring-zinc-900">
-                      P
-                    </div>
+                <div className="grid w-full max-w-xl grid-cols-1 gap-2 rounded-2xl border border-white/10 bg-black/25 p-3 text-left backdrop-blur sm:grid-cols-3">
+                  <div className="rounded-xl bg-white/[0.04] p-3">
+                    <p className="text-xs text-zinc-500">Mayor gasto</p>
+                    <p className="mt-1 text-sm font-medium text-white">Comida fuera</p>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-zinc-200">Finanzas en pareja</p>
-                    <p className="text-xs text-zinc-500">Invita a tu pareja y gestionen juntos</p>
+                  <div className="rounded-xl bg-white/[0.04] p-3">
+                    <p className="text-xs text-zinc-500">Se repite</p>
+                    <p className="mt-1 text-sm font-medium text-white">Suscripciones</p>
+                  </div>
+                  <div className="rounded-xl bg-white/[0.04] p-3">
+                    <p className="text-xs text-zinc-500">Ahorro posible</p>
+                    <p className="mt-1 text-sm font-medium text-emerald-300">$72.000/mes</p>
                   </div>
                 </div>
               </motion.div>
@@ -225,12 +208,12 @@ export default function Hero({ onChatOpen }: HeroProps) {
                         {/* Stats row */}
                         <div className="grid grid-cols-2 gap-3 border-t border-white/5 pt-3">
                           <div>
-                            <p className="text-[9px] uppercase tracking-wider text-zinc-500">Gastos</p>
-                            <p className="mt-0.5 text-sm font-semibold text-white">$2,450</p>
+                              <p className="text-[9px] uppercase tracking-wider text-zinc-500">Comida fuera</p>
+                              <p className="mt-0.5 text-sm font-semibold text-white">$186.400</p>
                           </div>
                           <div>
                             <p className="text-[9px] uppercase tracking-wider text-zinc-500">Ahorro</p>
-                            <p className="mt-0.5 text-sm font-semibold text-emerald-400">$580</p>
+                            <p className="mt-0.5 text-sm font-semibold text-emerald-400">$72.000</p>
                           </div>
                         </div>
                       </div>
@@ -246,7 +229,7 @@ export default function Hero({ onChatOpen }: HeroProps) {
                             <div>
                               <p className="text-xs font-medium text-violet-300">FinovAI dice:</p>
                               <p className="mt-0.5 text-[10px] leading-relaxed text-zinc-400">
-                                Podrías ahorrar $100 más reduciendo suscripciones.
+                                Comida fuera explica 31% del gasto. Revisa viernes y suscripciones.
                               </p>
                             </div>
                           </div>
