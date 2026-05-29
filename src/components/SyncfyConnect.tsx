@@ -332,12 +332,6 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
       })
       widgetRef.current = widget
 
-      if (widgetMode === 'update' && activeCredentialId) {
-        widget.setEntrypointUpdateCredential(activeCredentialId)
-      } else {
-        widget.open()
-      }
-
       widget.on('success', (...args: unknown[]) => {
         clearCredentialPolling()
         setMessage('Syncfy conectó la institución. Guardando credencial e importando transacciones.')
@@ -366,6 +360,16 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
         clearCredentialPolling()
         void loadCredentials()
       })
+
+      window.setTimeout(() => {
+        if (cancelled || widgetRef.current !== widget) return
+
+        if (widgetMode === 'update' && activeCredentialId) {
+          widget.setEntrypointUpdateCredential(activeCredentialId)
+        } else {
+          widget.open()
+        }
+      }, 0)
     }).catch((error) => {
       console.error('Syncfy widget load failed', error)
       setMessage('No pudimos cargar el widget de Syncfy.')

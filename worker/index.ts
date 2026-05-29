@@ -18,6 +18,7 @@ interface Env {
   SYNCFY_AUTH_HEADER_NAME?: string
   SYNCFY_AUTH_HEADER_PREFIX?: string
   SYNCFY_AUTH_HEADER_VALUE?: string
+  SYNCFY_ENV?: string
   SYNCFY_TRANSACTIONS_PATH?: string
   SYNCFY_WEBHOOK_SECRET?: string
   SUPPORT_ADMIN_SECRET?: string
@@ -4812,7 +4813,12 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     }
 
     if (url.pathname === '/api/health') {
-      return json({ status: 'ok', timestamp: new Date().toISOString() })
+      return json({
+        status: 'ok',
+        environment: env.ENVIRONMENT || 'unknown',
+        syncfyEnvironment: env.SYNCFY_ENV || 'unlabeled',
+        timestamp: new Date().toISOString(),
+      })
     }
 
     return error('Not found', 404)

@@ -5,10 +5,12 @@
   "private": true,
   "scripts": {
     "dev": "bun scripts/dev.ts",
+    "dev:sandbox": "bun scripts/dev.ts --sandbox",
     "dev:web": "vite",
     "dev:api": "wrangler dev --port 8788",
     "build": "vite build",
     "preview": "vite preview",
+    "smoke:syncfy:sandbox": "bun scripts/smoke-syncfy-sandbox.ts",
     "worker:dev": "wrangler dev",
     "worker:deploy": "wrangler deploy",
     "db:create": "wrangler d1 create finovai-db",

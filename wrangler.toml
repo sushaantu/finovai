@@ -27,6 +27,7 @@ name = "EMAIL"
 # Environment variables
 [vars]
 ENVIRONMENT = "production"
+SYNCFY_ENV = "production"
 EMAIL_FROM = "contacto@finov.ai"
 APP_ORIGIN = "https://finov.ai"
 # Enable after Cloudflare Email Sending is onboarded for finov.ai:
@@ -38,6 +39,33 @@ head_sampling_rate = 1
 
 [triggers]
 crons = ["0 * * * *"]
+
+[env.sandbox]
+name = "finovai-sandbox"
+compatibility_date = "2026-05-28"
+compatibility_flags = ["nodejs_compat"]
+
+[env.sandbox.assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[[env.sandbox.d1_databases]]
+binding = "DB"
+database_name = "finovai-db"
+database_id = "f618ec3b-b453-49dd-b16a-b4a5a2778314"
+
+[env.sandbox.ai]
+binding = "AI"
+
+[[env.sandbox.send_email]]
+name = "EMAIL"
+
+[env.sandbox.vars]
+ENVIRONMENT = "sandbox"
+SYNCFY_ENV = "sandbox"
+EMAIL_FROM = "contacto@finov.ai"
+APP_ORIGIN = "http://127.0.0.1:5173"
 
 # Kapso WhatsApp API (secrets - set via `wrangler secret put`)
 # Run these commands to configure:

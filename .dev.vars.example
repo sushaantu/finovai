@@ -1,0 +1,6 @@
+ENVIRONMENT=sandbox
+SYNCFY_ENV=sandbox
+APP_ORIGIN=http://127.0.0.1:5173
+EMAIL_FROM=contacto@finov.ai
+SYNCFY_API_KEY=replace-with-syncfy-sandbox-key
+SUPPORT_ADMIN_SECRET=replace-with-local-admin-secret

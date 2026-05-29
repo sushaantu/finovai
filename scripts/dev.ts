@@ -1,13 +1,30 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 
-const viteArgs = process.argv.slice(2)
+const rawArgs = process.argv.slice(2)
+const sandboxMode = rawArgs.includes('--sandbox')
+const viteArgs = rawArgs.filter((arg) => arg !== '--sandbox')
 const children: ChildProcess[] = []
 let shuttingDown = false
 
-function start(name: string, command: string, args: string[]) {
+async function localDevVars() {
+  try {
+    return await Bun.file('.dev.vars').text()
+  } catch {
+    return ''
+  }
+}
+
+function hasLocalDevVar(content: string, name: string, expected?: string) {
+  const pattern = new RegExp(`^${name}=([^\\n\\r]*)`, 'm')
+  const value = content.match(pattern)?.[1]?.trim()
+  if (expected === undefined) return Boolean(value)
+  return value === expected
+}
+
+function start(name: string, command: string, args: string[], env = process.env) {
   const child = spawn(command, args, {
     cwd: process.cwd(),
-    env: process.env,
+    env,
     stdio: 'inherit',
   })
 
@@ -41,5 +58,28 @@ process.on('SIGTERM', () => {
   process.exit(0)
 })
 
-start('worker', 'bunx', ['wrangler', 'dev', '--port', '8788'])
+const devVars = await localDevVars()
+if (sandboxMode) {
+  const sandboxLabeled = process.env.SYNCFY_ENV === 'sandbox' || hasLocalDevVar(devVars, 'SYNCFY_ENV', 'sandbox')
+  const hasSyncfyKey = Boolean(process.env.SYNCFY_API_KEY) || hasLocalDevVar(devVars, 'SYNCFY_API_KEY')
+
+  if (!sandboxLabeled || !hasSyncfyKey) {
+    console.error(
+      'Sandbox dev requires .dev.vars with SYNCFY_ENV=sandbox and SYNCFY_API_KEY set to the Syncfy sandbox key. See .dev.vars.example.'
+    )
+    process.exit(1)
+  }
+}
+
+const workerArgs = ['wrangler', 'dev', '--port', '8788']
+if (sandboxMode) {
+  workerArgs.push(
+    '--env',
+    'sandbox',
+    '--env-file',
+    '.dev.vars'
+  )
+}
+
+start('worker', 'bunx', workerArgs)
 start('web', 'bunx', ['vite', '--host', '127.0.0.1', ...viteArgs])
