@@ -188,6 +188,14 @@ CREATE TABLE IF NOT EXISTS syncfy_errors (
   created_at TEXT NOT NULL
 );
 
+-- Dashboard sessions: browser-held client secret for email-scoped dashboard access
+CREATE TABLE IF NOT EXISTS dashboard_sessions (
+  email TEXT PRIMARY KEY,
+  client_secret_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_used_at TEXT
+);
+
 -- =====================
 -- REAL MVP FINANCE TABLES
 -- =====================
@@ -298,6 +306,7 @@ CREATE INDEX IF NOT EXISTS idx_syncfy_webhooks_user ON syncfy_webhook_events(syn
 CREATE INDEX IF NOT EXISTS idx_syncfy_webhooks_credential ON syncfy_webhook_events(syncfy_credential_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_syncfy_errors_rid ON syncfy_errors(rid);
 CREATE INDEX IF NOT EXISTS idx_syncfy_errors_email ON syncfy_errors(email, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_last_used ON dashboard_sessions(last_used_at DESC);
 
 -- Finance indexes
 CREATE INDEX IF NOT EXISTS idx_financial_profiles_email ON financial_profiles(email);

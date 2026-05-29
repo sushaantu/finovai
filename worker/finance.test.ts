@@ -1,5 +1,4 @@
 import { expect, test } from 'bun:test'
-import * as XLSX from 'xlsx'
 
 import worker, {
   buildFinancialInsights,
@@ -9,7 +8,6 @@ import worker, {
   normalizeFinancialDate,
   parseCsvCartola,
   parsePdfCartolaText,
-  parseXlsxCartola,
   type FinanceTransaction,
 } from './index'
 
@@ -40,7 +38,9 @@ interface CartolaImportResponse {
 }
 
 class MockD1 {
+  leads = new Map<string, Record<string, unknown>>()
   profiles = new Map<string, { email: string; currency: string }>()
+  dashboardSessions = new Map<string, { email: string; client_secret_hash: string }>()
   transactions: Record<string, unknown>[] = []
   imports: Record<string, unknown>[] = []
   invites: Record<string, unknown>[] = []
@@ -78,6 +78,31 @@ class MockD1 {
     if (sql.includes('INSERT INTO financial_profiles')) {
       const [email, currency] = params
       this.profiles.set(String(email), { email: String(email), currency: String(currency) })
+    }
+
+    if (sql.includes('INSERT INTO leads')) {
+      const [email, name, diagnosticData] = params
+      this.leads.set(String(email), {
+        id: 1,
+        email,
+        name,
+        diagnostic_data: diagnosticData,
+        stage: 'stage_0',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+    }
+
+    if (sql.includes('INSERT INTO dashboard_sessions')) {
+      const [email, clientSecretHash] = params
+      this.dashboardSessions.set(String(email), {
+        email: String(email),
+        client_secret_hash: String(clientSecretHash),
+      })
+    }
+
+    if (sql.includes('UPDATE dashboard_sessions')) {
+      return { success: true, meta: { last_row_id: 1 } }
     }
 
     if (sql.includes('INSERT INTO transactions')) {
@@ -173,6 +198,16 @@ class MockD1 {
       return (this.transactions.find((item) => item.id === id && item.email === email) || null) as T | null
     }
 
+    if (sql.includes('SELECT * FROM leads WHERE email = ?')) {
+      const [email] = params
+      return (this.leads.get(String(email)) || null) as T | null
+    }
+
+    if (sql.includes('SELECT client_secret_hash FROM dashboard_sessions WHERE email = ?')) {
+      const [email] = params
+      return (this.dashboardSessions.get(String(email)) || null) as T | null
+    }
+
     if (sql.includes('SELECT id FROM cartola_imports WHERE id = ? AND email = ?')) {
       const [id, email] = params
       const record = this.imports.find((item) => item.id === id && item.email === email)
@@ -208,11 +243,11 @@ class MockD1 {
   }
 }
 
-function createEnv() {
+function createEnv(environment = 'test') {
   return {
     DB: new MockD1(),
     AI: { run: async () => ({ response: '' }) },
-    ENVIRONMENT: 'test',
+    ENVIRONMENT: environment,
   }
 }
 
@@ -277,23 +312,6 @@ test('parseCsvCartola maps debit and credit rows into draft movements', () => {
   expect(rows[1].type).toBe('income')
   expect(rows[1].category).toBe('Sueldo')
   expect(rows[0].rawSource).toContain('Uber trip')
-})
-
-test('parseXlsxCartola maps worksheet rows into draft movements', () => {
-  const workbook = XLSX.utils.book_new()
-  const sheet = XLSX.utils.aoa_to_sheet([
-    ['Fecha', 'Detalle', 'Monto'],
-    ['2026-05-20', 'Netflix', '-6.990'],
-    ['2026-05-21', 'Transferencia recibida', '80.000'],
-  ])
-  XLSX.utils.book_append_sheet(workbook, sheet, 'Cartola')
-  const buffer = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer
-
-  const rows = parseXlsxCartola(buffer)
-
-  expect(rows).toHaveLength(2)
-  expect(rows[0].category).toBe('Suscripciones')
-  expect(rows[1].type).toBe('income')
 })
 
 test('parsePdfCartolaText returns low-confidence review rows', () => {
@@ -491,6 +509,31 @@ test('cartola confirm persists only selected draft rows', async () => {
   expect(confirmed.imported).toBe(1)
   expect(confirmed.transactions).toHaveLength(1)
   expect(confirmed.transactions[0].description).toBe('Uber')
+})
+
+test('production dashboard APIs require the browser session secret', async () => {
+  const env = createEnv('production')
+
+  const signupResponse = await worker.fetch(new Request('http://local.test/api/signup', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'user@example.com' }),
+  }), env)
+  expect(signupResponse.status).toBe(200)
+  const signup = await signupResponse.json() as { clientSecret?: string }
+  expect(signup.clientSecret).toBeTruthy()
+
+  const blocked = await worker.fetch(new Request('http://local.test/api/transactions?email=user@example.com'), env)
+  expect(blocked.status).toBe(401)
+
+  const wrongSecret = await worker.fetch(new Request('http://local.test/api/transactions?email=user@example.com', {
+    headers: { 'x-finovai-dashboard-secret': 'wrong' },
+  }), env)
+  expect(wrongSecret.status).toBe(401)
+
+  const allowed = await worker.fetch(new Request('http://local.test/api/transactions?email=user@example.com', {
+    headers: { 'x-finovai-dashboard-secret': signup.clientSecret || '' },
+  }), env)
+  expect(allowed.status).toBe(200)
 })
 
 test('household invite endpoint persists spouse email by financial profile', async () => {

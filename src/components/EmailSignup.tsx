@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle2, Loader2, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { setDashboardSession } from '@/lib/dashboard-session'
 
 interface EmailSignupProps {
   source: string
@@ -66,6 +67,7 @@ export default function EmailSignup({
       setEmail('')
       setStatus('success')
       setMessage(successMessage)
+      setDashboardSession(data.email || normalizedEmail, data.clientSecret)
       onSuccess?.(data.email || normalizedEmail)
     } catch (error) {
       setStatus('error')

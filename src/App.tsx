@@ -5,13 +5,15 @@ import LandingPage from './components/LandingPage'
 import ToolPage, { type ToolSlug } from './components/ToolPage'
 import StaticPage, { getStaticPage } from './components/StaticPage'
 import Footer from './components/Footer'
+import {
+  clearDashboardSession,
+  getStoredDashboardEmail,
+  setDashboardSession,
+} from './lib/dashboard-session'
 
 function App() {
   const [pathname, setPathname] = useState(() => getPathname())
-  const [signupEmail, setSignupEmail] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return null
-    return localStorage.getItem('finovai_signup_email')
-  })
+  const [signupEmail, setSignupEmail] = useState<string | null>(() => getStoredDashboardEmail())
 
   useEffect(() => {
     const handlePopState = () => setPathname(getPathname())
@@ -25,12 +27,12 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   const handleSignupSuccess = (email: string) => {
-    localStorage.setItem('finovai_signup_email', email)
+    setDashboardSession(email)
     setSignupEmail(email)
     navigate('/dashboard')
   }
   const handleLogout = () => {
-    localStorage.removeItem('finovai_signup_email')
+    clearDashboardSession()
     setSignupEmail(null)
     navigate('/')
   }

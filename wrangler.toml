@@ -1,7 +1,7 @@
 # FinovAI - Cloudflare Workers Configuration
 name = "finovai"
 main = "worker/index.ts"
-compatibility_date = "2024-12-01"
+compatibility_date = "2026-05-28"
 compatibility_flags = ["nodejs_compat"]
 account_id = "711cb78717605db93e601e6a06e7eeec"
 
@@ -24,6 +24,10 @@ binding = "AI"
 # Environment variables
 [vars]
 ENVIRONMENT = "production"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
 
 # Kapso WhatsApp API (secrets - set via `wrangler secret put`)
 # Run these commands to configure:

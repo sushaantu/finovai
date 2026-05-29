@@ -15,6 +15,7 @@ import {
   Utensils,
   X,
 } from 'lucide-react'
+import { setDashboardSession } from '@/lib/dashboard-session'
 
 interface LandingPageProps {
   email: string | null
@@ -1008,6 +1009,7 @@ function FooterSignup({ onSignupSuccess }: { onSignupSuccess: (email: string) =>
       if (!response.ok) throw new Error(data.error || 'signup failed')
       setStatus('success')
       setEmail('')
+      setDashboardSession(data.email || normalizedEmail, data.clientSecret)
       onSignupSuccess(data.email || normalizedEmail)
     } catch {
       setStatus('error')

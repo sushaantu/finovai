@@ -107,6 +107,11 @@ import {
 import { Shimmer } from '@/components/ai-elements/shimmer'
 import { SyncfyConnect } from '@/components/SyncfyConnect'
 import { cn } from '@/lib/utils'
+import {
+  getDashboardAuthHeaders,
+  getStoredDashboardEmail,
+  setDashboardSession,
+} from '@/lib/dashboard-session'
 
 interface DashboardProps {
   email: string | null
@@ -421,6 +426,7 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...getDashboardAuthHeaders(),
       ...init?.headers,
     },
   })
@@ -435,8 +441,7 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 function getStoredEmail(fallback: string | null) {
   if (fallback) return fallback
-  if (typeof window === 'undefined') return null
-  return window.localStorage.getItem('finovai_signup_email')
+  return getStoredDashboardEmail()
 }
 
 function getInsightToneClasses(tone: FinanceInsight['tone']) {
@@ -964,7 +969,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
     setStatus('Registrando email.')
 
     try {
-      const response = await apiJson<{ success: boolean; email: string }>('/api/signup', {
+      const response = await apiJson<{ success: boolean; email: string; clientSecret?: string }>('/api/signup', {
         method: 'POST',
         body: JSON.stringify({
           email: normalizedEmail,
@@ -975,7 +980,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
         }),
       })
       const registeredEmail = response.email || normalizedEmail
-      window.localStorage.setItem('finovai_signup_email', registeredEmail)
+      setDashboardSession(registeredEmail, response.clientSecret)
       setActiveEmail(registeredEmail)
       setEmailInput(registeredEmail)
     } catch (error) {
@@ -1791,7 +1796,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
       <main className="finovai-dashboard dark min-h-screen bg-background text-foreground">
         <Input
           id="cartola-upload"
-          accept=".pdf,.csv,.tsv,.txt,.xlsx,.xls,application/pdf,text/csv,text/tab-separated-values,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+          accept=".pdf,.csv,.tsv,.txt,application/pdf,text/csv,text/tab-separated-values"
           className="hidden"
           type="file"
           disabled={isUploading}
@@ -2199,7 +2204,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                       {isUploading ? 'Leyendo archivo' : 'Cargar archivo'}
                     </span>
                     <span className="text-sm leading-relaxed text-primary-foreground/75">
-                      PDF, CSV o XLSX. La revisas antes de guardar.
+                      PDF o CSV. La revisas antes de guardar.
                     </span>
                     <span className="text-sm font-semibold">Elegir archivo</span>
                   </Label>
@@ -2209,7 +2214,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                     <div className="mt-4 grid gap-3 text-sm text-muted-foreground">
                       <div className="flex items-start gap-3">
                         <Badge variant="secondary">1</Badge>
-                        <span>Cargas PDF, CSV o XLSX.</span>
+                        <span>Cargas PDF o CSV.</span>
                       </div>
                       <div className="flex items-start gap-3">
                         <Badge variant="secondary">2</Badge>

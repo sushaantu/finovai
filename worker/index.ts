@@ -1,10 +1,12 @@
-import * as XLSX from 'xlsx'
 import { extractText, getDocumentProxy } from 'unpdf'
 
 interface Env {
   DB: D1Database
   AI: Ai
   ENVIRONMENT: string
+  ENABLE_BACKUP_IMPORT?: string
+  ENABLE_LEGACY_CHAT?: string
+  ENABLE_LEGACY_PROMETEO?: string
   KAPSO_API_KEY?: string
   KAPSO_PHONE_NUMBER_ID?: string
   SESSION_SECRET?: string
@@ -312,6 +314,8 @@ interface PrometeoListResponse<T> {
 
 const CHAT_MODEL = '@cf/meta/llama-3.1-8b-instruct' as keyof AiModels
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const DASHBOARD_SECRET_HEADER = 'x-finovai-dashboard-secret'
+const DASHBOARD_SECRET_BYTES = 32
 const LOCAL_AI_FALLBACK =
   'Estoy corriendo en modo local. La IA real necesita Cloudflare auth para ejecutarse, pero puedes probar la interfaz, el registro por email y el flujo del producto.'
 const DEFAULT_SYNCFY_BASE_URL = 'https://sync.paybook.com/v1'
@@ -606,6 +610,104 @@ async function upsertLead(env: Env, email: string, name?: string, diagnosticData
   }
 
   return lead
+}
+
+function isProductionEnv(env: Env): boolean {
+  return env.ENVIRONMENT === 'production'
+}
+
+function isFeatureEnabled(value: string | undefined): boolean {
+  return value === 'true' || value === '1'
+}
+
+function createDashboardClientSecret(): string {
+  const bytes = new Uint8Array(DASHBOARD_SECRET_BYTES)
+  crypto.getRandomValues(bytes)
+  return base64UrlEncode(bytes)
+}
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+  return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function getDashboardClientSecret(request: Request): string | null {
+  const secret = request.headers.get(DASHBOARD_SECRET_HEADER)
+  return secret && secret.length <= 256 ? secret : null
+}
+
+async function ensureDashboardSessionTable(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS dashboard_sessions (
+      email TEXT PRIMARY KEY,
+      client_secret_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT
+    )`
+  ).run()
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_last_used ON dashboard_sessions(last_used_at DESC)`).run()
+}
+
+async function verifyDashboardEmailAccess(
+  env: Env,
+  request: Request,
+  email: string
+): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
+  if (!isProductionEnv(env)) return { ok: true }
+
+  await ensureDashboardSessionTable(env)
+  const row = await env.DB.prepare(`SELECT client_secret_hash FROM dashboard_sessions WHERE email = ?`)
+    .bind(email)
+    .first<{ client_secret_hash: string }>()
+  if (!row) return { ok: false, status: 401, message: 'Primero inicia sesión con este email.' }
+
+  const suppliedSecret = getDashboardClientSecret(request)
+  if (!suppliedSecret) return { ok: false, status: 401, message: 'Sesión requerida. Vuelve a entrar con tu email.' }
+
+  const suppliedHash = await sha256Hex(suppliedSecret)
+  if (!(await timingSafeStringEqual(suppliedHash, row.client_secret_hash))) {
+    return { ok: false, status: 401, message: 'Sesión inválida. Vuelve a entrar con tu email.' }
+  }
+
+  await env.DB.prepare(`UPDATE dashboard_sessions SET last_used_at = datetime("now") WHERE email = ?`)
+    .bind(email)
+    .run()
+  return { ok: true }
+}
+
+async function createOrVerifyDashboardEmailSession(
+  env: Env,
+  request: Request,
+  email: string
+): Promise<{ ok: true; clientSecret?: string } | { ok: false; status: number; message: string }> {
+  if (!isProductionEnv(env)) return { ok: true }
+
+  await ensureDashboardSessionTable(env)
+  const existing = await env.DB.prepare(`SELECT client_secret_hash FROM dashboard_sessions WHERE email = ?`)
+    .bind(email)
+    .first<{ client_secret_hash: string }>()
+
+  if (existing) {
+    const verified = await verifyDashboardEmailAccess(env, request, email)
+    return verified.ok ? { ok: true } : verified
+  }
+
+  const clientSecret = createDashboardClientSecret()
+  const clientSecretHash = await sha256Hex(clientSecret)
+  await env.DB.prepare(
+    `INSERT INTO dashboard_sessions (email, client_secret_hash, created_at, last_used_at)
+     VALUES (?, ?, datetime("now"), datetime("now"))`
+  )
+    .bind(email, clientSecretHash)
+    .run()
+
+  return { ok: true, clientSecret }
 }
 
 class SyncfyRequestError extends Error {
@@ -1946,21 +2048,6 @@ export function parseCsvCartola(content: string): CartolaDraftRow[] {
   return mapCartolaTableRows(parseDelimitedRows(content))
 }
 
-export function parseXlsxCartola(buffer: ArrayBuffer): CartolaDraftRow[] {
-  const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' })
-  const firstSheetName = workbook.SheetNames[0]
-  if (!firstSheetName) return []
-
-  const sheet = workbook.Sheets[firstSheetName]
-  const rows = XLSX.utils.sheet_to_json<string[]>(sheet, {
-    header: 1,
-    raw: false,
-    defval: '',
-  })
-
-  return mapCartolaTableRows(rows)
-}
-
 export async function parsePdfCartola(buffer: ArrayBuffer): Promise<CartolaDraftRow[]> {
   const pdf = await getDocumentProxy(new Uint8Array(buffer))
   const { text } = await extractText(pdf, { mergePages: true })
@@ -2593,7 +2680,6 @@ function getCartolaFileType(file: File) {
   const mime = file.type.toLowerCase()
 
   if (extension === 'pdf' || mime.includes('pdf')) return 'pdf'
-  if (extension === 'xlsx' || extension === 'xls' || mime.includes('spreadsheet') || mime.includes('excel')) return 'xlsx'
   if (extension === 'csv' || extension === 'tsv' || extension === 'txt' || mime.includes('csv') || mime.includes('text')) return 'csv'
   return ''
 }
@@ -2605,7 +2691,7 @@ async function parseCartolaUpload(file: File): Promise<{ fileType: string; rows:
 
   const fileType = getCartolaFileType(file)
   if (!fileType) {
-    throw new Error('Formato no soportado. Sube PDF, CSV o XLSX.')
+    throw new Error('Formato no soportado. Sube PDF o CSV.')
   }
 
   const buffer = await file.arrayBuffer()
@@ -2613,8 +2699,6 @@ async function parseCartolaUpload(file: File): Promise<{ fileType: string; rows:
 
   if (fileType === 'pdf') {
     rows = await parsePdfCartola(buffer)
-  } else if (fileType === 'xlsx') {
-    rows = parseXlsxCartola(buffer)
   } else {
     rows = parseCsvCartola(new TextDecoder().decode(buffer))
   }
@@ -2933,7 +3017,7 @@ export default {
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-FinovAI-Dashboard-Secret',
         },
       })
     }
@@ -2971,6 +3055,8 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!normalizedEmail) {
         return error('Email invalido')
       }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
 
       return json(await getFinanceDashboard(env, normalizedEmail))
     }
@@ -2991,6 +3077,11 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!normalizedEmail) {
         return error('Email invalido')
       }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
+      if (isProductionEnv(env) && !isFeatureEnabled(env.ENABLE_BACKUP_IMPORT)) {
+        return error('Not found', 404)
+      }
 
       await ensureFinanceTables(env)
       await upsertFinancialProfile(env, normalizedEmail)
@@ -3005,6 +3096,10 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     }
 
     if (url.pathname === '/api/cartola/import' && request.method === 'POST') {
+      if (isProductionEnv(env) && !isFeatureEnabled(env.ENABLE_BACKUP_IMPORT)) {
+        return error('Not found', 404)
+      }
+
       const formData = await request.formData()
       const normalizedEmail = normalizeSignupEmail(formData.get('email'))
       const file = formData.get('file')
@@ -3012,6 +3107,8 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!normalizedEmail) {
         return error('Email invalido')
       }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
       if (!(file instanceof File)) {
         return error('Archivo requerido')
       }
@@ -3065,6 +3162,11 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
 
       if (!normalizedEmail) {
         return error('Email invalido')
+      }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
+      if (isProductionEnv(env) && !isFeatureEnabled(env.ENABLE_BACKUP_IMPORT)) {
+        return error('Not found', 404)
       }
       if (!importId) {
         return error('Importacion requerida')
@@ -3134,6 +3236,8 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!normalizedEmail) {
         return error('Email invalido')
       }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
 
       return json({
         success: true,
@@ -3154,6 +3258,8 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!normalizedEmail) {
         return error('Email invalido')
       }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
       if (!inviteeEmail) {
         return error('Email de pareja invalido')
       }
@@ -3783,6 +3889,8 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!normalizedEmail) {
         return error('Email invalido')
       }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
 
       await upsertLead(env, normalizedEmail, name, JSON.stringify({ source: 'syncfy-session' }))
       let syncfyUser: SyncfyUserRow
@@ -3838,6 +3946,8 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!normalizedEmail) {
         return error('Email invalido')
       }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
 
       const credentials = await loadSyncfyCredentialsForEmail(env, normalizedEmail)
       return json({
@@ -3857,6 +3967,8 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!normalizedEmail) {
         return error('Email invalido')
       }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
 
       await ensureSyncfyTables(env)
 
@@ -3921,6 +4033,8 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!normalizedEmail) {
         return error('Email invalido')
       }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
 
       const credentials = await loadSyncfyCredentialsForEmail(env, normalizedEmail)
       const credential = body.credentialId
@@ -4096,6 +4210,10 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     }
 
     if (url.pathname === '/api/prometeo/transactions' && request.method === 'POST') {
+      if (isProductionEnv(env) && !isFeatureEnabled(env.ENABLE_LEGACY_PROMETEO)) {
+        return error('Not found', 404)
+      }
+
       const body = (await request.json()) as {
         email?: string
         provider?: string
@@ -4115,6 +4233,8 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!normalizedEmail) {
         return error('Email invalido')
       }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
       if (!provider || !username || !password) {
         return error('Proveedor, usuario y contraseña son requeridos')
       }
@@ -4162,10 +4282,16 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     }
 
     if (url.pathname === '/api/expenses' && request.method === 'GET') {
+      if (isProductionEnv(env)) {
+        return error('Not found', 404)
+      }
+
       const normalizedEmail = normalizeSignupEmail(url.searchParams.get('email'))
       if (!normalizedEmail) {
         return error('Email invalido')
       }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
 
       await ensureSyncfyTables(env)
 
@@ -4267,6 +4393,10 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     // =====================
 
     if (url.pathname === '/api/chat' && request.method === 'POST') {
+      if (isProductionEnv(env) && !isFeatureEnabled(env.ENABLE_LEGACY_CHAT)) {
+        return error('Not found', 404)
+      }
+
       const { messages } = (await request.json()) as { messages: Message[] }
 
       const messagesWithSystem = [
@@ -4290,10 +4420,12 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!normalizedEmail) {
         return error('Email invalido')
       }
+      const access = await createOrVerifyDashboardEmailSession(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
 
       await upsertLead(env, normalizedEmail, name, diagnosticData)
 
-      return json({ success: true, email: normalizedEmail })
+      return json({ success: true, email: normalizedEmail, clientSecret: access.clientSecret })
     }
 
     if (url.pathname === '/api/health') {
@@ -4303,6 +4435,6 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     return error('Not found', 404)
   } catch (err) {
     console.error('API Error:', err)
-    return json({ error: 'Internal server error', details: String(err) }, 500)
+    return json({ error: 'Internal server error' }, 500)
   }
 }

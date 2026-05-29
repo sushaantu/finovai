@@ -20,6 +20,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import { getDashboardAuthHeaders } from '@/lib/dashboard-session'
 
 interface SyncfyConnectProps {
   email: string
@@ -73,6 +74,7 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...getDashboardAuthHeaders(),
       ...init?.headers,
     },
   })
