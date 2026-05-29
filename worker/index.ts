@@ -431,6 +431,10 @@ export function buildSyncfyExternalId(email: string): string {
   return `finovai:${email}`
 }
 
+function buildSyncfyRecoveryExternalId(email: string): string {
+  return `${buildSyncfyExternalId(email)}:reset:${Date.now()}`
+}
+
 export function summarizeExpenses(expenses: Expense[]): ExpenseSummary {
   const categoryTotals = new Map<string, number>()
   const merchantTotals = new Map<string, number>()
@@ -1402,19 +1406,23 @@ function isSyncfyInvalidUserError(error: SyncfyRequestError): boolean {
   return /invalid user/i.test(`${error.message} ${bodyMessage || ''}`)
 }
 
-async function recreateSyncfyUser(env: Env, email: string, name?: string): Promise<SyncfyUserRow> {
+async function recreateSyncfyUser(
+  env: Env,
+  email: string,
+  name?: string,
+  externalId = buildSyncfyExternalId(email)
+): Promise<SyncfyUserRow> {
   await ensureSyncfyTables(env)
 
   if (!env.SYNCFY_API_KEY) {
     throw new Error('SYNCFY_API_KEY is not configured')
   }
 
-  const syncfyExternalId = buildSyncfyExternalId(email)
   const createdUser = await syncfyRequest<{ id_user: string }>(env, '/users', {
     method: 'POST',
     body: JSON.stringify({
       name: name?.trim() || email,
-      id_external: syncfyExternalId,
+      id_external: externalId,
     }),
   })
 
@@ -1428,7 +1436,7 @@ async function recreateSyncfyUser(env: Env, email: string, name?: string): Promi
        mode = 'live',
        updated_at = datetime("now")`
   )
-    .bind(email, createdUser.id_user, syncfyExternalId, name?.trim() || '')
+    .bind(email, createdUser.id_user, externalId, name?.trim() || '')
     .run()
 
   const recreated = await env.DB.prepare(`SELECT * FROM syncfy_users WHERE email = ?`)
@@ -1492,6 +1500,30 @@ async function resetSyncfyConnectionForEmail(
         source: 'syncfy-reset',
         payload: err.responseBody,
       })
+
+      if (err.status === 400) {
+        try {
+          return {
+            syncfyUser: await recreateSyncfyUser(env, email, name, buildSyncfyRecoveryExternalId(email)),
+            recreated: true,
+          }
+        } catch (fallbackErr) {
+          if (fallbackErr instanceof SyncfyRequestError) {
+            await storeSyncfyError(env, {
+              email,
+              rid: fallbackErr.rid,
+              statusCode: fallbackErr.status,
+              errorCode: fallbackErr.code,
+              message: fallbackErr.message,
+              source: 'syncfy-reset-recovery',
+              payload: fallbackErr.responseBody,
+            })
+            return { syncfyUser: await findSyncfyUserByEmail(env, email), recreated: false }
+          }
+          throw fallbackErr
+        }
+      }
+
       return { syncfyUser: await findSyncfyUserByEmail(env, email), recreated: false }
     }
     throw err
