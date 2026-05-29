@@ -5,6 +5,7 @@ import LandingPage from './components/LandingPage'
 import ToolPage, { type ToolSlug } from './components/ToolPage'
 import StaticPage, { getStaticPage } from './components/StaticPage'
 import Footer from './components/Footer'
+import SyncfyAdminPage from './components/SyncfyAdminPage'
 import {
   clearDashboardSession,
   getStoredDashboardEmail,
@@ -77,13 +78,14 @@ function App() {
   }
 
   const isDashboard = pathname === '/dashboard'
+  const isSyncfyAdmin = pathname === '/admin/syncfy'
   const staticPage = getStaticPage(pathname)
-  const isHome = !isDashboard && page === 'home'
+  const isHome = !isDashboard && !isSyncfyAdmin && page === 'home'
   const isStaticPage = Boolean(staticPage)
 
   return (
-    <div className={isDashboard || isStaticPage || isHome ? 'min-h-screen' : 'min-h-screen bg-[--color-bg]'}>
-      {!isDashboard && !isHome && !isStaticPage ? (
+    <div className={isDashboard || isSyncfyAdmin || isStaticPage || isHome ? 'min-h-screen' : 'min-h-screen bg-[--color-bg]'}>
+      {!isDashboard && !isSyncfyAdmin && !isHome && !isStaticPage ? (
         <Navbar
           email={signupEmail}
           onDashboard={() => navigate('/dashboard')}
@@ -94,6 +96,8 @@ function App() {
 
       {isDashboard ? (
         <Dashboard email={signupEmail} onBackHome={() => navigate('/')} onLogout={handleLogout} />
+      ) : isSyncfyAdmin ? (
+        <SyncfyAdminPage />
       ) : staticPage ? (
         <StaticPage slug={staticPage} />
       ) : page === 'home' ? (
@@ -107,7 +111,7 @@ function App() {
         <ToolPage tool={page} />
       )}
 
-      {!isDashboard && !isHome && !isStaticPage ? <Footer /> : null}
+      {!isDashboard && !isSyncfyAdmin && !isHome && !isStaticPage ? <Footer /> : null}
     </div>
   )
 }

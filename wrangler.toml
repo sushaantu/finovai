@@ -47,6 +47,7 @@ head_sampling_rate = 1
 # Syncfy API (secret + optional vars)
 #   wrangler secret put SYNCFY_API_KEY
 #   wrangler secret put SYNCFY_WEBHOOK_SECRET
+#   wrangler secret put SUPPORT_ADMIN_SECRET
 # Optional if Syncfy account uses non-default auth/base URL:
 #   SYNCFY_API_BASE_URL defaults to https://sync.paybook.com/v1
 #   SYNCFY_AUTH_HEADER_NAME defaults to Authorization
@@ -54,6 +55,8 @@ head_sampling_rate = 1
 #   SYNCFY_TRANSACTIONS_PATH can override the default credential transaction path if needed
 # Webhook URL:
 #   https://finov.ai/api/syncfy/webhook
+# Support dashboard:
+#   https://finov.ai/admin/syncfy
 
 # Custom domain - configured via Cloudflare dashboard
 # To set up: Go to Workers & Pages > finovai > Settings > Domains & Routes > Add custom domain

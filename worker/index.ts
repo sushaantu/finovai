@@ -20,6 +20,7 @@ interface Env {
   SYNCFY_AUTH_HEADER_VALUE?: string
   SYNCFY_TRANSACTIONS_PATH?: string
   SYNCFY_WEBHOOK_SECRET?: string
+  SUPPORT_ADMIN_SECRET?: string
 }
 
 interface Message {
@@ -287,6 +288,7 @@ interface EmailLoginChallengeRow {
 const CHAT_MODEL = '@cf/meta/llama-3.1-8b-instruct' as keyof AiModels
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const DASHBOARD_SECRET_HEADER = 'x-finovai-dashboard-secret'
+const SUPPORT_ADMIN_SECRET_HEADER = 'x-finovai-admin-secret'
 const DASHBOARD_SECRET_BYTES = 32
 const EMAIL_LOGIN_TOKEN_BYTES = 32
 const EMAIL_LOGIN_TTL_SECONDS = 15 * 60
@@ -1332,6 +1334,17 @@ async function verifySyncfySecret(request: Request, env: Env): Promise<boolean> 
   return timingSafeStringEqual(suppliedSecret, env.SYNCFY_WEBHOOK_SECRET)
 }
 
+async function verifySupportAdminAccess(request: Request, env: Env): Promise<boolean> {
+  if (!env.SUPPORT_ADMIN_SECRET) {
+    return !isProductionEnv(env)
+  }
+
+  const suppliedSecret = request.headers.get(SUPPORT_ADMIN_SECRET_HEADER)
+  if (!suppliedSecret) return false
+
+  return timingSafeStringEqual(suppliedSecret, env.SUPPORT_ADMIN_SECRET)
+}
+
 async function getOrCreateSyncfyUser(env: Env, email: string, name?: string): Promise<SyncfyUserRow> {
   await ensureSyncfyTables(env)
 
@@ -1374,6 +1387,53 @@ async function getOrCreateSyncfyUser(env: Env, email: string, name?: string): Pr
   }
 
   return created
+}
+
+function isSyncfyInvalidUserError(error: SyncfyRequestError): boolean {
+  if (error.status !== 401) return false
+  const body = asRecord(error.responseBody)
+  const bodyMessage = stringFromUnknown(body?.message)
+  return /invalid user/i.test(`${error.message} ${bodyMessage || ''}`)
+}
+
+async function recreateSyncfyUser(env: Env, email: string, name?: string): Promise<SyncfyUserRow> {
+  await ensureSyncfyTables(env)
+
+  if (!env.SYNCFY_API_KEY) {
+    throw new Error('SYNCFY_API_KEY is not configured')
+  }
+
+  const syncfyExternalId = buildSyncfyExternalId(email)
+  const createdUser = await syncfyRequest<{ id_user: string }>(env, '/users', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: name?.trim() || email,
+      id_external: syncfyExternalId,
+    }),
+  })
+
+  await env.DB.prepare(
+    `INSERT INTO syncfy_users (email, syncfy_user_id, syncfy_external_id, name, mode, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'live', datetime("now"), datetime("now"))
+     ON CONFLICT(email) DO UPDATE SET
+       syncfy_user_id = excluded.syncfy_user_id,
+       syncfy_external_id = excluded.syncfy_external_id,
+       name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE syncfy_users.name END,
+       mode = 'live',
+       updated_at = datetime("now")`
+  )
+    .bind(email, createdUser.id_user, syncfyExternalId, name?.trim() || '')
+    .run()
+
+  const recreated = await env.DB.prepare(`SELECT * FROM syncfy_users WHERE email = ?`)
+    .bind(email)
+    .first<SyncfyUserRow>()
+
+  if (!recreated) {
+    throw new Error('Unable to recreate Syncfy user')
+  }
+
+  return recreated
 }
 
 async function createSyncfyWidgetSession(env: Env, syncfyUser: SyncfyUserRow): Promise<{ token: string | null; mode: 'live' | 'local' }> {
@@ -2995,7 +3055,7 @@ export default {
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-FinovAI-Dashboard-Secret',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-FinovAI-Dashboard-Secret, X-FinovAI-Admin-Secret',
         },
       })
     }
@@ -3855,6 +3915,143 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       })
     }
 
+    if (url.pathname === '/api/admin/syncfy' && request.method === 'GET') {
+      const requestOrigin = request.headers.get('origin')
+      if (isProductionEnv(env) && requestOrigin && requestOrigin !== getAppOrigin(env, request)) {
+        return error('Not found', 404)
+      }
+      if (!(await verifySupportAdminAccess(request, env))) {
+        return error('Not found', 404)
+      }
+
+      await ensureSyncfyTables(env)
+
+      const emailParam = url.searchParams.get('email')
+      const normalizedEmail = emailParam ? normalizeSignupEmail(emailParam) : null
+      if (emailParam && !normalizedEmail) {
+        return error('Email invalido')
+      }
+
+      const requestedLimit = Number(url.searchParams.get('limit') || 50)
+      const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 100) : 50
+      const syncfyUser = normalizedEmail
+        ? await env.DB.prepare(`SELECT * FROM syncfy_users WHERE email = ?`)
+          .bind(normalizedEmail)
+          .first<SyncfyUserRow>()
+        : null
+      const syncfyUserId = syncfyUser?.syncfy_user_id || ''
+
+      const users = normalizedEmail
+        ? await env.DB.prepare(
+          `SELECT email, syncfy_user_id, syncfy_external_id, name, mode, created_at, updated_at, last_session_at
+           FROM syncfy_users
+           WHERE email = ?
+           LIMIT ?`
+        )
+          .bind(normalizedEmail, limit)
+          .all<SyncfyUserRow>()
+        : await env.DB.prepare(
+          `SELECT email, syncfy_user_id, syncfy_external_id, name, mode, created_at, updated_at, last_session_at
+           FROM syncfy_users
+           ORDER BY COALESCE(last_session_at, updated_at, created_at) DESC
+           LIMIT ?`
+        )
+          .bind(limit)
+          .all<SyncfyUserRow>()
+
+      const credentials = normalizedEmail
+        ? await env.DB.prepare(
+          `SELECT email, syncfy_user_id, syncfy_credential_id, syncfy_site_id, site_name, status,
+             last_successful_sync_at, last_pull_at, last_rid, created_at, updated_at
+           FROM syncfy_credentials
+           WHERE email = ? OR syncfy_user_id = ?
+           ORDER BY COALESCE(updated_at, created_at) DESC
+           LIMIT ?`
+        )
+          .bind(normalizedEmail, syncfyUserId, limit)
+          .all()
+        : await env.DB.prepare(
+          `SELECT email, syncfy_user_id, syncfy_credential_id, syncfy_site_id, site_name, status,
+             last_successful_sync_at, last_pull_at, last_rid, created_at, updated_at
+           FROM syncfy_credentials
+           ORDER BY COALESCE(updated_at, created_at) DESC
+           LIMIT ?`
+        )
+          .bind(limit)
+          .all()
+
+      const errors = normalizedEmail
+        ? await env.DB.prepare(
+          `SELECT e.id, e.email, e.syncfy_user_id, e.syncfy_credential_id, e.rid, e.status_code,
+             e.error_code, e.message, e.source, e.created_at,
+             COALESCE(
+               (SELECT c.site_name FROM syncfy_credentials c WHERE c.syncfy_credential_id = e.syncfy_credential_id LIMIT 1),
+               (SELECT c.site_name FROM syncfy_credentials c WHERE c.email = e.email ORDER BY COALESCE(c.updated_at, c.created_at) DESC LIMIT 1)
+             ) AS institution
+           FROM syncfy_errors e
+           WHERE e.email = ? OR e.syncfy_user_id = ?
+           ORDER BY e.created_at DESC
+           LIMIT ?`
+        )
+          .bind(normalizedEmail, syncfyUserId, limit)
+          .all()
+        : await env.DB.prepare(
+          `SELECT e.id, e.email, e.syncfy_user_id, e.syncfy_credential_id, e.rid, e.status_code,
+             e.error_code, e.message, e.source, e.created_at,
+             COALESCE(
+               (SELECT c.site_name FROM syncfy_credentials c WHERE c.syncfy_credential_id = e.syncfy_credential_id LIMIT 1),
+               (SELECT c.site_name FROM syncfy_credentials c WHERE c.email = e.email ORDER BY COALESCE(c.updated_at, c.created_at) DESC LIMIT 1)
+             ) AS institution
+           FROM syncfy_errors e
+           ORDER BY e.created_at DESC
+           LIMIT ?`
+        )
+          .bind(limit)
+          .all()
+
+      const webhooks = normalizedEmail
+        ? await env.DB.prepare(
+          `SELECT id, event_type, syncfy_user_id, syncfy_credential_id, rid, processed_at, created_at
+           FROM syncfy_webhook_events
+           WHERE syncfy_user_id = ?
+           ORDER BY created_at DESC
+           LIMIT ?`
+        )
+          .bind(syncfyUserId, limit)
+          .all<SyncfyWebhookEventRow>()
+        : await env.DB.prepare(
+          `SELECT id, event_type, syncfy_user_id, syncfy_credential_id, rid, processed_at, created_at
+           FROM syncfy_webhook_events
+           ORDER BY created_at DESC
+           LIMIT ?`
+        )
+          .bind(limit)
+          .all<SyncfyWebhookEventRow>()
+
+      const lastWebhook = webhooks.results[0]
+      const lastError = errors.results[0] as { created_at?: string } | undefined
+
+      return json({
+        success: true,
+        environment: env.ENVIRONMENT,
+        email: normalizedEmail,
+        summary: {
+          webhookSecretConfigured: Boolean(env.SYNCFY_WEBHOOK_SECRET),
+          emailSendingConfigured: Boolean(env.EMAIL),
+          supportAdminSecretConfigured: Boolean(env.SUPPORT_ADMIN_SECRET),
+          lastWebhookAt: lastWebhook?.created_at || null,
+          lastWebhookEvent: lastWebhook?.event_type || null,
+          webhookStatus: lastWebhook ? (lastWebhook.processed_at ? 'processed' : 'received') : 'none',
+          lastErrorAt: lastError?.created_at || null,
+          recentErrorCount: errors.results.length,
+        },
+        users: users.results,
+        credentials: credentials.results,
+        errors: errors.results,
+        webhooks: webhooks.results,
+      })
+    }
+
     if (url.pathname === '/api/syncfy/session' && request.method === 'POST') {
       const { email, name, credentialId, mode } = (await request.json()) as {
         email: string
@@ -3876,7 +4073,27 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
 
       try {
         syncfyUser = await getOrCreateSyncfyUser(env, normalizedEmail, name)
-        session = await createSyncfyWidgetSession(env, syncfyUser)
+        try {
+          session = await createSyncfyWidgetSession(env, syncfyUser)
+        } catch (err) {
+          if (!(err instanceof SyncfyRequestError) || !isSyncfyInvalidUserError(err)) {
+            throw err
+          }
+
+          await storeSyncfyError(env, {
+            email: normalizedEmail,
+            syncfyUserId: syncfyUser.syncfy_user_id,
+            rid: err.rid,
+            statusCode: err.status,
+            errorCode: err.code,
+            message: err.message,
+            source: 'syncfy-session-stale-user',
+            payload: err.responseBody,
+          })
+
+          syncfyUser = await recreateSyncfyUser(env, normalizedEmail, name)
+          session = await createSyncfyWidgetSession(env, syncfyUser)
+        }
       } catch (err) {
         if (err instanceof SyncfyRequestError) {
           await storeSyncfyError(env, {

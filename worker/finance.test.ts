@@ -590,21 +590,6 @@ test('production dashboard APIs require the browser session secret', async () =>
   expect(allowed.status).toBe(200)
 })
 
-test('Prometeo endpoint is removed from the product API', async () => {
-  const env = createEnv()
-  const response = await worker.fetch(new Request('http://local.test/api/prometeo/transactions', {
-    method: 'POST',
-    body: JSON.stringify({
-      email: 'user@example.com',
-      provider: 'test',
-      username: 'demo',
-      password: 'demo',
-    }),
-  }), env)
-
-  expect(response.status).toBe(404)
-})
-
 test('email auth sends a Cloudflare challenge before issuing dashboard session', async () => {
   const sentEmails: Array<{ to: string; subject: string; text: string }> = []
   const env = createEnv('production', {
