@@ -68,6 +68,12 @@ interface SyncfyRefreshResponse {
   retryAfterSeconds?: number
 }
 
+interface SyncfyResetResponse {
+  success: boolean
+  message?: string
+  credentials: SyncfyCredential[]
+}
+
 type WidgetMode = 'create' | 'update'
 type SyncfyWidgetConstructor = new (params: {
   token: string
@@ -188,6 +194,8 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
   const [message, setMessage] = useState('Conecta una institución con Syncfy para que FinovAI lea transacciones reales.')
   const [isLoading, setIsLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
+  const [widgetRunId, setWidgetRunId] = useState(0)
 
   const primaryCredential = credentials[0]
   const canRefresh = Boolean(primaryCredential?.ready)
@@ -204,6 +212,14 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
     if (pollTimeoutRef.current) {
       window.clearTimeout(pollTimeoutRef.current)
       pollTimeoutRef.current = null
+    }
+  }
+
+  const closeWidget = () => {
+    widgetRef.current?.close?.()
+    widgetRef.current = null
+    if (widgetContainerRef.current) {
+      widgetContainerRef.current.innerHTML = ''
     }
   }
 
@@ -357,16 +373,17 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
 
     return () => {
       cancelled = true
-      widgetRef.current?.close?.()
-      widgetRef.current = null
+      closeWidget()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.token])
+  }, [session?.token, widgetRunId])
 
   async function createSession(mode: WidgetMode, credentialId: string | null, showLoading = true) {
     if (showLoading) {
       setIsLoading(true)
       setMessage(mode === 'update' ? 'Preparando actualización de credencial.' : 'Preparando widget de Syncfy.')
+      closeWidget()
+      setSession(null)
     }
 
     try {
@@ -384,9 +401,10 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
       }
 
       if (showLoading) {
-        setSession(response)
         setWidgetMode(mode)
         setActiveCredentialId(credentialId)
+        setSession(response)
+        setWidgetRunId((value) => value + 1)
       }
 
       return response
@@ -430,6 +448,30 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
     }
   }
 
+  async function resetConnection() {
+    setIsResetting(true)
+    setMessage('Limpiando la conexión anterior para elegir institución de nuevo.')
+    clearCredentialPolling()
+    closeWidget()
+    setSession(null)
+
+    try {
+      const response = await apiJson<SyncfyResetResponse>('/api/syncfy/reset', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      })
+      setCredentials(response.credentials)
+      setMessage(response.message || 'Conexión anterior limpiada. Abriendo selector de instituciones.')
+      await createSession('create', null)
+    } catch (error) {
+      const nextMessage = error instanceof Error ? error.message : 'No pudimos reiniciar Syncfy.'
+      setMessage(nextMessage)
+      onStatus?.(nextMessage)
+    } finally {
+      setIsResetting(false)
+    }
+  }
+
   return (
     <Card className="rounded-lg border-[#2B7AE8]/20 bg-card/95">
       <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -463,10 +505,19 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
             <Button
               type="button"
               onClick={() => void createSession('create', null)}
-              disabled={isLoading}
+              disabled={isLoading || isResetting}
             >
               {isLoading && widgetMode === 'create' ? <Loader2 className="size-4 animate-spin" /> : <Landmark data-icon="inline-start" />}
               Conectar institución
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void resetConnection()}
+              disabled={isLoading || isResetting}
+            >
+              {isResetting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw data-icon="inline-start" />}
+              Elegir otra institución
             </Button>
             <Button
               type="button"
@@ -504,7 +555,7 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
                     variant="ghost"
                     size="sm"
                     onClick={() => void createSession('update', credential.syncfyCredentialId)}
-                    disabled={isLoading}
+                    disabled={isLoading || isResetting}
                   >
                     Actualizar acceso
                   </Button>
@@ -529,8 +580,25 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
         </div>
 
         {session?.widgetEnabled ? (
-          <div className="overflow-hidden rounded-lg border border-border bg-background">
+          <div className="grid gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#2B7AE8]/20 bg-secondary/20 p-3">
+              <span className="text-sm text-muted-foreground">
+                Si elegiste una institución equivocada o la credencial fue inválida, vuelve al selector.
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void resetConnection()}
+                disabled={isLoading || isResetting}
+              >
+                {isResetting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw data-icon="inline-start" />}
+                Volver al selector
+              </Button>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-border bg-background">
             <div ref={widgetContainerRef} id="syncfy-widget" className="min-h-[640px]" />
+            </div>
           </div>
         ) : null}
       </CardContent>

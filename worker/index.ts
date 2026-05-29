@@ -1038,6 +1038,12 @@ function firstSyncfyString(payload: unknown, keys: string[]): string | null {
   return null
 }
 
+function firstSyncfyStatusString(payload: unknown, keys: string[]): string | null {
+  const value = firstSyncfyString(payload, keys)
+  if (!value || /^https?:\/\//i.test(value) || value.length > 80) return null
+  return value
+}
+
 function extractSyncfyEventType(payload: unknown): string {
   const direct = firstSyncfyString(payload, ['event_type', 'event', 'webhook_event', 'type'])
   return direct || 'syncfy.webhook'
@@ -1062,7 +1068,7 @@ function extractSyncfyCredentialPayload(payload: unknown): SyncfyCredentialPaylo
     ]),
     syncfySiteId: firstSyncfyString(payload, ['id_site', 'site_id', 'idSite', 'syncfy_site_id']),
     siteName: firstSyncfyString(payload, ['site_name', 'siteName', 'name_site', 'siteNameDisplay']),
-    status: firstSyncfyString(payload, ['status', 'credential_status', 'status_code', 'statusCode']),
+    status: firstSyncfyStatusString(payload, ['credential_status', 'status', 'status_code', 'statusCode']),
     rid: extractSyncfyRid(payload),
   }
 }
@@ -1453,6 +1459,43 @@ async function createSyncfyWidgetSession(env: Env, syncfyUser: SyncfyUserRow): P
     .run()
 
   return { token: session.token, mode: 'live' }
+}
+
+async function resetSyncfyConnectionForEmail(
+  env: Env,
+  email: string,
+  name?: string
+): Promise<{ syncfyUser: SyncfyUserRow | null; recreated: boolean }> {
+  await ensureSyncfyTables(env)
+
+  await env.DB.prepare(`DELETE FROM syncfy_credentials WHERE email = ?`)
+    .bind(email)
+    .run()
+
+  if (!env.SYNCFY_API_KEY) {
+    return { syncfyUser: await findSyncfyUserByEmail(env, email), recreated: false }
+  }
+
+  try {
+    return {
+      syncfyUser: await recreateSyncfyUser(env, email, name),
+      recreated: true,
+    }
+  } catch (err) {
+    if (err instanceof SyncfyRequestError) {
+      await storeSyncfyError(env, {
+        email,
+        rid: err.rid,
+        statusCode: err.status,
+        errorCode: err.code,
+        message: err.message,
+        source: 'syncfy-reset',
+        payload: err.responseBody,
+      })
+      return { syncfyUser: await findSyncfyUserByEmail(env, email), recreated: false }
+    }
+    throw err
+  }
 }
 
 export function inferExpenseCategory(description: string): string {
@@ -4150,6 +4193,33 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         email: normalizedEmail,
         credentials: credentials.map(syncfyCredentialToApi),
       } satisfies SyncfyCredentialsResponse)
+    }
+
+    if (url.pathname === '/api/syncfy/reset' && request.method === 'POST') {
+      const { email, name } = (await request.json()) as {
+        email?: string
+        name?: string
+      }
+      const normalizedEmail = normalizeSignupEmail(email)
+      if (!normalizedEmail) {
+        return error('Email invalido')
+      }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
+
+      const reset = await resetSyncfyConnectionForEmail(env, normalizedEmail, name)
+      const credentials = await loadSyncfyCredentialsForEmail(env, normalizedEmail)
+
+      return json({
+        success: true,
+        email: normalizedEmail,
+        syncfyUserId: reset.syncfyUser?.syncfy_user_id || null,
+        recreated: reset.recreated,
+        credentials: credentials.map(syncfyCredentialToApi),
+        message: reset.recreated
+          ? 'Conexión anterior limpiada. Puedes elegir institución de nuevo.'
+          : 'Conexión local limpiada. Puedes intentar elegir institución de nuevo.',
+      })
     }
 
     if (url.pathname === '/api/syncfy/credential' && request.method === 'POST') {
