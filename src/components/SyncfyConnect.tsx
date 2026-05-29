@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import SyncfyWidget, { type SyncfyWidgetInstance } from '@syncfy/authentication-widget'
+import type { SyncfyWidgetInstance } from '@syncfy/authentication-widget'
 import '@syncfy/authentication-widget/dist/syncfy-authentication-widget.css'
 import {
   AlertCircle,
@@ -226,12 +226,12 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
     const token = session.token
     widgetContainerRef.current.innerHTML = ''
 
-    try {
+    void import('@syncfy/authentication-widget').then(({ default: SyncfyWidget }) => {
       if (cancelled || !widgetContainerRef.current) return
 
       const widget = new SyncfyWidget({
         token,
-        element: '#syncfy-widget',
+        element: widgetContainerRef.current,
         config: session.widgetConfig,
         refreshTokenFunction: async () => {
           const refreshed = await createSession(widgetMode, activeCredentialId, false)
@@ -274,10 +274,9 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
         clearCredentialPolling()
         void loadCredentials()
       })
-    } catch (error) {
-      console.error('Syncfy widget load failed', error)
+    }).catch(() => {
       setMessage('No pudimos cargar el widget de Syncfy.')
-    }
+    })
 
     return () => {
       cancelled = true
