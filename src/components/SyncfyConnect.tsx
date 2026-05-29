@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SyncfyWidgetInstance } from '@syncfy/authentication-widget'
+import syncfyWidgetUmdUrl from '../../node_modules/@syncfy/authentication-widget/dist/syncfy-authentication-widget.umd.js?url'
 import '@syncfy/authentication-widget/dist/syncfy-authentication-widget.css'
 import {
   AlertCircle,
@@ -68,6 +69,81 @@ interface SyncfyRefreshResponse {
 }
 
 type WidgetMode = 'create' | 'update'
+type SyncfyWidgetConstructor = new (params: {
+  token: string
+  element: string | HTMLElement
+  config?: Record<string, unknown>
+  refreshTokenFunction?: () => Promise<{ token: string }>
+}) => SyncfyWidgetInstance
+
+declare global {
+  interface Window {
+    SyncfyWidget?: SyncfyWidgetConstructor
+    SyncfyAuthenticationWidget?: {
+      default?: SyncfyWidgetConstructor
+      SyncfyWidget?: SyncfyWidgetConstructor
+    }
+  }
+}
+
+let syncfyWidgetLoader: Promise<SyncfyWidgetConstructor> | null = null
+
+function getLoadedSyncfyWidget() {
+  return window.SyncfyWidget
+    || window.SyncfyAuthenticationWidget?.default
+    || window.SyncfyAuthenticationWidget?.SyncfyWidget
+    || null
+}
+
+function loadSyncfyWidget() {
+  const loadedWidget = getLoadedSyncfyWidget()
+  if (loadedWidget) return Promise.resolve(loadedWidget)
+
+  syncfyWidgetLoader ??= new Promise<SyncfyWidgetConstructor>((resolve, reject) => {
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      `script[data-syncfy-widget="true"]`
+    )
+
+    const resolveLoadedWidget = () => {
+      const nextWidget = getLoadedSyncfyWidget()
+      if (nextWidget) {
+        resolve(nextWidget)
+      } else {
+        syncfyWidgetLoader = null
+        reject(new Error('Syncfy widget loaded without exposing SyncfyWidget.'))
+      }
+    }
+
+    if (existingScript) {
+      if (existingScript.dataset.loaded === 'true') {
+        resolveLoadedWidget()
+        return
+      }
+      existingScript.addEventListener('load', resolveLoadedWidget, { once: true })
+      existingScript.addEventListener('error', () => {
+        syncfyWidgetLoader = null
+        reject(new Error('Syncfy widget script failed to load.'))
+      }, { once: true })
+      return
+    }
+
+    const script = document.createElement('script')
+    script.src = syncfyWidgetUmdUrl
+    script.async = true
+    script.dataset.syncfyWidget = 'true'
+    script.addEventListener('load', () => {
+      script.dataset.loaded = 'true'
+      resolveLoadedWidget()
+    }, { once: true })
+    script.addEventListener('error', () => {
+      syncfyWidgetLoader = null
+      reject(new Error('Syncfy widget script failed to load.'))
+    }, { once: true })
+    document.head.appendChild(script)
+  })
+
+  return syncfyWidgetLoader
+}
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -226,12 +302,12 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
     const token = session.token
     widgetContainerRef.current.innerHTML = ''
 
-    void import('@syncfy/authentication-widget').then(({ default: SyncfyWidget }) => {
+    void loadSyncfyWidget().then((SyncfyWidget) => {
       if (cancelled || !widgetContainerRef.current) return
 
       const widget = new SyncfyWidget({
         token,
-        element: widgetContainerRef.current,
+        element: '#syncfy-widget',
         config: session.widgetConfig,
         refreshTokenFunction: async () => {
           const refreshed = await createSession(widgetMode, activeCredentialId, false)
@@ -274,7 +350,8 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
         clearCredentialPolling()
         void loadCredentials()
       })
-    }).catch(() => {
+    }).catch((error) => {
+      console.error('Syncfy widget load failed', error)
       setMessage('No pudimos cargar el widget de Syncfy.')
     })
 
