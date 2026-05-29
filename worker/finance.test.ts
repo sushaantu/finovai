@@ -41,6 +41,7 @@ class MockD1 {
   leads = new Map<string, Record<string, unknown>>()
   profiles = new Map<string, { email: string; currency: string }>()
   dashboardSessions = new Map<string, { email: string; client_secret_hash: string }>()
+  loginChallenges: Record<string, unknown>[] = []
   transactions: Record<string, unknown>[] = []
   imports: Record<string, unknown>[] = []
   invites: Record<string, unknown>[] = []
@@ -103,6 +104,34 @@ class MockD1 {
 
     if (sql.includes('UPDATE dashboard_sessions')) {
       return { success: true, meta: { last_row_id: 1 } }
+    }
+
+    if (sql.includes('INSERT INTO email_login_challenges')) {
+      const [id, email, tokenHash, codeHash, source, redirectPath, createdAt, expiresAt] = params
+      this.loginChallenges.push({
+        id,
+        email,
+        token_hash: tokenHash,
+        code_hash: codeHash,
+        source,
+        redirect_path: redirectPath,
+        attempts: 0,
+        created_at: createdAt,
+        expires_at: expiresAt,
+        consumed_at: null,
+      })
+    }
+
+    if (sql.includes('UPDATE email_login_challenges SET attempts = attempts + 1')) {
+      const [id] = params
+      const challenge = this.loginChallenges.find((item) => item.id === id)
+      if (challenge) challenge.attempts = Number(challenge.attempts || 0) + 1
+    }
+
+    if (sql.includes('UPDATE email_login_challenges SET consumed_at = ?')) {
+      const [consumedAt, id] = params
+      const challenge = this.loginChallenges.find((item) => item.id === id)
+      if (challenge) challenge.consumed_at = consumedAt
     }
 
     if (sql.includes('INSERT INTO transactions')) {
@@ -208,6 +237,30 @@ class MockD1 {
       return (this.dashboardSessions.get(String(email)) || null) as T | null
     }
 
+    if (sql.includes('SELECT * FROM email_login_challenges') && sql.includes('token_hash = ?')) {
+      const [email, tokenHash, now] = params
+      return (this.loginChallenges.find(
+        (item) =>
+          item.email === email &&
+          item.token_hash === tokenHash &&
+          item.consumed_at === null &&
+          Number(item.expires_at) > Number(now)
+      ) || null) as T | null
+    }
+
+    if (sql.includes('SELECT * FROM email_login_challenges')) {
+      const [email, now] = params
+      const challenges = this.loginChallenges
+        .filter(
+          (item) =>
+            item.email === email &&
+            item.consumed_at === null &&
+            Number(item.expires_at) > Number(now)
+        )
+        .sort((a, b) => Number(b.created_at) - Number(a.created_at))
+      return (challenges[0] || null) as T | null
+    }
+
     if (sql.includes('SELECT id FROM cartola_imports WHERE id = ? AND email = ?')) {
       const [id, email] = params
       const record = this.imports.find((item) => item.id === id && item.email === email)
@@ -243,11 +296,12 @@ class MockD1 {
   }
 }
 
-function createEnv(environment = 'test') {
+function createEnv(environment = 'test', overrides: Record<string, unknown> = {}) {
   return {
     DB: new MockD1(),
     AI: { run: async () => ({ response: '' }) },
     ENVIRONMENT: environment,
+    ...overrides,
   }
 }
 
@@ -532,6 +586,68 @@ test('production dashboard APIs require the browser session secret', async () =>
 
   const allowed = await worker.fetch(new Request('http://local.test/api/transactions?email=user@example.com', {
     headers: { 'x-finovai-dashboard-secret': signup.clientSecret || '' },
+  }), env)
+  expect(allowed.status).toBe(200)
+})
+
+test('Prometeo endpoint is removed from the product API', async () => {
+  const env = createEnv()
+  const response = await worker.fetch(new Request('http://local.test/api/prometeo/transactions', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'user@example.com',
+      provider: 'test',
+      username: 'demo',
+      password: 'demo',
+    }),
+  }), env)
+
+  expect(response.status).toBe(404)
+})
+
+test('email auth sends a Cloudflare challenge before issuing dashboard session', async () => {
+  const sentEmails: Array<{ to: string; subject: string; text: string }> = []
+  const env = createEnv('production', {
+    EMAIL_AUTH_REQUIRED: 'true',
+    EMAIL: {
+      send: async (message: { to: string; subject: string; text: string }) => {
+        sentEmails.push(message)
+        return { messageId: 'test-message' }
+      },
+    },
+  })
+
+  const signupResponse = await worker.fetch(new Request('http://local.test/api/signup', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'user@example.com', source: 'test-auth' }),
+  }), env)
+  const signup = await signupResponse.json() as {
+    verificationRequired?: boolean
+    clientSecret?: string
+  }
+
+  expect(signupResponse.status).toBe(200)
+  expect(signup.verificationRequired).toBe(true)
+  expect(signup.clientSecret).toBeUndefined()
+  expect(sentEmails).toHaveLength(1)
+
+  const code = sentEmails[0].text.match(/\b\d{6}\b/)?.[0]
+  expect(code).toBeTruthy()
+
+  const blocked = await worker.fetch(new Request('http://local.test/api/transactions?email=user@example.com'), env)
+  expect(blocked.status).toBe(401)
+
+  const verifiedResponse = await worker.fetch(new Request('http://local.test/api/auth/verify', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'user@example.com', code }),
+  }), env)
+  const verified = await verifiedResponse.json() as { clientSecret?: string }
+
+  expect(verifiedResponse.status).toBe(200)
+  expect(verified.clientSecret).toBeTruthy()
+
+  const allowed = await worker.fetch(new Request('http://local.test/api/transactions?email=user@example.com', {
+    headers: { 'x-finovai-dashboard-secret': verified.clientSecret || '' },
   }), env)
   expect(allowed.status).toBe(200)
 })

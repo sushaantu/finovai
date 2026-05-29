@@ -35,7 +35,7 @@ export type StaticPageSlug =
   | 'press'
 
 const CONTACT_EMAIL = 'contacto@finov.ai'
-const UPDATED_AT = '28 de mayo de 2026'
+const UPDATED_AT = '29 de mayo de 2026'
 
 const staticPages: Record<StaticPageSlug, StaticPageData> = {
   privacy: {
@@ -50,6 +50,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         title: 'Qué datos usamos',
         body: [
           'Datos de cuenta como email, estado de sesión y preferencias básicas.',
+          'Datos de acceso passwordless, como códigos de inicio de sesión, links de acceso, hashes de tokens y timestamps de expiración.',
           'Datos transaccionales obtenidos con tu autorización a través de Syncfy Open Data: comercios, fechas, importes, divisas, saldos y referencias disponibles.',
           'Datos técnicos necesarios para operar el servicio, diagnosticar errores y dar soporte, incluyendo identificadores de Syncfy, credenciales agregadas, eventos webhook y rid de errores cuando aplique.',
         ],
@@ -65,6 +66,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         title: 'Con quién se comparte',
         body: [
           'Syncfy procesa la conexión con instituciones financieras y fiscales cuando decides vincular una cuenta.',
+          'Cloudflare puede procesar emails transaccionales de acceso, infraestructura, seguridad y entrega de contenido.',
           'Podemos compartir información necesaria con proveedores de infraestructura, soporte y análisis que nos ayudan a operar FinovAI.',
           'Si eliges avanzar con una plataforma de inversión aliada, te mostraremos el contexto antes de enviar o capturar datos para ese tercero. FinovAI no ejecuta inversiones dentro de la app.',
         ],
@@ -131,6 +133,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         body: [
           'Usamos el widget de Syncfy para crear o actualizar credenciales. FinovAI no debe pedirte credenciales bancarias fuera de ese flujo.',
           'La API key de Syncfy se usa en backend. El navegador usa sesiones o tokens de alcance limitado para iniciar el flujo de conexión.',
+          'El acceso a cuenta está diseñado como passwordless: enviamos códigos o links por email y no almacenamos contraseñas.',
         ],
       },
       {
@@ -144,6 +147,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         title: 'Operación y soporte',
         body: [
           'Guardamos identificadores técnicos de Syncfy, credenciales sincronizadas, eventos webhook y rid de errores para soporte, auditoría y sincronización.',
+          'Los códigos de acceso expiran y se guardan como hashes para validar la sesión sin conservar el código en texto claro.',
           `Si detectas un problema de seguridad, escribe a ${CONTACT_EMAIL} con una descripción clara, pasos de reproducción y capturas si aplican.`,
         ],
       },
@@ -162,6 +166,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         title: 'Uso actual',
         body: [
           'Usamos almacenamiento local para recordar datos básicos de sesión, como el email usado para abrir el dashboard.',
+          'También podemos guardar un secreto de sesión del navegador para mantener tu dashboard autenticado. Si borras el almacenamiento local, tendrás que iniciar sesión de nuevo.',
           'Cloudflare y proveedores integrados pueden usar cookies o almacenamiento técnico para seguridad, entrega de contenido, sesión o prevención de abuso.',
         ],
       },

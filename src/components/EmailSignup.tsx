@@ -30,6 +30,8 @@ export default function EmailSignup({
   compact = false,
 }: EmailSignupProps) {
   const [email, setEmail] = useState('')
+  const [pendingEmail, setPendingEmail] = useState('')
+  const [code, setCode] = useState('')
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [message, setMessage] = useState(idleMessage)
 
@@ -37,26 +39,38 @@ export default function EmailSignup({
     event.preventDefault()
 
     const normalizedEmail = email.trim().toLowerCase()
-    if (!EMAIL_PATTERN.test(normalizedEmail)) {
+    if (!pendingEmail && !EMAIL_PATTERN.test(normalizedEmail)) {
       setStatus('error')
       setMessage('Escribe un email válido.')
       return
     }
+    if (pendingEmail && code.trim().length < 4) {
+      setStatus('error')
+      setMessage('Escribe el código que enviamos a tu email.')
+      return
+    }
 
     setStatus('loading')
-    setMessage(loadingMessage)
+    setMessage(pendingEmail ? 'Verificando código...' : loadingMessage)
 
     try {
-      const response = await fetch('/api/signup', {
+      const response = await fetch(pendingEmail ? '/api/auth/verify' : '/api/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: normalizedEmail,
-          diagnosticData: JSON.stringify({
-            source,
-            capturedAt: new Date().toISOString(),
-          }),
-        }),
+        body: JSON.stringify(pendingEmail
+          ? {
+              email: pendingEmail,
+              code: code.trim(),
+              source,
+            }
+          : {
+              email: normalizedEmail,
+              redirectPath: '/dashboard',
+              diagnosticData: JSON.stringify({
+                source,
+                capturedAt: new Date().toISOString(),
+              }),
+            }),
       })
 
       const data = await response.json().catch(() => ({}))
@@ -64,7 +78,17 @@ export default function EmailSignup({
         throw new Error(data.error || 'No pudimos guardar tu email.')
       }
 
+      if (data.verificationRequired) {
+        const nextEmail = data.email || normalizedEmail
+        setPendingEmail(nextEmail)
+        setStatus('success')
+        setMessage(data.debugCode ? `Código local: ${data.debugCode}` : 'Te enviamos un código y link de acceso a tu email.')
+        return
+      }
+
       setEmail('')
+      setCode('')
+      setPendingEmail('')
       setStatus('success')
       setMessage(successMessage)
       setDashboardSession(data.email || normalizedEmail, data.clientSecret)
@@ -101,6 +125,8 @@ export default function EmailSignup({
             value={email}
             onChange={(event) => {
               setEmail(event.target.value)
+              setPendingEmail('')
+              setCode('')
               if (status !== 'idle') {
                 setStatus('idle')
                 setMessage(idleMessage)
@@ -112,6 +138,19 @@ export default function EmailSignup({
             className="h-auto min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-white shadow-none outline-none placeholder:text-zinc-500 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed"
           />
         </div>
+        {pendingEmail ? (
+          <div className="flex min-w-0 flex-1 items-center gap-3 rounded-full bg-white/[0.04] px-4 py-3 text-left sm:max-w-40">
+            <Input
+              inputMode="numeric"
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              placeholder="Código"
+              autoComplete="one-time-code"
+              disabled={isLoading}
+              className="h-auto min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-white shadow-none outline-none placeholder:text-zinc-500 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed"
+            />
+          </div>
+        ) : null}
         <Button
           type="submit"
           disabled={isLoading}
@@ -121,7 +160,7 @@ export default function EmailSignup({
           )}
         >
           {isLoading ? <Loader2 className="size-4 animate-spin" /> : null}
-          {submitLabel}
+          {pendingEmail ? 'Verificar' : submitLabel}
         </Button>
       </form>
       <p

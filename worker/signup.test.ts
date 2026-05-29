@@ -2,13 +2,9 @@ import { expect, test } from 'bun:test'
 import {
   buildSyncfyExternalId,
   extractSyncfyTransactions,
-  getPrometeoMode,
   inferExpenseCategory,
   normalizeSyncfyRequestPath,
   normalizeSyncfyTransaction,
-  normalizePrometeoDate,
-  normalizePrometeoMovement,
-  normalizePrometeoQueryDate,
   normalizeSignupEmail,
   summarizeExpenses,
 } from './index'
@@ -76,45 +72,6 @@ test('summarizeExpenses returns dashboard totals', () => {
   expect(summary.transactionCount).toBe(4)
   expect(summary.topCategory).toBe('Supermercado')
   expect(summary.savingsOpportunity).toBe(150)
-})
-
-test('normalizePrometeoDate converts Prometeo day-first dates to ISO', () => {
-  expect(normalizePrometeoDate('01/02/2019')).toBe('2019-02-01')
-  expect(normalizePrometeoDate('2019-02-01')).toBe('2019-02-01')
-})
-
-test('normalizePrometeoQueryDate accepts ISO and Prometeo date formats', () => {
-  expect(normalizePrometeoQueryDate('2019-02-01', '01/01/2019')).toBe('01/02/2019')
-  expect(normalizePrometeoQueryDate('02/02/2019', '01/01/2019')).toBe('02/02/2019')
-  expect(normalizePrometeoQueryDate('bad-date', '01/01/2019')).toBe('01/01/2019')
-})
-
-test('getPrometeoMode detects sandbox and live base URLs', () => {
-  expect(getPrometeoMode('https://banking.sandbox.prometeoapi.com')).toBe('sandbox')
-  expect(getPrometeoMode('https://banking.prometeoapi.net')).toBe('live')
-})
-
-test('normalizePrometeoMovement maps debit movements into expenses', () => {
-  const expense = normalizePrometeoMovement(
-    {
-      id: 'mov-1',
-      date: '01/02/2019',
-      detail: 'NETFLIX MX',
-      debit: '199.00',
-      credit: '',
-    },
-    {
-      name: 'Cuenta prueba',
-      number: '12345678',
-    }
-  )
-
-  expect(expense.id).toBe('mov-1')
-  expect(expense.date).toBe('2019-02-01')
-  expect(expense.amount).toBe(199)
-  expect(expense.category).toBe('Suscripciones')
-  expect(expense.accountName).toBe('Cuenta prueba')
-  expect(expense.type).toBe('debit')
 })
 
 test('inferExpenseCategory handles common merchant descriptions', () => {

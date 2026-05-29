@@ -794,6 +794,8 @@ function buildDashboardChatReasoning(
 export default function Dashboard({ email, onBackHome, onLogout }: DashboardProps) {
   const [activeEmail, setActiveEmail] = useState<string | null>(() => getStoredEmail(email))
   const [emailInput, setEmailInput] = useState(() => getStoredEmail(email) || '')
+  const [pendingLoginEmail, setPendingLoginEmail] = useState('')
+  const [loginCode, setLoginCode] = useState('')
   const [data, setData] = useState<DashboardResponse | null>(null)
   const [manualForm, setManualForm] = useState<ManualForm>(() => createManualForm())
   const [manualDrafts, setManualDrafts] = useState<ManualDraft[]>([])
@@ -960,29 +962,53 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
   const handleIdentify = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const normalizedEmail = emailInput.trim().toLowerCase()
-    if (!normalizedEmail.includes('@')) {
+    if (!pendingLoginEmail && !normalizedEmail.includes('@')) {
       setStatus('Ingresa un email válido.')
+      return
+    }
+    if (pendingLoginEmail && loginCode.trim().length < 4) {
+      setStatus('Ingresa el código que enviamos a tu email.')
       return
     }
 
     setIsLoading(true)
-    setStatus('Registrando email.')
+    setStatus(pendingLoginEmail ? 'Verificando código.' : 'Registrando email.')
 
     try {
-      const response = await apiJson<{ success: boolean; email: string; clientSecret?: string }>('/api/signup', {
+      const response = await apiJson<{
+        success: boolean
+        email: string
+        clientSecret?: string
+        verificationRequired?: boolean
+        debugCode?: string
+      }>(pendingLoginEmail ? '/api/auth/verify' : '/api/signup', {
         method: 'POST',
-        body: JSON.stringify({
-          email: normalizedEmail,
-          diagnosticData: JSON.stringify({
-            source: 'dashboard-email-gate',
-            capturedAt: new Date().toISOString(),
-          }),
-        }),
+        body: JSON.stringify(pendingLoginEmail
+          ? {
+              email: pendingLoginEmail,
+              code: loginCode.trim(),
+              source: 'dashboard-email-gate',
+            }
+          : {
+              email: normalizedEmail,
+              redirectPath: '/dashboard',
+              diagnosticData: JSON.stringify({
+                source: 'dashboard-email-gate',
+                capturedAt: new Date().toISOString(),
+              }),
+            }),
       })
       const registeredEmail = response.email || normalizedEmail
+      if (response.verificationRequired) {
+        setPendingLoginEmail(registeredEmail)
+        setStatus(response.debugCode ? `Código local: ${response.debugCode}` : 'Te enviamos un código y link de acceso a tu email.')
+        return
+      }
       setDashboardSession(registeredEmail, response.clientSecret)
       setActiveEmail(registeredEmail)
       setEmailInput(registeredEmail)
+      setPendingLoginEmail('')
+      setLoginCode('')
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'No pudimos registrar el email.')
     } finally {
@@ -3032,12 +3058,25 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                 <Input
                   type="email"
                   value={emailInput}
-                  onChange={(event) => setEmailInput(event.target.value)}
+                  onChange={(event) => {
+                    setEmailInput(event.target.value)
+                    setPendingLoginEmail('')
+                    setLoginCode('')
+                  }}
                   placeholder="tu@email.com"
                 />
+                {pendingLoginEmail ? (
+                  <Input
+                    inputMode="numeric"
+                    value={loginCode}
+                    onChange={(event) => setLoginCode(event.target.value)}
+                    placeholder="Código"
+                    autoComplete="one-time-code"
+                  />
+                ) : null}
                 <Button type="submit" disabled={isLoading}>
                   {isLoading ? <Loader2 className="size-4 animate-spin" /> : null}
-                  Continuar
+                  {pendingLoginEmail ? 'Verificar' : 'Continuar'}
                 </Button>
               </form>
               <p className="mt-3 text-xs leading-relaxed text-muted-foreground" role="status">

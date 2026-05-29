@@ -981,38 +981,64 @@ function LandingFooter({
 
 function FooterSignup({ onSignupSuccess }: { onSignupSuccess: (email: string) => void }) {
   const [email, setEmail] = useState('')
+  const [pendingEmail, setPendingEmail] = useState('')
+  const [code, setCode] = useState('')
+  const [helper, setHelper] = useState('')
   const [status, setStatus] = useState<'idle' | 'loading' | 'error' | 'success'>('idle')
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const normalizedEmail = email.trim().toLowerCase()
 
-    if (!EMAIL_PATTERN.test(normalizedEmail)) {
+    if (!pendingEmail && !EMAIL_PATTERN.test(normalizedEmail)) {
       setStatus('error')
+      setHelper('Escribe un email válido.')
+      return
+    }
+    if (pendingEmail && code.trim().length < 4) {
+      setStatus('error')
+      setHelper('Escribe el código enviado a tu email.')
       return
     }
 
     setStatus('loading')
     try {
-      const response = await fetch('/api/signup', {
+      const response = await fetch(pendingEmail ? '/api/auth/verify' : '/api/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: normalizedEmail,
-          diagnosticData: JSON.stringify({
-            source: 'landing-footer',
-            capturedAt: new Date().toISOString(),
-          }),
-        }),
+        body: JSON.stringify(pendingEmail
+          ? {
+              email: pendingEmail,
+              code: code.trim(),
+              source: 'landing-footer',
+            }
+          : {
+              email: normalizedEmail,
+              redirectPath: '/dashboard',
+              diagnosticData: JSON.stringify({
+                source: 'landing-footer',
+                capturedAt: new Date().toISOString(),
+              }),
+            }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.error || 'signup failed')
+      if (data.verificationRequired) {
+        setPendingEmail(data.email || normalizedEmail)
+        setStatus('success')
+        setHelper(data.debugCode ? `Código local: ${data.debugCode}` : 'Te enviamos un código y link de acceso.')
+        return
+      }
       setStatus('success')
       setEmail('')
+      setCode('')
+      setPendingEmail('')
+      setHelper('Listo. Abriendo tu dashboard.')
       setDashboardSession(data.email || normalizedEmail, data.clientSecret)
       onSignupSuccess(data.email || normalizedEmail)
     } catch {
       setStatus('error')
+      setHelper('No pudimos iniciar sesión.')
     }
   }
 
@@ -1030,14 +1056,26 @@ function FooterSignup({ onSignupSuccess }: { onSignupSuccess: (email: string) =>
         disabled={status === 'loading'}
         onChange={(event) => {
           setEmail(event.target.value)
+          setPendingEmail('')
+          setCode('')
+          setHelper('')
           if (status !== 'idle') setStatus('idle')
         }}
       />
+      {pendingEmail ? (
+        <input
+          inputMode="numeric"
+          value={code}
+          placeholder="Código"
+          autoComplete="one-time-code"
+          disabled={status === 'loading'}
+          onChange={(event) => setCode(event.target.value)}
+        />
+      ) : null}
       <button type="submit" disabled={status === 'loading'}>
-        {status === 'loading' ? '...' : 'Apuntarme'}
+        {status === 'loading' ? '...' : pendingEmail ? 'Verificar' : 'Apuntarme'}
       </button>
-      {status === 'error' ? <small>Escribe un email válido.</small> : null}
-      {status === 'success' ? <small>Listo. Abriendo tu dashboard.</small> : null}
+      {helper ? <small>{helper}</small> : null}
     </form>
   )
 }

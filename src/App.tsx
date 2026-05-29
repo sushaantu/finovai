@@ -26,6 +26,35 @@ function App() {
     setPathname(getPathname())
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const email = params.get('email')
+    const token = params.get('login_token')
+    if (!email || !token) return
+
+    let cancelled = false
+    fetch('/api/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, token, source: 'magic-link' }),
+    })
+      .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+      .then(({ ok, data }) => {
+        if (cancelled || !ok || !data.clientSecret) return
+        setDashboardSession(data.email || email, data.clientSecret)
+        setSignupEmail(data.email || email)
+        window.history.replaceState({}, '', '/dashboard')
+        setPathname('/dashboard')
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const handleSignupSuccess = (email: string) => {
     setDashboardSession(email)
     setSignupEmail(email)

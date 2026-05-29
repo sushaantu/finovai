@@ -196,6 +196,20 @@ CREATE TABLE IF NOT EXISTS dashboard_sessions (
   last_used_at TEXT
 );
 
+-- Email login challenges: passwordless account access through Cloudflare Email
+CREATE TABLE IF NOT EXISTS email_login_challenges (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  code_hash TEXT NOT NULL,
+  source TEXT,
+  redirect_path TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  consumed_at INTEGER
+);
+
 -- =====================
 -- REAL MVP FINANCE TABLES
 -- =====================
@@ -307,6 +321,8 @@ CREATE INDEX IF NOT EXISTS idx_syncfy_webhooks_credential ON syncfy_webhook_even
 CREATE INDEX IF NOT EXISTS idx_syncfy_errors_rid ON syncfy_errors(rid);
 CREATE INDEX IF NOT EXISTS idx_syncfy_errors_email ON syncfy_errors(email, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_last_used ON dashboard_sessions(last_used_at DESC);
+CREATE INDEX IF NOT EXISTS idx_email_login_challenges_email_created ON email_login_challenges(email, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_email_login_challenges_expires ON email_login_challenges(expires_at);
 
 -- Finance indexes
 CREATE INDEX IF NOT EXISTS idx_financial_profiles_email ON financial_profiles(email);

@@ -6,7 +6,10 @@ interface Env {
   ENVIRONMENT: string
   ENABLE_BACKUP_IMPORT?: string
   ENABLE_LEGACY_CHAT?: string
-  ENABLE_LEGACY_PROMETEO?: string
+  EMAIL?: SendEmail
+  EMAIL_AUTH_REQUIRED?: string
+  EMAIL_FROM?: string
+  APP_ORIGIN?: string
   KAPSO_API_KEY?: string
   KAPSO_PHONE_NUMBER_ID?: string
   SESSION_SECRET?: string
@@ -17,9 +20,6 @@ interface Env {
   SYNCFY_AUTH_HEADER_VALUE?: string
   SYNCFY_TRANSACTIONS_PATH?: string
   SYNCFY_WEBHOOK_SECRET?: string
-  PROMETEO_API_KEY?: string
-  PROMETEO_API_BASE_URL?: string
-  PROMETEO_PROXY_URL?: string
 }
 
 interface Message {
@@ -271,57 +271,29 @@ export interface HouseholdInvite {
   created_at: string
 }
 
-interface PrometeoAccount {
-  id?: string
-  name?: string
-  number?: string
-  currency?: string
-  balance?: number | string
-}
-
-interface PrometeoMovement {
-  id?: string
-  reference?: string
-  date?: string
-  detail?: string
-  debit?: number | string
-  credit?: number | string
-  extra_data?: unknown
-}
-
-interface PrometeoLoginResponse {
-  status?: string
-  key?: string
-  body?: {
-    status?: string
-    key?: string
-  }
-  message?: string
-}
-
-interface PrometeoListResponse<T> {
-  status?: string
-  accounts?: T[]
-  movements?: T[]
-  data?: T[]
-  body?: {
-    accounts?: T[]
-    movements?: T[]
-    data?: T[]
-  }
-  message?: string
+interface EmailLoginChallengeRow {
+  id: string
+  email: string
+  token_hash: string
+  code_hash: string
+  source: string | null
+  redirect_path: string | null
+  attempts: number
+  created_at: number
+  expires_at: number
+  consumed_at: number | null
 }
 
 const CHAT_MODEL = '@cf/meta/llama-3.1-8b-instruct' as keyof AiModels
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const DASHBOARD_SECRET_HEADER = 'x-finovai-dashboard-secret'
 const DASHBOARD_SECRET_BYTES = 32
+const EMAIL_LOGIN_TOKEN_BYTES = 32
+const EMAIL_LOGIN_TTL_SECONDS = 15 * 60
+const EMAIL_LOGIN_MAX_ATTEMPTS = 5
 const LOCAL_AI_FALLBACK =
   'Estoy corriendo en modo local. La IA real necesita Cloudflare auth para ejecutarse, pero puedes probar la interfaz, el registro por email y el flujo del producto.'
 const DEFAULT_SYNCFY_BASE_URL = 'https://sync.paybook.com/v1'
-const DEFAULT_PROMETEO_BASE_URL = 'https://banking.sandbox.prometeoapi.com'
-const PROMETEO_DEFAULT_DATE_START = '01/02/2019'
-const PROMETEO_DEFAULT_DATE_END = '02/02/2019'
 const SYNCFY_REFRESH_COOLDOWN_SECONDS = 5 * 60
 const SYNCFY_DEFAULT_TRANSACTION_LIMIT = 5000
 const SYNCFY_WIDGET_CONFIG = {
@@ -654,6 +626,26 @@ async function ensureDashboardSessionTable(env: Env): Promise<void> {
   await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_last_used ON dashboard_sessions(last_used_at DESC)`).run()
 }
 
+async function ensureEmailAuthTables(env: Env): Promise<void> {
+  await ensureDashboardSessionTable(env)
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS email_login_challenges (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      code_hash TEXT NOT NULL,
+      source TEXT,
+      redirect_path TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      consumed_at INTEGER
+    )`
+  ).run()
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_email_login_challenges_email_created ON email_login_challenges(email, created_at DESC)`).run()
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_email_login_challenges_expires ON email_login_challenges(expires_at)`).run()
+}
+
 async function verifyDashboardEmailAccess(
   env: Env,
   request: Request,
@@ -681,6 +673,23 @@ async function verifyDashboardEmailAccess(
   return { ok: true }
 }
 
+async function issueDashboardEmailSession(env: Env, email: string): Promise<{ clientSecret: string }> {
+  await ensureDashboardSessionTable(env)
+  const clientSecret = createDashboardClientSecret()
+  const clientSecretHash = await sha256Hex(clientSecret)
+  await env.DB.prepare(
+    `INSERT INTO dashboard_sessions (email, client_secret_hash, created_at, last_used_at)
+     VALUES (?, ?, datetime("now"), datetime("now"))
+     ON CONFLICT(email) DO UPDATE SET
+       client_secret_hash = excluded.client_secret_hash,
+       last_used_at = datetime("now")`
+  )
+    .bind(email, clientSecretHash)
+    .run()
+
+  return { clientSecret }
+}
+
 async function createOrVerifyDashboardEmailSession(
   env: Env,
   request: Request,
@@ -688,26 +697,182 @@ async function createOrVerifyDashboardEmailSession(
 ): Promise<{ ok: true; clientSecret?: string } | { ok: false; status: number; message: string }> {
   if (!isProductionEnv(env)) return { ok: true }
 
-  await ensureDashboardSessionTable(env)
-  const existing = await env.DB.prepare(`SELECT client_secret_hash FROM dashboard_sessions WHERE email = ?`)
-    .bind(email)
-    .first<{ client_secret_hash: string }>()
-
-  if (existing) {
+  const suppliedSecret = getDashboardClientSecret(request)
+  if (suppliedSecret) {
     const verified = await verifyDashboardEmailAccess(env, request, email)
-    return verified.ok ? { ok: true } : verified
+    if (verified.ok) return { ok: true }
   }
 
-  const clientSecret = createDashboardClientSecret()
-  const clientSecretHash = await sha256Hex(clientSecret)
+  return { ok: true, ...(await issueDashboardEmailSession(env, email)) }
+}
+
+function isEmailAuthRequired(env: Env): boolean {
+  return isProductionEnv(env) && isFeatureEnabled(env.EMAIL_AUTH_REQUIRED)
+}
+
+function createEmailLoginCode(): string {
+  const bytes = new Uint8Array(4)
+  crypto.getRandomValues(bytes)
+  const value = new DataView(bytes.buffer).getUint32(0)
+  return String(value % 1_000_000).padStart(6, '0')
+}
+
+function normalizeRedirectPath(value: unknown): string {
+  if (typeof value !== 'string') return '/dashboard'
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return '/dashboard'
+  return trimmed.slice(0, 120)
+}
+
+function getAppOrigin(env: Env, request: Request): string {
+  return (env.APP_ORIGIN || new URL(request.url).origin).replace(/\/+$/, '')
+}
+
+function buildLoginLink(env: Env, request: Request, email: string, token: string, redirectPath: string): string {
+  const loginUrl = new URL(redirectPath, getAppOrigin(env, request))
+  loginUrl.searchParams.set('email', email)
+  loginUrl.searchParams.set('login_token', token)
+  return loginUrl.toString()
+}
+
+async function sendDashboardLoginEmail(env: Env, email: string, code: string, loginLink: string): Promise<void> {
+  if (!env.EMAIL) {
+    throw new Error('Cloudflare Email Sending is not configured')
+  }
+
+  const fromEmail = env.EMAIL_FROM || 'contacto@finov.ai'
+  const text = [
+    'Tu acceso a FinovAI',
+    '',
+    `Código: ${code}`,
+    '',
+    `También puedes entrar con este link: ${loginLink}`,
+    '',
+    'Este acceso vence en 15 minutos. Si no lo pediste, ignora este correo.',
+  ].join('\n')
+
+  await env.EMAIL.send({
+    to: email,
+    from: { email: fromEmail, name: 'FinovAI' },
+    replyTo: fromEmail,
+    subject: 'Tu acceso a FinovAI',
+    text,
+    html: `
+      <div style="font-family:Inter,Arial,sans-serif;line-height:1.5;color:#071326">
+        <h1 style="font-size:20px">Tu acceso a FinovAI</h1>
+        <p>Usa este código para entrar:</p>
+        <p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p>
+        <p><a href="${loginLink}">Entrar a FinovAI</a></p>
+        <p style="color:#536275">Este acceso vence en 15 minutos. Si no lo pediste, ignora este correo.</p>
+      </div>
+    `,
+  })
+}
+
+async function createEmailLoginChallenge(
+  env: Env,
+  request: Request,
+  email: string,
+  source: string,
+  redirectPath: string
+): Promise<{ id: string; debugCode?: string; debugToken?: string }> {
+  await ensureEmailAuthTables(env)
+  const id = crypto.randomUUID()
+  const token = createDashboardClientSecret()
+  const code = createEmailLoginCode()
+  const now = Math.floor(Date.now() / 1000)
+  const expiresAt = now + EMAIL_LOGIN_TTL_SECONDS
+  const tokenHash = await sha256Hex(token)
+  const codeHash = await sha256Hex(code)
+  const normalizedRedirectPath = normalizeRedirectPath(redirectPath)
+
   await env.DB.prepare(
-    `INSERT INTO dashboard_sessions (email, client_secret_hash, created_at, last_used_at)
-     VALUES (?, ?, datetime("now"), datetime("now"))`
+    `INSERT INTO email_login_challenges (
+      id, email, token_hash, code_hash, source, redirect_path, attempts, created_at, expires_at, consumed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, NULL)`
   )
-    .bind(email, clientSecretHash)
+    .bind(id, email, tokenHash, codeHash, source, normalizedRedirectPath, now, expiresAt)
     .run()
 
-  return { ok: true, clientSecret }
+  if (env.EMAIL) {
+    await sendDashboardLoginEmail(env, email, code, buildLoginLink(env, request, email, token, normalizedRedirectPath))
+    return { id }
+  }
+
+  if (new URL(request.url).hostname === 'localhost' || new URL(request.url).hostname === '127.0.0.1') {
+    return { id, debugCode: code, debugToken: token }
+  }
+
+  throw new Error('Cloudflare Email Sending is not configured')
+}
+
+async function findEmailLoginChallenge(
+  env: Env,
+  email: string,
+  input: { code?: string; token?: string }
+): Promise<{ ok: true; challenge: EmailLoginChallengeRow } | { ok: false; status: number; message: string }> {
+  await ensureEmailAuthTables(env)
+  const now = Math.floor(Date.now() / 1000)
+
+  if (input.token) {
+    const tokenHash = await sha256Hex(input.token)
+    const challenge = await env.DB.prepare(
+      `SELECT * FROM email_login_challenges
+       WHERE email = ? AND token_hash = ? AND consumed_at IS NULL AND expires_at > ?
+       LIMIT 1`
+    )
+      .bind(email, tokenHash, now)
+      .first<EmailLoginChallengeRow>()
+
+    return challenge
+      ? { ok: true, challenge }
+      : { ok: false, status: 401, message: 'El link de acceso expiró o no es válido.' }
+  }
+
+  if (!input.code) {
+    return { ok: false, status: 400, message: 'Código o link requerido.' }
+  }
+
+  const challenge = await env.DB.prepare(
+    `SELECT * FROM email_login_challenges
+     WHERE email = ? AND consumed_at IS NULL AND expires_at > ?
+     ORDER BY created_at DESC
+     LIMIT 1`
+  )
+    .bind(email, now)
+    .first<EmailLoginChallengeRow>()
+
+  if (!challenge) {
+    return { ok: false, status: 401, message: 'El código expiró o no es válido.' }
+  }
+  if (challenge.attempts >= EMAIL_LOGIN_MAX_ATTEMPTS) {
+    return { ok: false, status: 429, message: 'Demasiados intentos. Pide un nuevo código.' }
+  }
+
+  const suppliedHash = await sha256Hex(input.code)
+  if (!(await timingSafeStringEqual(suppliedHash, challenge.code_hash))) {
+    await env.DB.prepare(`UPDATE email_login_challenges SET attempts = attempts + 1 WHERE id = ?`)
+      .bind(challenge.id)
+      .run()
+    return { ok: false, status: 401, message: 'Código incorrecto.' }
+  }
+
+  return { ok: true, challenge }
+}
+
+async function verifyEmailLoginChallenge(
+  env: Env,
+  email: string,
+  input: { code?: string; token?: string }
+): Promise<{ ok: true; clientSecret: string } | { ok: false; status: number; message: string }> {
+  const result = await findEmailLoginChallenge(env, email, input)
+  if (!result.ok) return result
+
+  await env.DB.prepare(`UPDATE email_login_challenges SET consumed_at = ? WHERE id = ?`)
+    .bind(Math.floor(Date.now() / 1000), result.challenge.id)
+    .run()
+
+  return { ok: true, ...(await issueDashboardEmailSession(env, email)) }
 }
 
 class SyncfyRequestError extends Error {
@@ -1230,160 +1395,6 @@ async function createSyncfyWidgetSession(env: Env, syncfyUser: SyncfyUserRow): P
   return { token: session.token, mode: 'live' }
 }
 
-export function getPrometeoMode(baseUrl = DEFAULT_PROMETEO_BASE_URL): 'sandbox' | 'live' {
-  return baseUrl.includes('sandbox') ? 'sandbox' : 'live'
-}
-
-async function prometeoRequest<T>(env: Env, path: string, init: RequestInit = {}, sessionKey?: string): Promise<T> {
-  if (!env.PROMETEO_API_KEY && !env.PROMETEO_PROXY_URL) {
-    throw new Error('PROMETEO_API_KEY is not configured')
-  }
-
-  const baseUrl = (env.PROMETEO_API_BASE_URL || DEFAULT_PROMETEO_BASE_URL).replace(/\/+$/, '')
-  const requestPath = path.startsWith('/') ? path : `/${path}`
-  const headers = new Headers(init.headers)
-  headers.set('Accept', 'application/json')
-  headers.set('Accept-Language', 'es-MX,es;q=0.9,en;q=0.8')
-  headers.set('User-Agent', 'FinovAI/1.0')
-  if (sessionKey) {
-    headers.set('X-Session-Key', sessionKey)
-  }
-
-  let response: Response
-  if (env.PROMETEO_PROXY_URL) {
-    response = await fetch(env.PROMETEO_PROXY_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        path: requestPath,
-        method: init.method || 'GET',
-        headers: Object.fromEntries(headers.entries()),
-        body: typeof init.body === 'string' ? init.body : undefined,
-      }),
-    })
-  } else {
-    headers.set('X-API-Key', env.PROMETEO_API_KEY || '')
-    response = await fetch(`${baseUrl}${requestPath}`, {
-      ...init,
-      headers,
-    })
-  }
-  const text = await response.text()
-  const data = parseJsonObject(text)
-  const status = typeof data.status === 'string' ? data.status : undefined
-
-  if (!response.ok || status === 'error' || status === 'invalid_params' || status === 'invalid_key') {
-    const message = typeof data.message === 'string' ? data.message : text
-    throw new Error(`Prometeo ${response.status}: ${message || 'request failed'}`)
-  }
-
-  return data as T
-}
-
-async function loginToPrometeo(env: Env, provider: string, username: string, password: string): Promise<string> {
-  const body = new URLSearchParams({
-    provider,
-    username,
-    password,
-  })
-
-  const response = await prometeoRequest<PrometeoLoginResponse>(env, '/login/', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: body.toString(),
-  })
-  const token = response.key || response.body?.key
-
-  if (!token) {
-    throw new Error(response.message || 'Prometeo did not return a session key')
-  }
-
-  return token
-}
-
-async function getPrometeoAccounts(env: Env, sessionKey: string): Promise<PrometeoAccount[]> {
-  const response = await prometeoRequest<PrometeoListResponse<PrometeoAccount>>(env, '/account/', {
-    method: 'GET',
-  }, sessionKey)
-
-  return extractPrometeoList(response, 'accounts')
-}
-
-async function getPrometeoMovements(
-  env: Env,
-  sessionKey: string,
-  account: PrometeoAccount,
-  dateStart: string,
-  dateEnd: string
-): Promise<PrometeoMovement[]> {
-  if (!account.number || !account.currency) {
-    return []
-  }
-
-  const params = new URLSearchParams({
-    account: account.number,
-    currency: account.currency,
-    date_start: dateStart,
-    date_end: dateEnd,
-  })
-  const response = await prometeoRequest<PrometeoListResponse<PrometeoMovement>>(env, `/movement/?${params.toString()}`, {
-    method: 'GET',
-  }, sessionKey)
-
-  return extractPrometeoList(response, 'movements')
-}
-
-function extractPrometeoList<T>(response: PrometeoListResponse<T>, key: 'accounts' | 'movements'): T[] {
-  return response[key] || response.body?.[key] || response.data || response.body?.data || []
-}
-
-function parseJsonObject(text: string): Record<string, unknown> {
-  if (!text) return {}
-
-  try {
-    const parsed = JSON.parse(text)
-    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {}
-  } catch {
-    return {}
-  }
-}
-
-function parseAmount(value: unknown): number {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
-  if (typeof value !== 'string' || !value.trim()) return 0
-
-  const normalized = value.replace(/,/g, '').trim()
-  const amount = Number(normalized)
-  return Number.isFinite(amount) ? amount : 0
-}
-
-export function normalizePrometeoDate(date: unknown): string {
-  if (typeof date !== 'string') return new Date().toISOString().slice(0, 10)
-
-  const match = date.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
-  if (!match) return date
-
-  const [, day, month, year] = match
-  return `${year}-${month}-${day}`
-}
-
-export function normalizePrometeoQueryDate(date: unknown, fallback: string): string {
-  if (typeof date !== 'string' || !date.trim()) return fallback
-
-  const trimmed = date.trim()
-  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (isoMatch) {
-    const [, year, month, day] = isoMatch
-    return `${day}/${month}/${year}`
-  }
-
-  return /^\d{2}\/\d{2}\/\d{4}$/.test(trimmed) ? trimmed : fallback
-}
-
 export function inferExpenseCategory(description: string): string {
   const value = description.toUpperCase()
 
@@ -1397,38 +1408,7 @@ export function inferExpenseCategory(description: string): string {
   return 'Sin categoría'
 }
 
-function inferMerchant(description: string): string {
-  const cleaned = description
-    .replace(/\s+/g, ' ')
-    .replace(/[.*_#-]+/g, ' ')
-    .trim()
-
-  if (!cleaned) return 'Prometeo'
-
-  return cleaned.split(' ').slice(0, 3).join(' ')
-}
-
-export function normalizePrometeoMovement(movement: PrometeoMovement, account: PrometeoAccount = {}): Expense {
-  const description = movement.detail || movement.reference || 'Movimiento Prometeo'
-  const debit = parseAmount(movement.debit)
-  const credit = parseAmount(movement.credit)
-  const isDebit = debit > 0
-
-  return {
-    id: movement.id || movement.reference || `${account.number || 'account'}-${description}-${movement.date || Date.now()}`,
-    date: normalizePrometeoDate(movement.date),
-    description,
-    amount: isDebit ? debit : -credit,
-    category: isDebit ? inferExpenseCategory(description) : 'Ingreso',
-    merchant: inferMerchant(description),
-    accountName: account.name,
-    accountNumber: account.number,
-    accountCurrency: account.currency,
-    type: isDebit ? 'debit' : 'credit',
-  }
-}
-
-function expensesResponse(source: 'sample' | 'syncfy' | 'prometeo', email: string, expenses: Expense[]) {
+function expensesResponse(source: 'sample' | 'syncfy', email: string, expenses: Expense[]) {
   return {
     success: true,
     email,
@@ -1438,8 +1418,6 @@ function expensesResponse(source: 'sample' | 'syncfy' | 'prometeo', email: strin
     message:
       source === 'sample'
         ? 'Sample data shown until Syncfy transaction endpoint details are configured.'
-        : source === 'prometeo'
-          ? 'Transactions loaded from Prometeo.'
         : 'Transactions loaded from Syncfy.',
   }
 }
@@ -4209,78 +4187,6 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       })
     }
 
-    if (url.pathname === '/api/prometeo/transactions' && request.method === 'POST') {
-      if (isProductionEnv(env) && !isFeatureEnabled(env.ENABLE_LEGACY_PROMETEO)) {
-        return error('Not found', 404)
-      }
-
-      const body = (await request.json()) as {
-        email?: string
-        provider?: string
-        username?: string
-        password?: string
-        dateStart?: string
-        dateEnd?: string
-      }
-      const normalizedEmail = normalizeSignupEmail(body.email)
-      const provider = (body.provider || 'test').trim()
-      const username = (body.username || '').trim()
-      const password = body.password || ''
-      const dateStart = normalizePrometeoQueryDate(body.dateStart, PROMETEO_DEFAULT_DATE_START)
-      const dateEnd = normalizePrometeoQueryDate(body.dateEnd, PROMETEO_DEFAULT_DATE_END)
-      const prometeoMode = getPrometeoMode(env.PROMETEO_API_BASE_URL || DEFAULT_PROMETEO_BASE_URL)
-
-      if (!normalizedEmail) {
-        return error('Email invalido')
-      }
-      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
-      if (!access.ok) return error(access.message, access.status)
-      if (!provider || !username || !password) {
-        return error('Proveedor, usuario y contraseña son requeridos')
-      }
-      if (!env.PROMETEO_API_KEY && !env.PROMETEO_PROXY_URL) {
-        return error('PROMETEO_API_KEY is not configured for this environment', 500)
-      }
-      if (prometeoMode === 'sandbox' && provider !== 'test') {
-        return error('Real bank connections require Prometeo Trial/Production access. The current API key is sandbox-only.', 409)
-      }
-
-      await upsertLead(env, normalizedEmail, '', JSON.stringify({
-        source: 'prometeo-connect',
-        provider,
-        connectedAt: new Date().toISOString(),
-      }))
-
-      const sessionKey = await loginToPrometeo(env, provider, username, password)
-      const accounts = await getPrometeoAccounts(env, sessionKey)
-      const movementsByAccount = await Promise.all(
-        accounts.map(async (account) => {
-          const movements = await getPrometeoMovements(env, sessionKey, account, dateStart, dateEnd)
-          return movements.map((movement) => normalizePrometeoMovement(movement, account))
-        })
-      )
-      const expenses = movementsByAccount.flat().sort((a, b) => b.date.localeCompare(a.date))
-
-      return json({
-        success: true,
-        email: normalizedEmail,
-        provider,
-        source: 'prometeo',
-        mode: prometeoMode,
-        dateRange: { dateStart, dateEnd },
-        accounts: accounts.map((account) => ({
-          id: account.id,
-          name: account.name,
-          number: account.number,
-          currency: account.currency,
-          balance: account.balance,
-        })),
-        summary: summarizeExpenses(expenses),
-        expenses,
-        message: `${expenses.length} movimientos cargados desde Prometeo.`,
-      })
-    }
-
     if (url.pathname === '/api/expenses' && request.method === 'GET') {
       if (isProductionEnv(env)) {
         return error('Not found', 404)
@@ -4409,23 +4315,79 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       return json({ message: aiMessage })
     }
 
-    if (url.pathname === '/api/signup' && request.method === 'POST') {
-      const { email, name, diagnosticData } = (await request.json()) as {
+    if ((url.pathname === '/api/signup' || url.pathname === '/api/auth/request-link') && request.method === 'POST') {
+      const { email, name, diagnosticData, source, redirectPath } = (await request.json()) as {
         email: string
-        name: string
+        name?: string
         diagnosticData?: string
+        source?: string
+        redirectPath?: string
       }
 
       const normalizedEmail = normalizeSignupEmail(email)
       if (!normalizedEmail) {
         return error('Email invalido')
       }
+
+      if (url.pathname === '/api/auth/request-link' || isEmailAuthRequired(env)) {
+        let challenge: { debugCode?: string; debugToken?: string }
+        try {
+          challenge = await createEmailLoginChallenge(
+            env,
+            request,
+            normalizedEmail,
+            source || 'email-auth',
+            redirectPath || '/dashboard'
+          )
+        } catch (challengeError) {
+          console.error('Email auth challenge failed:', challengeError)
+          return error('Email transaccional no configurado. Activa Cloudflare Email Sending para finov.ai.', 503)
+        }
+
+        await upsertLead(env, normalizedEmail, name, diagnosticData)
+
+        return json({
+          success: true,
+          email: normalizedEmail,
+          verificationRequired: true,
+          expiresInSeconds: EMAIL_LOGIN_TTL_SECONDS,
+          debugCode: challenge.debugCode,
+          debugToken: challenge.debugToken,
+        })
+      }
+
       const access = await createOrVerifyDashboardEmailSession(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
 
       await upsertLead(env, normalizedEmail, name, diagnosticData)
 
       return json({ success: true, email: normalizedEmail, clientSecret: access.clientSecret })
+    }
+
+    if (url.pathname === '/api/auth/verify' && request.method === 'POST') {
+      const { email, code, token, source } = (await request.json()) as {
+        email?: string
+        code?: string
+        token?: string
+        source?: string
+      }
+      const normalizedEmail = normalizeSignupEmail(email)
+      if (!normalizedEmail) {
+        return error('Email invalido')
+      }
+
+      const verified = await verifyEmailLoginChallenge(env, normalizedEmail, {
+        code: typeof code === 'string' ? code.trim() : undefined,
+        token: typeof token === 'string' ? token.trim() : undefined,
+      })
+      if (!verified.ok) return error(verified.message, verified.status)
+
+      await upsertLead(env, normalizedEmail, '', JSON.stringify({
+        source: source || 'email-auth-verified',
+        verifiedAt: new Date().toISOString(),
+      }))
+
+      return json({ success: true, email: normalizedEmail, clientSecret: verified.clientSecret })
     }
 
     if (url.pathname === '/api/health') {

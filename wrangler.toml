@@ -21,9 +21,16 @@ database_id = "f618ec3b-b453-49dd-b16a-b4a5a2778314"
 [ai]
 binding = "AI"
 
+[[send_email]]
+name = "EMAIL"
+
 # Environment variables
 [vars]
 ENVIRONMENT = "production"
+EMAIL_FROM = "contacto@finov.ai"
+APP_ORIGIN = "https://finov.ai"
+# Enable after Cloudflare Email Sending is onboarded for finov.ai:
+# EMAIL_AUTH_REQUIRED = "true"
 
 [observability]
 enabled = true
@@ -47,12 +54,6 @@ head_sampling_rate = 1
 #   SYNCFY_TRANSACTIONS_PATH can override the default credential transaction path if needed
 # Webhook URL:
 #   https://finov.ai/api/syncfy/webhook
-
-# Prometeo banking API (secret + optional vars)
-#   wrangler secret put PROMETEO_API_KEY
-# Optional:
-#   PROMETEO_API_BASE_URL defaults to https://banking.sandbox.prometeoapi.com
-#   PROMETEO_PROXY_URL can point to a trusted proxy when a runtime is blocked by Prometeo
 
 # Custom domain - configured via Cloudflare dashboard
 # To set up: Go to Workers & Pages > finovai > Settings > Domains & Routes > Add custom domain
