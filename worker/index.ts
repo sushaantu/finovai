@@ -297,6 +297,8 @@ const LOCAL_AI_FALLBACK =
   'Estoy corriendo en modo local. La IA real necesita Cloudflare auth para ejecutarse, pero puedes probar la interfaz, el registro por email y el flujo del producto.'
 const DEFAULT_SYNCFY_BASE_URL = 'https://sync.paybook.com/v1'
 const SYNCFY_REFRESH_COOLDOWN_SECONDS = 5 * 60
+const SYNCFY_BACKGROUND_REFRESH_INTERVAL_SECONDS = 60 * 60
+const SYNCFY_BACKGROUND_REFRESH_LIMIT = 25
 const SYNCFY_DEFAULT_TRANSACTION_LIMIT = 5000
 const SYNCFY_WIDGET_CONFIG = {
   locale: 'es',
@@ -1224,6 +1226,22 @@ async function loadSyncfyCredentialsForEmail(env: Env, email: string): Promise<S
   return result.results
 }
 
+async function loadDueSyncfyCredentials(env: Env): Promise<SyncfyCredentialRow[]> {
+  await ensureSyncfyTables(env)
+
+  const result = await env.DB.prepare(
+    `SELECT * FROM syncfy_credentials
+     WHERE last_pull_at IS NULL
+        OR unixepoch(last_pull_at) <= unixepoch('now') - ?
+     ORDER BY COALESCE(last_pull_at, created_at) ASC
+     LIMIT ?`
+  )
+    .bind(SYNCFY_BACKGROUND_REFRESH_INTERVAL_SECONDS, SYNCFY_BACKGROUND_REFRESH_LIMIT)
+    .all<SyncfyCredentialRow>()
+
+  return result.results
+}
+
 async function storeSyncfyWebhookEvent(env: Env, payload: unknown): Promise<SyncfyWebhookEventRow> {
   const eventType = extractSyncfyEventType(payload)
   const credential = extractSyncfyCredentialPayload(payload)
@@ -1753,6 +1771,89 @@ async function importSyncfyTransactionsForCredential(
   credentialId: string
 ): Promise<SyncfyTransactionImportResult> {
   return importSyncfyTransactionsFromEndpoints(env, email, credentialId, [buildSyncfyTransactionsPath(credentialId)])
+}
+
+async function markSyncfyCredentialSyncSuccess(
+  env: Env,
+  email: string,
+  credentialId: string
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE syncfy_credentials
+     SET last_pull_at = datetime("now"),
+         last_successful_sync_at = datetime("now"),
+         status = COALESCE(NULLIF(status, ''), 'synced'),
+         updated_at = datetime("now")
+     WHERE email = ? AND syncfy_credential_id = ?`
+  )
+    .bind(email, credentialId)
+    .run()
+}
+
+async function markSyncfyCredentialSyncError(
+  env: Env,
+  email: string,
+  credentialId: string,
+  status: string
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE syncfy_credentials
+     SET last_pull_at = datetime("now"),
+         status = ?,
+         updated_at = datetime("now")
+     WHERE email = ? AND syncfy_credential_id = ?`
+  )
+    .bind(status, email, credentialId)
+    .run()
+}
+
+async function refreshDueSyncfyCredentials(env: Env): Promise<{
+  checked: number
+  imported: number
+  failed: number
+}> {
+  if (!env.SYNCFY_API_KEY) return { checked: 0, imported: 0, failed: 0 }
+
+  const dueCredentials = await loadDueSyncfyCredentials(env)
+  let imported = 0
+  let failed = 0
+
+  for (const credential of dueCredentials) {
+    try {
+      const result = await importSyncfyTransactionsForCredential(
+        env,
+        credential.email,
+        credential.syncfy_credential_id
+      )
+      imported += result.imported
+      await markSyncfyCredentialSyncSuccess(env, credential.email, credential.syncfy_credential_id)
+    } catch (err) {
+      failed += 1
+      if (err instanceof SyncfyRequestError) {
+        await storeSyncfyError(env, {
+          email: credential.email,
+          syncfyUserId: credential.syncfy_user_id,
+          syncfyCredentialId: credential.syncfy_credential_id,
+          rid: err.rid,
+          statusCode: err.status,
+          errorCode: err.code,
+          message: err.message,
+          source: 'syncfy-scheduled-refresh',
+          payload: err.responseBody,
+        })
+        await markSyncfyCredentialSyncError(
+          env,
+          credential.email,
+          credential.syncfy_credential_id,
+          err.status === 401 ? 'needs_reconnect' : 'sync_error'
+        )
+      } else {
+        throw err
+      }
+    }
+  }
+
+  return { checked: dueCredentials.length, imported, failed }
 }
 
 async function ensureFinanceTables(env: Env): Promise<void> {
@@ -3141,6 +3242,13 @@ export default {
 
     return new Response('Not Found', { status: 404 })
   },
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      refreshDueSyncfyCredentials(env).then((result) => {
+        console.log('Syncfy scheduled refresh complete', result)
+      })
+    )
+  },
 }
 
 // =====================
@@ -4358,13 +4466,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
           normalizedEmail,
           credential.syncfy_credential_id
         )
-        await env.DB.prepare(
-          `UPDATE syncfy_credentials
-           SET last_pull_at = datetime("now"), last_successful_sync_at = datetime("now"), updated_at = datetime("now")
-           WHERE email = ? AND syncfy_credential_id = ?`
-        )
-          .bind(normalizedEmail, credential.syncfy_credential_id)
-          .run()
+        await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
         const dashboard = await getFinanceDashboard(env, normalizedEmail)
 
         return json({
