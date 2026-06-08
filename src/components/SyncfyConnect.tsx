@@ -173,8 +173,9 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const message = typeof data.error === 'string' ? data.error : 'Error de API'
-    const error = new Error(message) as Error & { data?: unknown }
+    const error = new Error(message) as Error & { data?: unknown; status?: number }
     error.data = data
+    error.status = response.status
     throw error
   }
 
@@ -327,8 +328,12 @@ export function SyncfyConnect({
       }
 
       return true
-    } catch {
-      return false
+    } catch (error) {
+      const apiError = error as Error & { status?: number }
+      const message = apiError.message || 'No pudimos guardar la credencial de Syncfy.'
+      setMessage(message)
+      onStatus?.(message)
+      return apiError.status !== 422
     }
   }
 

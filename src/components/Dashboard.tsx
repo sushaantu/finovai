@@ -114,6 +114,7 @@ import {
 
 interface DashboardProps {
   email: string | null
+  initialNotice?: string | null
   initialPath?: string
   onBackHome: () => void
   onLogout: () => void
@@ -282,6 +283,7 @@ interface SyncfyCredential {
   lastPullAt: string | null
   cooldownSeconds: number
   ready: boolean
+  needsReconnect?: boolean
 }
 
 interface SyncfyCredentialsResponse {
@@ -650,6 +652,10 @@ function formatDataCoverage(coverage: FinanceSummary['dataCoverage']) {
   const transactionLabel = coverage.transactionCount === 1 ? '1 movimiento' : `${coverage.transactionCount} movimientos`
 
   return `${monthLabel} analizados · ${transactionLabel} · ${monthRange}`
+}
+
+function syncfyCredentialNeedsReconnect(credential: SyncfyCredential) {
+  return credential.needsReconnect === true || credential.status === 'needs_reconnect'
 }
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -1433,7 +1439,8 @@ function buildDashboardChatOpening(
   transactions: AnalysisTransaction[],
   draftCount: number,
   selectedDraftCount: number,
-  hasConnectedInstitution: boolean
+  hasConnectedInstitution: boolean,
+  hasReconnectRequiredCredential = false
 ) {
   if (draftCount > 0 && selectedDraftCount > 0) {
     return `Ya puedo hacer un análisis preliminar de ${selectedDraftCount} movimientos seleccionados. Pregúntame qué se repite, dónde se fuga dinero o qué podrías ahorrar.`
@@ -1448,6 +1455,10 @@ function buildDashboardChatOpening(
       return 'La institución ya está conectada. En cuanto Syncfy entregue movimientos, puedo encontrar fugas, patrones y oportunidades para ahorrar.'
     }
 
+    if (hasReconnectRequiredCredential) {
+      return 'Syncfy pide reconectar la institución. Reconecta la cuenta para volver a leer movimientos reales.'
+    }
+
     return 'Conecta una cuenta con Syncfy. En cuanto entren transacciones, puedo encontrar fugas, patrones y oportunidades para ahorrar.'
   }
 
@@ -1460,11 +1471,16 @@ function buildDashboardChatAnswer(
   summary: FinanceSummary,
   currency: string,
   isDraftAnalysis = false,
-  hasConnectedInstitution = false
+  hasConnectedInstitution = false,
+  hasReconnectRequiredCredential = false
 ) {
   if (transactions.length === 0) {
     if (hasConnectedInstitution) {
       return 'La institución ya está conectada, pero todavía no tengo transacciones disponibles. Syncfy puede tardar en entregar movimientos; vuelve a sincronizar desde Conectar cuenta si esto no cambia en unos minutos.'
+    }
+
+    if (hasReconnectRequiredCredential) {
+      return 'Syncfy necesita que reconectes la institución antes de que pueda leer transacciones nuevas. Ve a Conectar cuenta y usa Reconectar.'
     }
 
     return 'Todavía no tengo transacciones para analizar. Conecta una cuenta con Syncfy para que FinovAI lea movimientos reales.'
@@ -1587,7 +1603,7 @@ function buildDashboardChatReasoning(
   return `Reviso ingresos, gastos, balance neto, categorías y movimientos grandes de ${formatMonth(summary.month)} antes de responder.`
 }
 
-export default function Dashboard({ email, initialPath, onBackHome, onLogout }: DashboardProps) {
+export default function Dashboard({ email, initialNotice, initialPath, onBackHome, onLogout }: DashboardProps) {
   const previewEnabled = getDashboardPreviewEnabled()
   const previewEmail = previewEnabled ? 'preview@finov.ai' : null
   const [activeEmail, setActiveEmail] = useState<string | null>(() => getStoredEmail(email) || previewEmail)
@@ -1600,7 +1616,7 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
   const [draftRows, setDraftRows] = useState<CartolaDraftRow[]>([])
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set())
   const [currentImport, setCurrentImport] = useState<CartolaImportResponse | null>(null)
-  const [status, setStatus] = useState('Identifícate con tu correo para conectar una cuenta con Syncfy.')
+  const [status, setStatus] = useState(initialNotice || 'Identifícate con tu correo para conectar una cuenta con Syncfy.')
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -1623,9 +1639,16 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
   const [updatingCategoryId, setUpdatingCategoryId] = useState<string | null>(null)
   const chatAnswerTimeoutRef = useRef<number | null>(null)
   const chatMessagesEndRef = useRef<HTMLDivElement | null>(null)
-  const connectedInstitutionCount = syncfyCredentials.length
+  const activeSyncfyCredentials = syncfyCredentials.filter((credential) => !syncfyCredentialNeedsReconnect(credential))
+  const reconnectCredentialCount = syncfyCredentials.length - activeSyncfyCredentials.length
+  const connectedInstitutionCount = activeSyncfyCredentials.length
   const hasConnectedInstitution = connectedInstitutionCount > 0
+  const hasReconnectRequiredCredential = reconnectCredentialCount > 0
   const showConnectNudge = !hasConnectedInstitution && activePage !== 'syncfy'
+
+  useEffect(() => {
+    if (initialNotice) setStatus(initialNotice)
+  }, [initialNotice])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1686,6 +1709,8 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
           ? 'Transacciones listas para análisis.'
           : hasConnectedInstitution
             ? 'Institución conectada. Esperando movimientos de Syncfy.'
+            : hasReconnectRequiredCredential
+              ? 'Reconecta tu institución para volver a cargar movimientos de Syncfy.'
             : 'Conecta una cuenta con Syncfy para analizar tus datos reales.')
       })
       .catch((error: Error) => {
@@ -1699,7 +1724,7 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
     return () => {
       cancelled = true
     }
-  }, [activeEmail, hasConnectedInstitution, previewEmail, previewEnabled])
+  }, [activeEmail, hasConnectedInstitution, hasReconnectRequiredCredential, previewEmail, previewEnabled])
 
   useEffect(() => {
     let cancelled = false
@@ -1902,13 +1927,14 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
             chatTransactions,
             draftRows.length,
             selectedRows.length,
-            hasConnectedInstitution
+            hasConnectedInstitution,
+            hasReconnectRequiredCredential
           ),
         },
         ...current.filter((message) => !message.id.startsWith(`welcome-${activeEmail}`)),
       ]
     })
-  }, [activeEmail, chatTransactions, draftRows.length, hasConnectedInstitution, hasDraftRows, selectedRows.length, transactions.length])
+  }, [activeEmail, chatTransactions, draftRows.length, hasConnectedInstitution, hasDraftRows, hasReconnectRequiredCredential, selectedRows.length, transactions.length])
 
   useEffect(() => () => {
     if (chatAnswerTimeoutRef.current) {
@@ -2293,7 +2319,8 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
             chatSummary,
             chatCurrency,
             isDraftChat,
-            hasConnectedInstitution
+            hasConnectedInstitution,
+            hasReconnectRequiredCredential
           )
           model = isDraftChat ? 'análisis local preliminar' : undefined
         }
@@ -2444,6 +2471,26 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
     const hasOpportunities = actionPlan.topOpportunities.length > 0
     const projection = actionPlan.investmentProjection
     const projectionYears = projection.years || DEFAULT_INVESTMENT_ASSUMPTION.years
+    const fallbackAction = hasConnectedInstitution
+      ? {
+          id: 'sync-wait',
+          label: 'Ver movimientos',
+          body: 'Revisa si Syncfy ya entregó transacciones.',
+          target: 'movements',
+        } satisfies FinanceActionPlan['nextActions'][number]
+      : hasReconnectRequiredCredential
+        ? {
+            id: 'reconnect',
+            label: 'Reconectar cuenta',
+            body: 'Syncfy necesita una nueva autorización para leer movimientos.',
+            target: 'connect',
+          } satisfies FinanceActionPlan['nextActions'][number]
+        : {
+            id: 'connect',
+            label: 'Conectar cuenta',
+            body: 'Trae movimientos reales con Syncfy.',
+            target: 'connect',
+          } satisfies FinanceActionPlan['nextActions'][number]
 
     return (
       <Card className={cn(FINANCE_ARTIFACT_CARD_CLASS, 'border-primary/20 bg-primary/5')}>
@@ -2469,6 +2516,8 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
                 ? `Si se invierte cada mes, en ${projectionYears} años podría ser ${formatCardCurrency(projection.tenYearValue, chatCurrency)} bajo un supuesto anual ilustrativo de ${Math.round(projection.annualReturn * 100)}%.`
                 : hasConnectedInstitution
                   ? 'Syncfy está conectado, pero todavía falta suficiente señal para estimar una meta real.'
+                  : hasReconnectRequiredCredential
+                    ? 'Reconecta la institución para estimar una meta con movimientos reales.'
                   : 'Conecta una institución para calcular una meta con movimientos reales.'}
             </p>
           </div>
@@ -2501,12 +2550,7 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
           </div>
 
           <div className="flex flex-col gap-2">
-            {(actionPlan.nextActions.length > 0 ? actionPlan.nextActions : [{
-              id: hasConnectedInstitution ? 'sync-wait' : 'connect',
-              label: hasConnectedInstitution ? 'Ver movimientos' : 'Conectar cuenta',
-              body: hasConnectedInstitution ? 'Revisa si Syncfy ya entregó transacciones.' : 'Trae movimientos reales con Syncfy.',
-              target: hasConnectedInstitution ? 'movements' : 'connect',
-            } satisfies FinanceActionPlan['nextActions'][number]]).map((action) => (
+            {(actionPlan.nextActions.length > 0 ? actionPlan.nextActions : [fallbackAction]).map((action) => (
               <Button
                 key={action.id}
                 type="button"
@@ -2798,7 +2842,7 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
             disabled={Boolean(pendingChatAnswer)}
           >
             <Landmark data-icon="inline-start" />
-            Conectar cuenta
+            {hasReconnectRequiredCredential ? 'Reconectar cuenta' : 'Conectar cuenta'}
           </PromptSuggestion>
         ) : null
       ) : null}
@@ -2976,11 +3020,15 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
         ? `${chatTransactions.length} movimientos`
         : hasConnectedInstitution
           ? 'Cuenta conectada'
+          : hasReconnectRequiredCredential
+            ? 'Reconexión requerida'
           : 'Sin cuenta conectada'
     const contextDetail = hasTransactions || hasDraftRows
       ? `${formatMonth(chatSummary.month)} · ${chatSummary.topSpendingCategory} · ${chatDataCoverageLabel}`
       : hasConnectedInstitution
         ? 'Syncfy está conectado. Cuando entren movimientos, el chat los usará como contexto.'
+        : hasReconnectRequiredCredential
+          ? 'Syncfy necesita una nueva autorización para volver a leer transacciones.'
         : 'Conecta una cuenta para que el chat lea transacciones reales.'
 
     return (
@@ -3093,7 +3141,7 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
                       <div className="flex flex-wrap gap-2">
                         <Button type="button" onClick={() => setActivePage('syncfy')}>
                           <Landmark data-icon="inline-start" />
-                          Conectar cuenta
+                          {hasReconnectRequiredCredential ? 'Reconectar cuenta' : 'Conectar cuenta'}
                         </Button>
                       </div>
                     ) : null}
@@ -3583,6 +3631,8 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
                     <CardDescription>
                       {hasConnectedInstitution
                         ? 'La institución ya está conectada. Syncfy todavía no entrega movimientos para este historial.'
+                        : hasReconnectRequiredCredential
+                          ? 'Reconecta la institución para volver a llenar este historial con movimientos reales.'
                         : 'Conecta una cuenta con Syncfy para llenar este historial con movimientos reales.'}
                     </CardDescription>
                   </CardHeader>
@@ -3590,7 +3640,7 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
                     <CardContent>
                       <Button type="button" onClick={() => setActivePage('syncfy')}>
                         <Landmark data-icon="inline-start" />
-                        Conectar cuenta
+                        {hasReconnectRequiredCredential ? 'Reconectar cuenta' : 'Conectar cuenta'}
                       </Button>
                     </CardContent>
                   ) : null}
@@ -3818,6 +3868,8 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
                       <div className="rounded-2xl border border-dashed border-border/70 p-5 text-sm text-muted-foreground">
                         {hasConnectedInstitution
                           ? 'Aún no hay gastos para agrupar. Syncfy todavía no entrega movimientos.'
+                          : hasReconnectRequiredCredential
+                            ? 'Aún no hay gastos para agrupar. Reconecta la institución para traer transacciones.'
                           : 'Aún no hay gastos para agrupar. Conecta una cuenta para traer transacciones.'}
                       </div>
                     )}
@@ -3983,6 +4035,8 @@ export default function Dashboard({ email, initialPath, onBackHome, onLogout }: 
                         <p className="text-sm text-muted-foreground">
                           {hasConnectedInstitution
                             ? 'Syncfy todavía no entrega movimientos para generar análisis.'
+                            : hasReconnectRequiredCredential
+                              ? 'Reconecta la institución para generar análisis.'
                             : 'Conecta una cuenta para generar análisis.'}
                         </p>
                       )}

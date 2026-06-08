@@ -27,6 +27,7 @@ const DASHBOARD_APP_PATHS = new Set([
 function App() {
   const [pathname, setPathname] = useState(() => getPathname())
   const [signupEmail, setSignupEmail] = useState<string | null>(() => getStoredDashboardEmail())
+  const [authNotice, setAuthNotice] = useState<string | null>(null)
 
   useEffect(() => {
     const handlePopState = () => setPathname(getPathname())
@@ -55,13 +56,27 @@ function App() {
     })
       .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
       .then(({ ok, data }) => {
-        if (cancelled || !ok || !data.clientSecret) return
+        if (cancelled) return
+        if (!ok || !data.clientSecret) {
+          setAuthNotice(typeof data.error === 'string'
+            ? data.error
+            : 'No pudimos validar el enlace. Pide un nuevo código.')
+          window.history.replaceState({}, '', '/dashboard')
+          setPathname('/dashboard')
+          return
+        }
+        setAuthNotice(null)
         setDashboardSession(data.email || email, data.clientSecret)
         setSignupEmail(data.email || email)
         window.history.replaceState({}, '', '/dashboard')
         setPathname('/dashboard')
       })
-      .catch(() => {})
+      .catch(() => {
+        if (cancelled) return
+        setAuthNotice('No pudimos validar el enlace. Pide un nuevo código.')
+        window.history.replaceState({}, '', '/dashboard')
+        setPathname('/dashboard')
+      })
 
     return () => {
       cancelled = true
@@ -69,6 +84,7 @@ function App() {
   }, [])
 
   const handleSignupSuccess = (email: string) => {
+    setAuthNotice(null)
     setDashboardSession(email)
     setSignupEmail(email)
     navigate('/dashboard')
@@ -107,7 +123,13 @@ function App() {
       ) : null}
 
       {isDashboard ? (
-        <Dashboard email={signupEmail} initialPath={pathname} onBackHome={() => navigate('/')} onLogout={handleLogout} />
+        <Dashboard
+          email={signupEmail}
+          initialNotice={authNotice}
+          initialPath={pathname}
+          onBackHome={() => navigate('/')}
+          onLogout={handleLogout}
+        />
       ) : isSyncfyAdmin ? (
         <SyncfyAdminPage />
       ) : staticPage ? (
