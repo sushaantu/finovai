@@ -84,7 +84,7 @@ export default function Hero({ onSignupSuccess }: HeroProps) {
                 transition={{ duration: 0.6, delay: 0.4 }}
               >
                 <p className="mb-3 text-sm font-medium text-zinc-300">
-                  Empieza con tu email
+                  Empieza con tu correo
                 </p>
                 <EmailSignup source="hero" onSuccess={onSignupSuccess} />
               </motion.div>

@@ -1,6 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Inter+Tight:wght@500;600;700;800&family=Sora:wght@300;400;500;600;700;800&family=DM+Serif+Display:ital@0;1&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
 
 /* FinovAI Design System - Refined Fintech */
 @theme {
@@ -452,6 +454,8 @@ body {
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --font-heading: var(--font-sans);
+  --font-sans: 'Inter Variable', sans-serif;
 }
 
 :root {
@@ -462,10 +466,10 @@ body {
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.488 0.243 264.376);
+  --primary-foreground: oklch(0.97 0.014 254.604);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
@@ -474,15 +478,15 @@ body {
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+  --chart-1: oklch(0.809 0.105 251.813);
+  --chart-2: oklch(0.623 0.214 259.815);
+  --chart-3: oklch(0.546 0.245 262.881);
+  --chart-4: oklch(0.488 0.243 264.376);
+  --chart-5: oklch(0.424 0.199 265.638);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.546 0.245 262.881);
+  --sidebar-primary-foreground: oklch(0.97 0.014 254.604);
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
@@ -496,9 +500,9 @@ body {
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
+  --primary: oklch(0.424 0.199 265.638);
+  --primary-foreground: oklch(0.97 0.014 254.604);
+  --secondary: oklch(0.274 0.006 286.033);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
   --muted-foreground: oklch(0.708 0 0);
@@ -508,66 +512,109 @@ body {
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
+  --chart-1: oklch(0.809 0.105 251.813);
+  --chart-2: oklch(0.623 0.214 259.815);
+  --chart-3: oklch(0.546 0.245 262.881);
+  --chart-4: oklch(0.488 0.243 264.376);
+  --chart-5: oklch(0.424 0.199 265.638);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.623 0.214 259.815);
+  --sidebar-primary-foreground: oklch(0.97 0.014 254.604);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
 }
 
-.finovai-dashboard.dark {
-  --background: #07111f;
-  --foreground: #f8fbff;
-  --card: #0d1a2e;
-  --card-foreground: #f8fbff;
-  --popover: #0d1a2e;
-  --popover-foreground: #f8fbff;
-  --primary: #2b7ae8;
+.finovai-dashboard {
+  --background: #ffffff;
+  --foreground: #161713;
+  --card: #ffffff;
+  --card-foreground: #161713;
+  --popover: #ffffff;
+  --popover-foreground: #161713;
+  --primary: #287244;
   --primary-foreground: #ffffff;
-  --secondary: #13223a;
-  --secondary-foreground: #eef6ff;
-  --muted: #13223a;
-  --muted-foreground: #9fb0cc;
-  --accent: #00d4aa;
-  --accent-foreground: #04111f;
-  --border: rgba(255, 255, 255, 0.1);
-  --input: rgba(255, 255, 255, 0.15);
-  --ring: #00d4aa;
-  --chart-1: #2b7ae8;
-  --chart-2: #00d4aa;
-  --chart-3: #7aa8ff;
-  --chart-4: #3dd6ff;
-  --chart-5: #8fd8c8;
-  --sidebar: #0a1628;
-  --sidebar-foreground: #f8fbff;
-  --sidebar-primary: #2b7ae8;
+  --secondary: #f3f5f1;
+  --secondary-foreground: #1f241d;
+  --muted: #f7f8f5;
+  --muted-foreground: #6b6f65;
+  --accent: #eef7ef;
+  --accent-foreground: #1d2a20;
+  --border: #e9ebe4;
+  --input: #e6e9e1;
+  --ring: #287244;
+  --chart-1: #1f5f31;
+  --chart-2: #3f964f;
+  --chart-3: #70c982;
+  --chart-4: #a7dfb3;
+  --chart-5: #8ec6f2;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #161713;
+  --sidebar-primary: #287244;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #13223a;
-  --sidebar-accent-foreground: #f8fbff;
-  --sidebar-border: rgba(255, 255, 255, 0.1);
-  --sidebar-ring: #00d4aa;
-
+  --sidebar-accent: #f3f5f1;
+  --sidebar-accent-foreground: #1f241d;
+  --sidebar-border: #e9ebe4;
+  --sidebar-ring: #287244;
+  --color-spending: #6fb579;
+  --color-income: #91c8f3;
   background:
-    radial-gradient(circle at 0% 0%, rgba(43, 122, 232, 0.24), transparent 34%),
-    radial-gradient(circle at 92% 12%, rgba(0, 212, 170, 0.14), transparent 30%),
-    var(--background);
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    radial-gradient(circle at 0% 100%, rgba(63, 188, 143, 0.55), transparent 35%),
+    radial-gradient(circle at 100% 6%, rgba(242, 244, 205, 0.78), transparent 32%),
+    radial-gradient(circle at 86% 44%, rgba(203, 240, 246, 0.76), transparent 34%),
+    linear-gradient(125deg, #dfffe9 0%, #d9fbf2 42%, #fbfae5 100%);
+  font-family: var(--font-sans);
+}
+
+.finovai-dashboard.dark {
+  --background: #0b0d0b;
+  --foreground: #f6f7f3;
+  --card: #131613;
+  --card-foreground: #f6f7f3;
+  --popover: #171a16;
+  --popover-foreground: #f6f7f3;
+  --primary: #72d786;
+  --primary-foreground: #06200d;
+  --secondary: #1b201b;
+  --secondary-foreground: #edf1e9;
+  --muted: #171b17;
+  --muted-foreground: #9aa196;
+  --accent: #1d2c20;
+  --accent-foreground: #eaf6eb;
+  --border: rgba(255, 255, 255, 0.11);
+  --input: rgba(255, 255, 255, 0.15);
+  --ring: #72d786;
+  --chart-1: #72d786;
+  --chart-2: #47a861;
+  --chart-3: #256b39;
+  --chart-4: #a3e4b0;
+  --chart-5: #89bff1;
+  --sidebar: #0b0d0b;
+  --sidebar-foreground: #f6f7f3;
+  --sidebar-primary: #72d786;
+  --sidebar-primary-foreground: #06200d;
+  --sidebar-accent: #1b201b;
+  --sidebar-accent-foreground: #edf1e9;
+  --sidebar-border: rgba(255, 255, 255, 0.11);
+  --sidebar-ring: #72d786;
+  --color-spending: #72d786;
+  --color-income: #89bff1;
+  background:
+    radial-gradient(circle at 0% 100%, rgba(43, 141, 101, 0.26), transparent 36%),
+    radial-gradient(circle at 100% 6%, rgba(197, 213, 147, 0.12), transparent 32%),
+    radial-gradient(circle at 86% 44%, rgba(76, 156, 176, 0.16), transparent 34%),
+    linear-gradient(125deg, #07100b 0%, #0c1412 45%, #11120c 100%);
+  font-family: var(--font-sans);
 }
 
 .finovai-dashboard h1,
 .finovai-dashboard h2,
 .finovai-dashboard h3,
 .finovai-dashboard [data-slot='card-title'] {
-  font-family: 'Inter Tight', 'Inter', sans-serif;
-  letter-spacing: -0.02em;
+  font-family: var(--font-heading);
+  letter-spacing: 0;
 }
 
 @layer base {
@@ -576,6 +623,12 @@ body {
   }
   body {
     @apply bg-background text-foreground;
+  }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  html {
+    @apply font-sans;
   }
 }
 
@@ -2248,53 +2301,6 @@ body {
   line-height: 1.6;
 }
 
-.landing-footer-signup {
-  position: relative;
-  display: flex;
-  max-width: 340px;
-  gap: 8px;
-  margin-top: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  padding: 6px;
-}
-
-.landing-footer-signup input {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  background: transparent;
-  padding: 8px 12px;
-  color: var(--landing-white);
-  font-size: 14px;
-  outline: none;
-}
-
-.landing-footer-signup input::placeholder {
-  color: rgba(255, 255, 255, 0.42);
-}
-
-.landing-footer-signup button {
-  min-height: 34px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--landing-teal);
-  padding: 8px 14px;
-  color: var(--landing-navy);
-  font-size: 13px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.landing-footer-signup small {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 14px;
-  color: var(--landing-teal);
-  font-size: 11px;
-}
-
 .landing-footer-column {
   display: flex;
   flex-direction: column;
@@ -2692,8 +2698,4 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .landing-footer-signup {
-    border-radius: 18px;
-    flex-direction: column;
-  }
 }

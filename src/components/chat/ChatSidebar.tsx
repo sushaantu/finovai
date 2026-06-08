@@ -247,7 +247,7 @@ export default function ChatSidebar({ isOpen, onClose, onSignupSuccess }: ChatSi
         { role: 'user', content: button.label },
         {
           role: 'assistant',
-          content: 'Perfecto. Déjame tu email y te llevo al análisis para cargar movimientos manualmente o subir tu cartola.',
+          content: 'Perfecto. Déjame tu correo y te llevo al análisis para cargar movimientos manualmente o subir tu cartola.',
         },
       ])
       setShowEmailSignup(true)
@@ -285,7 +285,7 @@ export default function ChatSidebar({ isOpen, onClose, onSignupSuccess }: ChatSi
 
       if (userMessageCount >= MESSAGES_BEFORE_REPORT_OFFER && !hasOfferedReport) {
         setHasOfferedReport(true)
-        aiMessage += `\n\n---\n\n📊 ¿Te gustaría recibir un diagnóstico personalizado?\n\nBasado en lo que me has contado, puedo prepararte un mini-reporte con:\n• Tu etapa financiera actual\n• 3 acciones prioritarias para tu caso\n• Recursos específicos para empezar\n\nSolo necesito tu email para abrir tu análisis y cargar tus movimientos.`
+        aiMessage += `\n\n---\n\n📊 ¿Te gustaría recibir un diagnóstico personalizado?\n\nBasado en lo que me has contado, puedo prepararte un mini-reporte con:\n• Tu etapa financiera actual\n• 3 acciones prioritarias para tu caso\n• Recursos específicos para empezar\n\nSolo necesito tu correo para abrir tu análisis y cargar tus movimientos.`
       }
 
       setGuestMessages((prev) => [...prev, { role: 'assistant', content: aiMessage }])

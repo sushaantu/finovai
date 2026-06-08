@@ -2,7 +2,7 @@
 
 ## PM-Ready Status
 
-FinovAI now has the core Syncfy operating model in place: one Syncfy user per FinovAI user, `id_external` mapping, stored `id_user`, widget session creation, email-scoped dashboard sessions, Cloudflare Email passwordless login support, credential/webhook/error storage, `rid` capture, refresh cooldowns, and Syncfy transaction import into the same dashboard analysis tables.
+FinovAI now has the core Syncfy operating model in place: one Syncfy user per FinovAI user, `id_external` mapping, stored `id_user`, widget session creation, email-scoped dashboard sessions, Cloudflare Email passwordless login support, credential/webhook/error storage, `rid` capture, refresh cooldowns, and Syncfy transaction import into the same dashboard analysis tables. The default transaction pull requests six months of history with `dt_transaction_from` / `dt_transaction_to` and paginates up to 5,000 rows per import.
 
 ## Configure In Syncfy
 
@@ -28,12 +28,13 @@ direnv exec /Users/sushaantu/Developer bunx wrangler secret put SYNCFY_WEBHOOK_S
 | Credential ID storage | DONE | `syncfy_credentials` stores `syncfy_credential_id`, Syncfy user/site IDs, status, refresh timestamps, and raw payload. |
 | Webhooks | DONE | `/api/syncfy/webhook` stores raw events and upserts credential state. |
 | `credentials.refresh` handling | DONE | Refresh events read Syncfy-provided transaction endpoints and import new/updated movements. |
+| Historical transaction window | DONE | Default credential pulls request the last 6 months; override with `SYNCFY_TRANSACTION_LOOKBACK_MONTHS` if product needs a different baseline. |
 | Error `rid` storage | DONE | Syncfy API failures and webhook payloads store `rid` when present. |
 | Widget integration | DONE | Dashboard embeds `@syncfy/authentication-widget`, locks country to Mexico, supports credential creation/update, and handles widget events. |
 | Pull/rate-limit behavior | DONE | Backend enforces a 5-minute pull cooldown per credential and the dashboard disables refresh while cooling down. |
 | API-change tolerance | DONE | Payload extraction is flexible around nested `response`, `data`, `credential`, `credentials`, `extra`, and variable field names. |
 | Dashboard access control | DONE | Production dashboard APIs require a browser-held client secret created during email signup, so email-only reads are blocked. |
-| Email account recovery | READY | `/api/auth/request-link` and `/api/auth/verify` support passwordless codes/links through Cloudflare Email. Turn on `EMAIL_AUTH_REQUIRED` after Email Sending is enabled for `finov.ai`. |
+| Email account recovery | READY | `/api/auth/request-link` and `/api/auth/verify` support passwordless codes/links through Cloudflare Email. Turn on `EMAIL_AUTH_REQUIRED` after Email Sending is enabled for `mail.finov.ai`. |
 | Legacy flow shutdown | DONE | Generic expenses, legacy chat, manual entry, and bank-statement backup imports are disabled in production unless explicitly re-enabled. |
 | Security | PARTIAL | API key stays server-side and browser uses widget session token. Webhook shared-secret verification should be enabled after the Syncfy dashboard sends the same header. |
 | Docs/tests | PARTIAL | Unit tests cover path, transaction normalization, dashboard session auth, and production legacy-gating. ACME Bank sandbox and load testing still require Syncfy dashboard access. |
@@ -52,7 +53,7 @@ direnv exec /Users/sushaantu/Developer bunx wrangler secret put SYNCFY_WEBHOOK_S
 
 1. Configure Syncfy dashboard webhook subscription for production and sandbox.
 2. Enable `SYNCFY_WEBHOOK_SECRET` after Syncfy is configured to send the matching header.
-3. Enable Cloudflare Email Sending for `finov.ai`, then set `EMAIL_AUTH_REQUIRED = "true"`.
+3. Enable Cloudflare Email Sending for `mail.finov.ai`, then set `EMAIL_AUTH_REQUIRED = "true"`.
 4. Run ACME Bank sandbox tests across access types before changing sandbox behavior.
 5. Add load tests once expected traffic is known.
 

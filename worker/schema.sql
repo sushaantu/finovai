@@ -217,6 +217,9 @@ CREATE TABLE IF NOT EXISTS email_login_challenges (
 CREATE TABLE IF NOT EXISTS financial_profiles (
   email TEXT PRIMARY KEY,
   currency TEXT NOT NULL DEFAULT 'MXN',
+  monthly_income REAL,
+  monthly_budget REAL,
+  category_budgets_json TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT
 );
@@ -248,6 +251,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   notes TEXT,
   source TEXT NOT NULL CHECK (source IN ('manual', 'cartola', 'syncfy')),
   confidence REAL NOT NULL DEFAULT 1,
+  category_locked INTEGER NOT NULL DEFAULT 0,
   raw_source TEXT,
   cartola_import_id TEXT,
   created_at TEXT NOT NULL,

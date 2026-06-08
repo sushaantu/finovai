@@ -25,8 +25,11 @@ import { getDashboardAuthHeaders } from '@/lib/dashboard-session'
 
 interface SyncfyConnectProps {
   email: string
+  initialCredentials?: SyncfyCredential[]
+  isLoadingCredentials?: boolean
   onStatus?: (message: string) => void
   onSynced?: (dashboard: unknown) => void
+  onCredentialsChange?: (credentials: SyncfyCredential[]) => void
 }
 
 interface SyncfyCredential {
@@ -38,10 +41,17 @@ interface SyncfyCredential {
   lastPullAt: string | null
   cooldownSeconds: number
   ready: boolean
+  needsReconnect?: boolean
 }
 
 interface SyncfyCredentialsResponse {
   credentials: SyncfyCredential[]
+}
+
+interface SyncfyImportSummary {
+  fetched: number
+  imported: number
+  skipped: number
 }
 
 interface SyncfyCredentialCaptureResponse {
@@ -50,6 +60,8 @@ interface SyncfyCredentialCaptureResponse {
   credentials: SyncfyCredential[]
   message?: string
   transactions?: unknown[]
+  pendingTransactions?: boolean
+  syncfy?: SyncfyImportSummary | null
 }
 
 interface SyncfySessionResponse {
@@ -66,12 +78,9 @@ interface SyncfyRefreshResponse {
   message?: string
   error?: string
   retryAfterSeconds?: number
-}
-
-interface SyncfyResetResponse {
-  success: boolean
-  message?: string
-  credentials: SyncfyCredential[]
+  transactions?: unknown[]
+  pendingTransactions?: boolean
+  syncfy?: SyncfyImportSummary | null
 }
 
 type WidgetMode = 'create' | 'update'
@@ -179,32 +188,57 @@ function formatCooldown(seconds: number) {
   return minutes > 0 ? `${minutes}m ${rest}s` : `${rest}s`
 }
 
+const FINANCE_CONNECT_CARD_CLASS = 'min-w-0 rounded-[1.45rem] border-border/70 bg-card py-5 shadow-[0_16px_45px_rgba(20,33,27,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.26)]'
+const FINANCE_CONNECT_INSET_CLASS = 'rounded-2xl bg-secondary/45 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]'
+
 function getCredentialLabel(credential: SyncfyCredential) {
   return credential.siteName || credential.syncfyCredentialId
 }
 
-export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps) {
+function getCredentialStatusText(credential: SyncfyCredential) {
+  if (credential.needsReconnect || credential.status === 'needs_reconnect') {
+    return 'Reconecta el acceso para volver a sincronizar.'
+  }
+
+  return credential.ready
+    ? 'Lista para sincronizar'
+    : `Próxima sincronización en ${formatCooldown(credential.cooldownSeconds)}`
+}
+
+export function SyncfyConnect({
+  email,
+  initialCredentials = [],
+  isLoadingCredentials = false,
+  onStatus,
+  onSynced,
+  onCredentialsChange,
+}: SyncfyConnectProps) {
   const widgetContainerRef = useRef<HTMLDivElement | null>(null)
   const widgetRef = useRef<SyncfyWidgetInstance | null>(null)
   const pollTimeoutRef = useRef<number | null>(null)
-  const [credentials, setCredentials] = useState<SyncfyCredential[]>([])
+  const retryTimeoutRef = useRef<number | null>(null)
+  const [credentials, setCredentials] = useState<SyncfyCredential[]>(initialCredentials)
   const [session, setSession] = useState<SyncfySessionResponse | null>(null)
   const [widgetMode, setWidgetMode] = useState<WidgetMode>('create')
   const [activeCredentialId, setActiveCredentialId] = useState<string | null>(null)
   const [message, setMessage] = useState('Conecta una institución con Syncfy para que FinovAI lea transacciones reales.')
   const [isLoading, setIsLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [isResetting, setIsResetting] = useState(false)
   const [widgetRunId, setWidgetRunId] = useState(0)
 
-  const primaryCredential = credentials[0]
-  const canRefresh = Boolean(primaryCredential?.ready)
+  const hasCredentials = credentials.length > 0
+  const isBusy = isLoading || isRefreshing
+
+  const applyCredentials = (nextCredentials: SyncfyCredential[]) => {
+    setCredentials(nextCredentials)
+    onCredentialsChange?.(nextCredentials)
+  }
 
   const loadCredentials = async () => {
     const response = await apiJson<SyncfyCredentialsResponse>(
       `/api/syncfy/credentials?email=${encodeURIComponent(email)}`
     )
-    setCredentials(response.credentials)
+    applyCredentials(response.credentials)
     return response.credentials
   }
 
@@ -212,6 +246,13 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
     if (pollTimeoutRef.current) {
       window.clearTimeout(pollTimeoutRef.current)
       pollTimeoutRef.current = null
+    }
+  }
+
+  const clearTransactionRetry = () => {
+    if (retryTimeoutRef.current) {
+      window.clearTimeout(retryTimeoutRef.current)
+      retryTimeoutRef.current = null
     }
   }
 
@@ -234,10 +275,10 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
 
       if (nextCredential) {
         setMessage(attemptRefresh
-          ? 'Credencial Syncfy detectada. Sincronizando transacciones.'
+          ? 'Credencial detectada. Buscando movimientos en Syncfy.'
           : 'Credencial Syncfy detectada.')
         if (attemptRefresh) {
-          void refreshTransactions(nextCredential.syncfyCredentialId)
+          void refreshTransactions(nextCredential.syncfyCredentialId, 0)
         }
         return
       }
@@ -247,7 +288,7 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
           void tick()
         }, 3000)
       } else {
-        setMessage('Syncfy aun no confirma la credencial. Si ya terminaste el banco, espera el webhook o intenta actualizar.')
+        setMessage('Syncfy todavía no confirma la credencial. Puedes dejar esta página abierta; FinovAI seguirá esperando la confirmación.')
       }
     }
 
@@ -269,7 +310,7 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
         }),
       })
 
-      setCredentials(response.credentials)
+      applyCredentials(response.credentials)
       if (response.message) {
         setMessage(response.message)
         onStatus?.(response.message)
@@ -281,7 +322,7 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
       const nextCredential = response.credential || response.credentials[0]
       if (nextCredential?.syncfyCredentialId) {
         window.setTimeout(() => {
-          void refreshTransactions(nextCredential.syncfyCredentialId)
+          void refreshTransactions(nextCredential.syncfyCredentialId, response.pendingTransactions ? 1 : 0)
         }, 1200)
       }
 
@@ -292,23 +333,12 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
   }
 
   useEffect(() => {
-    let cancelled = false
-
-    apiJson<SyncfyCredentialsResponse>(`/api/syncfy/credentials?email=${encodeURIComponent(email)}`)
-      .then((response) => {
-        if (!cancelled) setCredentials(response.credentials)
-      })
-      .catch(() => {
-        if (!cancelled) setCredentials([])
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [email])
+    setCredentials(initialCredentials)
+  }, [initialCredentials])
 
   useEffect(() => () => {
     clearCredentialPolling()
+    clearTransactionRetry()
   }, [])
 
   useEffect(() => {
@@ -334,20 +364,20 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
 
       widget.on('success', (...args: unknown[]) => {
         clearCredentialPolling()
-        setMessage('Syncfy conectó la institución. Guardando credencial e importando transacciones.')
-        onStatus?.('Syncfy conectado. Guardando credencial.')
+        setMessage('Institución conectada. Guardando credencial y esperando movimientos.')
+        onStatus?.('Syncfy conectado. Esperando movimientos.')
         void captureWidgetCredential('widget.success', args).then((captured) => {
           if (!captured) pollForCredential(true)
         })
       })
       widget.on('updated', (...args: unknown[]) => {
         clearCredentialPolling()
-        setMessage('Credencial Syncfy actualizada. Sincronizando transacciones.')
+        setMessage('Acceso actualizado. Buscando movimientos nuevos.')
         onStatus?.('Credencial Syncfy actualizada.')
         void captureWidgetCredential('widget.updated', args).then((captured) => {
           if (!captured) {
             window.setTimeout(() => {
-              void refreshTransactions(activeCredentialId || undefined)
+              void refreshTransactions(activeCredentialId || undefined, 0)
             }, 1500)
           }
         })
@@ -358,6 +388,7 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
       })
       widget.on('closed', () => {
         clearCredentialPolling()
+        setSession(null)
         void loadCredentials()
       })
 
@@ -385,7 +416,10 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
   async function createSession(mode: WidgetMode, credentialId: string | null, showLoading = true) {
     if (showLoading) {
       setIsLoading(true)
-      setMessage(mode === 'update' ? 'Preparando actualización de credencial.' : 'Preparando widget de Syncfy.')
+      clearTransactionRetry()
+      setMessage(mode === 'update'
+        ? 'Abriendo Syncfy para actualizar el acceso.'
+        : 'Abriendo Syncfy. Después del éxito, los movimientos pueden tardar unos segundos en llegar.')
       closeWidget()
       setSession(null)
     }
@@ -422,9 +456,12 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
     }
   }
 
-  async function refreshTransactions(credentialId?: string) {
+  async function refreshTransactions(credentialId?: string, retryAttempt = 0) {
+    if (retryAttempt === 0) clearTransactionRetry()
     setIsRefreshing(true)
-    setMessage('Pidiendo a Syncfy los movimientos nuevos.')
+    setMessage(retryAttempt > 0
+      ? `Syncfy sigue preparando movimientos. Reintentando (${retryAttempt}/6).`
+      : 'Buscando movimientos nuevos en Syncfy.')
 
     try {
       const response = await apiJson<SyncfyRefreshResponse>('/api/syncfy/refresh', {
@@ -435,14 +472,24 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
         }),
       })
 
-      setMessage(response.message || 'Movimientos sincronizados desde Syncfy.')
-      onStatus?.(response.message || 'Movimientos sincronizados desde Syncfy.')
+      const pendingTransactions = Boolean(response.pendingTransactions)
+      const nextMessage = response.message || 'Movimientos sincronizados desde Syncfy.'
+      if (pendingTransactions && credentialId && retryAttempt < 6) {
+        setMessage(`${nextMessage} Reintento automático en unos segundos.`)
+        onStatus?.(nextMessage)
+        retryTimeoutRef.current = window.setTimeout(() => {
+          void refreshTransactions(credentialId, retryAttempt + 1)
+        }, 8000)
+      } else {
+        setMessage(nextMessage)
+        onStatus?.(nextMessage)
+      }
       onSynced?.(response)
       await loadCredentials()
     } catch (error) {
       const data = (error as Error & { data?: { retryAfterSeconds?: number } }).data
       const nextMessage = data?.retryAfterSeconds
-        ? `Syncfy permite otro pull en ${formatCooldown(data.retryAfterSeconds)}.`
+        ? `Syncfy permite otra sincronización en ${formatCooldown(data.retryAfterSeconds)}.`
         : error instanceof Error ? error.message : 'No pudimos sincronizar Syncfy.'
       setMessage(nextMessage)
       onStatus?.(nextMessage)
@@ -452,87 +499,46 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
     }
   }
 
-  async function resetConnection() {
-    setIsResetting(true)
-    setMessage('Limpiando la conexión anterior para elegir institución de nuevo.')
-    clearCredentialPolling()
-    closeWidget()
-    setSession(null)
-
-    try {
-      const response = await apiJson<SyncfyResetResponse>('/api/syncfy/reset', {
-        method: 'POST',
-        body: JSON.stringify({ email }),
-      })
-      setCredentials(response.credentials)
-      setMessage(response.message || 'Conexión anterior limpiada. Abriendo selector de instituciones.')
-      await createSession('create', null)
-    } catch (error) {
-      const nextMessage = error instanceof Error ? error.message : 'No pudimos reiniciar Syncfy.'
-      setMessage(nextMessage)
-      onStatus?.(nextMessage)
-    } finally {
-      setIsResetting(false)
-    }
-  }
-
   return (
-    <Card className="rounded-lg border-[#2B7AE8]/20 bg-card/95">
+    <Card className={FINANCE_CONNECT_CARD_CLASS}>
       <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <CardTitle>Conecta tus cuentas con Syncfy</CardTitle>
+          <CardTitle>{hasCredentials ? 'Instituciones conectadas' : 'Conecta una institución'}</CardTitle>
           <CardDescription>
-            Bancos, SAT, Bitso, American Express y fuentes compatibles en México. La API key nunca toca el navegador.
+            Bancos, SAT, Bitso, American Express y fuentes compatibles en México.
           </CardDescription>
         </div>
         <Badge variant={credentials.length > 0 ? 'secondary' : 'outline'}>
-          {credentials.length > 0 ? `${credentials.length} credencial${credentials.length === 1 ? '' : 'es'}` : 'Sin conexión'}
+          {isLoadingCredentials
+            ? 'Cargando'
+            : credentials.length > 0
+              ? `${credentials.length} credencial${credentials.length === 1 ? '' : 'es'}`
+              : 'Sin conexión'}
         </Badge>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-          <div className="rounded-lg bg-secondary/20 p-4">
-            <div className="flex items-start gap-3">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-[#00D4AA]/10 text-[#00D4AA]">
-                <ShieldCheck className="size-4" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium">Solo lectura</p>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                  Syncfy maneja el acceso a instituciones compatibles y FinovAI recibe movimientos para detectar fugas y oportunidades de ahorro.
-                </p>
-              </div>
+        <div className={cn(FINANCE_CONNECT_INSET_CLASS, 'flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between')}>
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <ShieldCheck className="size-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Acceso solo lectura</p>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                FinovAI recibe movimientos para analizarlos; Syncfy maneja el formulario seguro de la institución.
+              </p>
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
-            <Button
-              type="button"
-              onClick={() => void createSession('create', null)}
-              disabled={isLoading || isResetting}
-            >
-              {isLoading && widgetMode === 'create' ? <Loader2 className="size-4 animate-spin" /> : <Landmark data-icon="inline-start" />}
-              Conectar institución
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void resetConnection()}
-              disabled={isLoading || isResetting}
-            >
-              {isResetting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw data-icon="inline-start" />}
-              Elegir otra institución
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void refreshTransactions(primaryCredential?.syncfyCredentialId)}
-              disabled={isRefreshing || !primaryCredential || !canRefresh}
-            >
-              {isRefreshing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw data-icon="inline-start" />}
-              Actualizar
-            </Button>
-          </div>
+          <Button
+            type="button"
+            className="shrink-0"
+            onClick={() => void createSession('create', null)}
+            disabled={isBusy}
+          >
+            {isLoading && widgetMode === 'create' ? <Loader2 className="size-4 animate-spin" /> : <Landmark data-icon="inline-start" />}
+            {hasCredentials ? 'Agregar institución' : 'Conectar institución'}
+          </Button>
         </div>
 
         {credentials.length > 0 ? (
@@ -540,14 +546,12 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
             {credentials.map((credential) => (
               <div
                 key={credential.syncfyCredentialId}
-                className="flex flex-col gap-3 rounded-lg bg-secondary/20 p-3 sm:flex-row sm:items-center sm:justify-between"
+                className={cn(FINANCE_CONNECT_INSET_CLASS, 'flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between')}
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{getCredentialLabel(credential)}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {credential.ready
-                      ? 'Lista para pull'
-                      : `Próximo pull en ${formatCooldown(credential.cooldownSeconds)}`}
+                    {getCredentialStatusText(credential)}
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
@@ -558,10 +562,20 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => void createSession('update', credential.syncfyCredentialId)}
-                    disabled={isLoading || isResetting}
+                    onClick={() => void refreshTransactions(credential.syncfyCredentialId, 0)}
+                    disabled={isBusy || credential.needsReconnect || !credential.ready}
                   >
-                    Actualizar acceso
+                    {isRefreshing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw data-icon="inline-start" />}
+                    Sincronizar
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void createSession('update', credential.syncfyCredentialId)}
+                    disabled={isBusy}
+                  >
+                    {credential.needsReconnect || credential.status === 'needs_reconnect' ? 'Reconectar' : 'Actualizar acceso'}
                   </Button>
                 </div>
               </div>
@@ -571,37 +585,44 @@ export function SyncfyConnect({ email, onStatus, onSynced }: SyncfyConnectProps)
 
         <div
           className={cn(
-            'flex items-start gap-2 rounded-lg border p-3 text-sm',
+            'flex items-start gap-2 rounded-2xl border p-3 text-sm',
             message.toLowerCase().includes('error') || message.includes('No pudimos')
-              ? 'border-rose-500/20 bg-rose-500/10 text-rose-100'
-              : 'border-[#2B7AE8]/20 bg-[#00D4AA]/10 text-[#d9fff7]'
+              ? 'border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-100'
+              : isLoading || isRefreshing || message.includes('preparando')
+                ? 'border-ring/25 bg-accent text-foreground'
+              : 'border-primary/20 bg-primary/10 text-foreground'
           )}
         >
           {message.toLowerCase().includes('error') || message.includes('No pudimos')
             ? <AlertCircle className="mt-0.5 size-4 shrink-0" />
-            : <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}
+            : isLoading || isRefreshing || message.includes('preparando')
+              ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin" />
+              : <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}
           <span>{message}</span>
         </div>
 
         {session?.widgetEnabled ? (
           <div className="grid gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#2B7AE8]/20 bg-secondary/20 p-3">
+            <div className={cn(FINANCE_CONNECT_INSET_CLASS, 'flex flex-wrap items-center justify-between gap-2 p-3')}>
               <span className="text-sm text-muted-foreground">
-                Si elegiste una institución equivocada o la credencial fue inválida, vuelve al selector.
+                Completa el formulario de Syncfy. Al terminar, FinovAI buscará los movimientos automáticamente.
               </span>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => void resetConnection()}
-                disabled={isLoading || isResetting}
+                onClick={() => {
+                  clearCredentialPolling()
+                  closeWidget()
+                  setSession(null)
+                }}
+                disabled={isLoading}
               >
-                {isResetting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw data-icon="inline-start" />}
-                Volver al selector
+                Cerrar formulario
               </Button>
             </div>
-            <div className="overflow-hidden rounded-lg border border-border bg-background">
-            <div ref={widgetContainerRef} id="syncfy-widget" className="min-h-[640px]" />
+            <div className="overflow-hidden rounded-2xl border border-border/70 bg-background">
+              <div ref={widgetContainerRef} id="syncfy-widget" className="min-h-[640px]" />
             </div>
           </div>
         ) : null}

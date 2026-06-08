@@ -41,12 +41,12 @@ export default function EmailSignup({
     const normalizedEmail = email.trim().toLowerCase()
     if (!pendingEmail && !EMAIL_PATTERN.test(normalizedEmail)) {
       setStatus('error')
-      setMessage('Escribe un email válido.')
+      setMessage('Escribe un correo válido.')
       return
     }
     if (pendingEmail && code.trim().length < 4) {
       setStatus('error')
-      setMessage('Escribe el código que enviamos a tu email.')
+      setMessage('Escribe el código que enviamos a tu correo.')
       return
     }
 
@@ -75,14 +75,14 @@ export default function EmailSignup({
 
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(data.error || 'No pudimos guardar tu email.')
+        throw new Error(data.error || 'No pudimos guardar tu correo.')
       }
 
       if (data.verificationRequired) {
         const nextEmail = data.email || normalizedEmail
         setPendingEmail(nextEmail)
         setStatus('success')
-        setMessage(data.debugCode ? `Código local: ${data.debugCode}` : 'Te enviamos un código y link de acceso a tu email.')
+        setMessage(data.debugCode ? `Código local: ${data.debugCode}` : 'Te enviamos un código y enlace de acceso a tu correo.')
         return
       }
 
@@ -95,7 +95,7 @@ export default function EmailSignup({
       onSuccess?.(data.email || normalizedEmail)
     } catch (error) {
       setStatus('error')
-      setMessage(error instanceof Error ? error.message : 'No pudimos guardar tu email.')
+      setMessage(error instanceof Error ? error.message : 'No pudimos guardar tu correo.')
     }
   }
 
@@ -115,7 +115,7 @@ export default function EmailSignup({
         )}
       >
         <label className="sr-only" htmlFor={`email-signup-${source}`}>
-          Email
+          Correo
         </label>
         <div className="flex min-w-0 flex-1 items-center gap-3 rounded-full bg-white/[0.04] px-4 py-3 text-left">
           <Mail className="size-4 shrink-0 text-emerald-400" />

@@ -1,8 +1,16 @@
 import { expect, test } from 'bun:test'
-import {
+import worker, {
+  addSyncfyUserParamToEndpoint,
+  buildNextSyncfyTransactionsPageEndpoint,
+  buildSyncfyTransactionsPath,
   buildSyncfyExternalId,
+  extractSyncfySiteMetadata,
   extractSyncfyTransactions,
+  getSyncfyJobStatusPaths,
   inferExpenseCategory,
+  isSyncfyTransactionImportComplete,
+  getDashboardChatModel,
+  getProductChatModel,
   normalizeSyncfyRequestPath,
   normalizeSyncfyTransaction,
   normalizeSignupEmail,
@@ -29,6 +37,159 @@ test('normalizeSyncfyRequestPath accepts webhook and direct endpoint paths', () 
   expect(normalizeSyncfyRequestPath('https://sync.paybook.com/v1/transactions?id_credential=abc')).toBe('/transactions?id_credential=abc')
 })
 
+test('buildSyncfyTransactionsPath includes id_user and six-month transaction window', () => {
+  const path = buildSyncfyTransactionsPath('cred-1', 'user-1', 0, {
+    referenceDate: new Date('2026-06-07T12:34:56Z'),
+  })
+  const [pathname, query = ''] = path.split('?')
+  const params = new URLSearchParams(query)
+
+  expect(pathname).toBe('/transactions')
+  expect(params.get('id_user')).toBe('user-1')
+  expect(params.get('id_credential')).toBe('cred-1')
+  expect(params.get('dt_transaction_from')).toBe(String(Date.parse('2025-12-07T00:00:00Z') / 1000))
+  expect(params.get('dt_transaction_to')).toBe(String(Date.parse('2026-06-07T12:34:56Z') / 1000))
+  expect(params.get('limit')).toBe('500')
+  expect(params.get('skip')).toBe('0')
+  expect(params.get('order')).toBe('-dt_transaction')
+})
+
+test('addSyncfyUserParamToEndpoint adds id_user to webhook transaction endpoints', () => {
+  expect(addSyncfyUserParamToEndpoint('/v1/transactions?id_credential=cred-1&limit=5&skip=0', 'user-1'))
+    .toBe('/transactions?id_credential=cred-1&limit=5&skip=0&id_user=user-1')
+  expect(addSyncfyUserParamToEndpoint('/transactions?id_user=user-1&id_credential=cred-1', 'user-2'))
+    .toBe('/transactions?id_user=user-1&id_credential=cred-1')
+})
+
+test('buildNextSyncfyTransactionsPageEndpoint advances only when a page is full', () => {
+  expect(buildNextSyncfyTransactionsPageEndpoint('/transactions?id_credential=cred-1&limit=500&skip=0', 500))
+    .toBe('/transactions?id_credential=cred-1&limit=500&skip=500')
+  expect(buildNextSyncfyTransactionsPageEndpoint('/transactions?id_credential=cred-1&limit=500&skip=500', 120))
+    .toBeNull()
+  expect(buildNextSyncfyTransactionsPageEndpoint('/transactions?id_credential=cred-1&limit=500&skip=4500', 500))
+    .toBeNull()
+})
+
+test('getSyncfyJobStatusPaths reads widget job status links', () => {
+  expect(getSyncfyJobStatusPaths({
+    id_job: 'job-from-id',
+    status: 'https://sync.paybook.com/v1/jobs/job-from-url/status',
+  })).toEqual([
+    '/jobs/job-from-url/status',
+    '/jobs/job-from-id/status',
+  ])
+})
+
+test('empty Syncfy transaction imports stay pending instead of completed', () => {
+  expect(isSyncfyTransactionImportComplete({ fetched: 0, imported: 0, skipped: 0 })).toBe(false)
+  expect(isSyncfyTransactionImportComplete({ fetched: 3, imported: 0, skipped: 3 })).toBe(false)
+  expect(isSyncfyTransactionImportComplete({ fetched: 3, imported: 2, skipped: 1 })).toBe(true)
+})
+
+test('dashboard chat defaults to Claude Opus model slug', () => {
+  expect(getDashboardChatModel({})).toBe('claude-opus-4-8')
+  expect(getDashboardChatModel({ ANTHROPIC_CHAT_MODEL: 'claude-opus-4-7' })).toBe('claude-opus-4-7')
+})
+
+test('dashboard chat defaults compat Gateway to Claude Opus', () => {
+  expect(getDashboardChatModel({
+    CLOUDFLARE_AI_GATEWAY_COMPAT_ENDPOINT: 'https://gateway.ai.cloudflare.com/v1/account/default/compat/chat/completions',
+  })).toBe('anthropic/claude-opus-4-7')
+})
+
+test('legacy chat uses Claude Opus when Anthropic is configured', async () => {
+  const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = []
+  const originalFetch = globalThis.fetch
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({
+      url: String(input),
+      headers: new Headers(init?.headers),
+      body: JSON.parse(String(init?.body || '{}')) as Record<string, unknown>,
+    })
+
+    return new Response(JSON.stringify({
+      content: [{ type: 'text', text: 'Respuesta Opus' }],
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: '¿Dónde está mi fuga?' }],
+      }),
+    }), {
+      ENVIRONMENT: 'test',
+      ANTHROPIC_API_KEY: 'anthropic-key',
+    } as never)
+    const data = await response.json() as { message: string }
+
+    expect(response.status).toBe(200)
+    expect(data.message).toBe('Respuesta Opus')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('https://api.anthropic.com/v1/messages')
+    expect(calls[0].headers.get('x-api-key')).toBe('anthropic-key')
+    expect(calls[0].headers.get('anthropic-version')).toBe('2023-06-01')
+    expect(calls[0].body.model).toBe('claude-opus-4-8')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('legacy chat uses Cloudflare AI Gateway stored Anthropic key when configured', async () => {
+  const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = []
+  const originalFetch = globalThis.fetch
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({
+      url: String(input),
+      headers: new Headers(init?.headers),
+      body: JSON.parse(String(init?.body || '{}')) as Record<string, unknown>,
+    })
+
+    return new Response(JSON.stringify({
+      content: [{ type: 'text', text: 'Respuesta Gateway Opus' }],
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: '¿Dónde está mi fuga?' }],
+      }),
+    }), {
+      ENVIRONMENT: 'test',
+      CLOUDFLARE_AI_GATEWAY_ID: 'finovai',
+      CLOUDFLARE_AI_GATEWAY_TOKEN: 'gateway-token',
+      CLOUDFLARE_AI_GATEWAY_BYOK_ALIAS: 'production',
+    } as never)
+    const data = await response.json() as { message: string }
+
+    expect(response.status).toBe(200)
+    expect(data.message).toBe('Respuesta Gateway Opus')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('https://gateway.ai.cloudflare.com/v1/711cb78717605db93e601e6a06e7eeec/finovai/anthropic/v1/messages')
+    expect(calls[0].headers.get('cf-aig-authorization')).toBe('Bearer gateway-token')
+    expect(calls[0].headers.get('cf-aig-byok-alias')).toBe('production')
+    expect(calls[0].headers.get('x-api-key')).toBeNull()
+    expect(calls[0].headers.get('anthropic-version')).toBe('2023-06-01')
+    expect(calls[0].body.model).toBe('claude-opus-4-8')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('product chat model can be overridden for Anthropic', () => {
+  expect(getProductChatModel({})).toBe('claude-opus-4-8')
+  expect(getProductChatModel({ ANTHROPIC_CHAT_MODEL: 'claude-opus-4-7' })).toBe('claude-opus-4-7')
+})
+
 test('extractSyncfyTransactions reads common wrapped response shapes', () => {
   expect(extractSyncfyTransactions({
     response: {
@@ -38,6 +199,30 @@ test('extractSyncfyTransactions reads common wrapped response shapes', () => {
       ],
     },
   })).toHaveLength(2)
+})
+
+test('extractSyncfySiteMetadata resolves institution ids and ignores generic site names', () => {
+  expect(extractSyncfySiteMetadata({
+    id_site: '572930c4784806060f8b456b',
+    id_site_organization: '572930c4784806060f8b456a',
+    site: { name: 'Normal' },
+  })).toEqual({
+    syncfySiteId: '572930c4784806060f8b456b',
+    syncfySiteOrganizationId: '572930c4784806060f8b456a',
+    siteName: 'American Express',
+  })
+
+  expect(extractSyncfySiteMetadata({
+    site_organization: {
+      id_site_organization: 'org-1',
+      name: 'Banco Demo',
+    },
+    site: { id_site: 'site-1', name: 'Normal' },
+  })).toEqual({
+    syncfySiteId: 'site-1',
+    syncfySiteOrganizationId: 'org-1',
+    siteName: 'Banco Demo',
+  })
 })
 
 test('normalizeSyncfyTransaction maps Syncfy transaction into finance shape', () => {

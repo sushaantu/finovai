@@ -2,5 +2,15 @@ ENVIRONMENT=sandbox
 SYNCFY_ENV=sandbox
 APP_ORIGIN=http://127.0.0.1:5173
 EMAIL_FROM=contacto@finov.ai
+CLOUDFLARE_AI_GATEWAY_ID=replace-with-ai-gateway-id
+CLOUDFLARE_AI_GATEWAY_TOKEN=replace-with-ai-gateway-run-token
+CLOUDFLARE_AI_GATEWAY_BYOK_ALIAS=production
+# Optional OpenAI-compatible Gateway endpoint for local smoke tests:
+CLOUDFLARE_AI_GATEWAY_COMPAT_ENDPOINT=https://gateway.ai.cloudflare.com/v1/711cb78717605db93e601e6a06e7eeec/default/compat/chat/completions
+CLOUDFLARE_AI_GATEWAY_COMPAT_MODEL=anthropic/claude-opus-4-7
+# Optional direct-provider fallback if not using AI Gateway BYOK:
+ANTHROPIC_API_KEY=
+ANTHROPIC_CHAT_MODEL=claude-opus-4-8
 SYNCFY_API_KEY=replace-with-syncfy-sandbox-key
+SYNCFY_TRANSACTION_LOOKBACK_MONTHS=6
 SUPPORT_ADMIN_SECRET=replace-with-local-admin-secret

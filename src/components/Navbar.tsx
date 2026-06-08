@@ -64,7 +64,7 @@ export default function Navbar({ email, onDashboard, onLoginSuccess, onLogout }:
                   onClick={onDashboard}
                   className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-medium text-white transition-all duration-300 hover:bg-emerald-400 hover:shadow-[0_10px_30px_rgba(16,185,129,0.3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
                 >
-                  Mi dashboard
+                  Mi panel
                 </button>
                 <button
                   type="button"
@@ -115,13 +115,13 @@ export default function Navbar({ email, onDashboard, onLoginSuccess, onLogout }:
 
         {isLoginOpen && !email ? (
           <div className="absolute right-0 top-[calc(100%+0.5rem)] hidden w-[min(24rem,calc(100vw-2rem))] rounded-2xl border border-white/[0.15] bg-zinc-950/90 p-4 shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur-2xl md:block">
-            <p className="mb-3 text-sm text-zinc-300">Entra con tu email para seguir tu análisis.</p>
+            <p className="mb-3 text-sm text-zinc-300">Entra con tu correo para seguir tu análisis.</p>
             <EmailSignup
               source="navbar-login"
               compact
               submitLabel="Entrar"
-              idleMessage="Usaremos este email para cargar tu dashboard."
-              successMessage="Listo. Abriendo dashboard."
+              idleMessage="Usaremos este correo para cargar tu panel."
+              successMessage="Listo. Abriendo panel."
               onSuccess={handleLoginSuccess}
             />
           </div>
@@ -153,7 +153,7 @@ export default function Navbar({ email, onDashboard, onLoginSuccess, onLogout }:
                 }}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-500 px-5 py-3 text-sm font-medium text-white transition-all duration-300 hover:bg-emerald-400"
               >
-                Mi dashboard
+                Mi panel
               </button>
               <button
                 type="button"
@@ -170,8 +170,8 @@ export default function Navbar({ email, onDashboard, onLoginSuccess, onLogout }:
                 source="mobile-login"
                 compact
                 submitLabel="Entrar"
-                idleMessage="Entra o crea tu dashboard con email."
-                successMessage="Listo. Abriendo dashboard."
+                idleMessage="Entra o crea tu panel con correo."
+                successMessage="Listo. Abriendo panel."
                 onSuccess={handleLoginSuccess}
               />
               <a

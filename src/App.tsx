@@ -12,6 +12,18 @@ import {
   setDashboardSession,
 } from './lib/dashboard-session'
 
+const DASHBOARD_APP_PATHS = new Set([
+  '/dashboard',
+  '/connect',
+  '/movements',
+  '/movement',
+  '/categories',
+  '/category',
+  '/import',
+  '/analysis',
+  '/settings',
+])
+
 function App() {
   const [pathname, setPathname] = useState(() => getPathname())
   const [signupEmail, setSignupEmail] = useState<string | null>(() => getStoredDashboardEmail())
@@ -77,7 +89,7 @@ function App() {
     page = 'opportunity'
   }
 
-  const isDashboard = pathname === '/dashboard'
+  const isDashboard = isDashboardPath(pathname)
   const isSyncfyAdmin = pathname === '/admin/syncfy'
   const staticPage = getStaticPage(pathname)
   const isHome = !isDashboard && !isSyncfyAdmin && page === 'home'
@@ -95,7 +107,7 @@ function App() {
       ) : null}
 
       {isDashboard ? (
-        <Dashboard email={signupEmail} onBackHome={() => navigate('/')} onLogout={handleLogout} />
+        <Dashboard email={signupEmail} initialPath={pathname} onBackHome={() => navigate('/')} onLogout={handleLogout} />
       ) : isSyncfyAdmin ? (
         <SyncfyAdminPage />
       ) : staticPage ? (
@@ -105,7 +117,6 @@ function App() {
           email={signupEmail}
           onConnect={() => navigate('/dashboard')}
           onLogout={handleLogout}
-          onSignupSuccess={handleSignupSuccess}
         />
       ) : (
         <ToolPage tool={page} />
@@ -119,6 +130,10 @@ function App() {
 function getPathname() {
   if (typeof window === 'undefined') return '/'
   return window.location.pathname.replace(/\/+$/, '') || '/'
+}
+
+function isDashboardPath(pathname: string) {
+  return DASHBOARD_APP_PATHS.has(pathname) || pathname.startsWith('/dashboard/')
 }
 
 export default App

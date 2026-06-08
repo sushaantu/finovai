@@ -17,10 +17,6 @@ binding = "DB"
 database_name = "finovai-db"
 database_id = "f618ec3b-b453-49dd-b16a-b4a5a2778314"
 
-# AI binding for Cloudflare Workers AI
-[ai]
-binding = "AI"
-
 [[send_email]]
 name = "EMAIL"
 
@@ -28,17 +24,19 @@ name = "EMAIL"
 [vars]
 ENVIRONMENT = "production"
 SYNCFY_ENV = "production"
-EMAIL_FROM = "contacto@finov.ai"
+EMAIL_AUTH_REQUIRED = "true"
 APP_ORIGIN = "https://finov.ai"
-# Enable after Cloudflare Email Sending is onboarded for finov.ai:
-# EMAIL_AUTH_REQUIRED = "true"
+# Cloudflare Email Sending must be onboarded for mail.finov.ai.
+EMAIL_FROM = "noreply@mail.finov.ai"
+CLOUDFLARE_AI_GATEWAY_COMPAT_ENDPOINT = "https://gateway.ai.cloudflare.com/v1/711cb78717605db93e601e6a06e7eeec/default/compat/chat/completions"
+CLOUDFLARE_AI_GATEWAY_COMPAT_MODEL = "anthropic/claude-opus-4-7"
 
 [observability]
 enabled = true
 head_sampling_rate = 1
 
 [triggers]
-crons = ["0 * * * *"]
+crons = ["*/5 * * * *"]
 
 [env.sandbox]
 name = "finovai-sandbox"
@@ -55,17 +53,26 @@ binding = "DB"
 database_name = "finovai-db"
 database_id = "f618ec3b-b453-49dd-b16a-b4a5a2778314"
 
-[env.sandbox.ai]
-binding = "AI"
-
 [[env.sandbox.send_email]]
 name = "EMAIL"
 
 [env.sandbox.vars]
 ENVIRONMENT = "sandbox"
 SYNCFY_ENV = "sandbox"
-EMAIL_FROM = "contacto@finov.ai"
+EMAIL_AUTH_REQUIRED = "false"
+EMAIL_FROM = "noreply@mail.finov.ai"
 APP_ORIGIN = "http://127.0.0.1:5173"
+CLOUDFLARE_AI_GATEWAY_COMPAT_ENDPOINT = "https://gateway.ai.cloudflare.com/v1/711cb78717605db93e601e6a06e7eeec/default/compat/chat/completions"
+CLOUDFLARE_AI_GATEWAY_COMPAT_MODEL = "anthropic/claude-opus-4-7"
+
+# Cloudflare AI Gateway (preferred for product chat)
+#   wrangler secret put CLOUDFLARE_AI_GATEWAY_TOKEN
+# Optional:
+#   wrangler secret put CLOUDFLARE_AI_GATEWAY_BYOK_ALIAS
+#   CLOUDFLARE_AI_GATEWAY_COMPAT_ENDPOINT can point at /compat/chat/completions
+#   CLOUDFLARE_AI_GATEWAY_COMPAT_MODEL uses provider/model, for example anthropic/claude-opus-4-7
+#   ANTHROPIC_API_KEY is supported only as a direct-provider fallback
+#   ANTHROPIC_CHAT_MODEL defaults to claude-opus-4-8
 
 # Kapso WhatsApp API (secrets - set via `wrangler secret put`)
 # Run these commands to configure:
@@ -83,6 +90,7 @@ APP_ORIGIN = "http://127.0.0.1:5173"
 #   SYNCFY_API_BASE_URL defaults to https://sync.paybook.com/v1
 #   SYNCFY_AUTH_HEADER_NAME defaults to Authorization
 #   SYNCFY_AUTH_HEADER_VALUE defaults to "api_key api_key={api_key}"
+#   SYNCFY_TRANSACTION_LOOKBACK_MONTHS defaults to 6
 #   SYNCFY_TRANSACTIONS_PATH can override the default credential transaction path if needed
 # Webhook URL:
 #   https://finov.ai/api/syncfy/webhook

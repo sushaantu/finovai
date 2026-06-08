@@ -29,7 +29,7 @@ export default function Features() {
         </svg>
       ),
       title: "Índice de Orden Financiero",
-      description: "Tu score de 0-100 que mide qué tan ordenadas están tus finanzas. Trackea tu progreso mes a mes.",
+      description: "Tu puntaje de 0 a 100 mide qué tan ordenadas están tus finanzas. Sigue tu progreso mes a mes.",
       gradient: "from-emerald-500/20 to-emerald-500/5",
       iconColor: "text-emerald-400",
     },
@@ -51,7 +51,7 @@ export default function Features() {
         </svg>
       ),
       title: "Plan personalizado",
-      description: "No templates genéricos. Tu plan basado en tu situación real, tus metas y tu tolerancia al riesgo.",
+      description: "Sin plantillas genéricas. Tu plan se basa en tu situación real, tus metas y tu tolerancia al riesgo.",
       gradient: "from-amber-500/20 to-amber-500/5",
       iconColor: "text-amber-400",
     },
@@ -73,7 +73,7 @@ export default function Features() {
         </svg>
       ),
       title: "Tracking de metas",
-      description: "Visualiza tu progreso hacia tus objetivos financieros. Celebra cada milestone alcanzado.",
+      description: "Visualiza tu progreso hacia tus objetivos financieros. Celebra cada hito alcanzado.",
       gradient: "from-cyan-500/20 to-cyan-500/5",
       iconColor: "text-cyan-400",
     },

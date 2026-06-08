@@ -1,4 +1,4 @@
-import { type CSSProperties, type FormEvent, useId, useMemo, useState } from 'react'
+import { type CSSProperties, useId, useMemo, useState } from 'react'
 import {
   ArrowRight,
   Banknote,
@@ -15,13 +15,11 @@ import {
   Utensils,
   X,
 } from 'lucide-react'
-import { setDashboardSession } from '@/lib/dashboard-session'
 
 interface LandingPageProps {
   email: string | null
   onConnect: () => void
   onLogout: () => void
-  onSignupSuccess: (email: string) => void
 }
 
 interface LeakItem {
@@ -50,8 +48,6 @@ interface CoverageBank {
   size: string
   delay: number
 }
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const leaks: LeakItem[] = [
   {
@@ -146,18 +142,6 @@ const syncfyCoverageBanks: CoverageBank[] = [
     delay: 1.2,
   },
   {
-    name: 'Bitso',
-    label: 'Bitso',
-    logoSrc: '/bank-logos/bitso.svg',
-    kind: 'Billetera digital',
-    color: '#00A86B',
-    glow: 'rgba(0, 168, 107, 0.42)',
-    x: '34%',
-    y: '46%',
-    size: '76px',
-    delay: 1.35,
-  },
-  {
     name: 'HSBC',
     label: 'HSBC',
     logoSrc: '/bank-logos/hsbc.svg',
@@ -194,15 +178,15 @@ const syncfyCoverageBanks: CoverageBank[] = [
     delay: 2.15,
   },
   {
-    name: 'Banregio',
-    label: 'Banregio',
-    logoSrc: '/bank-logos/banregio.svg',
-    kind: 'Banco',
-    color: '#155EAD',
-    glow: 'rgba(21, 94, 173, 0.38)',
+    name: 'Bitso',
+    label: 'Bitso',
+    logoSrc: '/bank-logos/bitso.svg',
+    kind: 'Billetera digital',
+    color: '#00A86B',
+    glow: 'rgba(0, 168, 107, 0.42)',
     x: '49%',
     y: '12%',
-    size: '74px',
+    size: '76px',
     delay: 2.45,
   },
   {
@@ -264,7 +248,7 @@ const faqItems: FaqItem[] = [
   },
 ]
 
-export default function LandingPage({ email, onConnect, onLogout, onSignupSuccess }: LandingPageProps) {
+export default function LandingPage({ email, onConnect, onLogout }: LandingPageProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
   const handleConnect = () => {
@@ -288,7 +272,7 @@ export default function LandingPage({ email, onConnect, onLogout, onSignupSucces
         <CalculatorSection />
         <SecuritySection />
         <FaqSection />
-        <LandingFooter onConnect={handleConnect} onSignupSuccess={onSignupSuccess} />
+        <LandingFooter onConnect={handleConnect} />
       </main>
     </div>
   )
@@ -338,7 +322,7 @@ function LandingNav({
             {email ? (
               <>
                 <button className="landing-btn landing-btn-ghost" type="button" onClick={onConnect}>
-                  Mi dashboard
+                  Mi panel
                 </button>
                 <button className="landing-btn landing-btn-outline landing-btn-compact" type="button" onClick={onLogout}>
                   Salir
@@ -376,7 +360,7 @@ function LandingNav({
               </a>
             ))}
             <button className="landing-btn landing-btn-primary" type="button" onClick={onConnect}>
-              {email ? 'Abrir dashboard' : 'Conectar mi banco'}
+              {email ? 'Abrir panel' : 'Conectar mi banco'}
               <ArrowRight aria-hidden="true" />
             </button>
           </div>
@@ -829,7 +813,7 @@ function SecuritySection() {
     },
     {
       title: 'Conexión cifrada',
-      body: 'Syncfy gestiona el flujo de conexión bancaria. La API key de Syncfy se usa solo en backend, no en el navegador.',
+      body: 'Syncfy gestiona el flujo de conexión bancaria. La clave API de Syncfy se usa solo en el servidor, no en el navegador.',
     },
     {
       title: 'Desconecta cuando quieras',
@@ -908,10 +892,8 @@ function FaqSection() {
 
 function LandingFooter({
   onConnect,
-  onSignupSuccess,
 }: {
   onConnect: () => void
-  onSignupSuccess: (email: string) => void
 }) {
   return (
     <>
@@ -945,7 +927,6 @@ function LandingFooter({
               <p>
                 Copiloto financiero con IA para México y Latinoamérica. Encuentra fugas. Conviértelas en patrimonio.
               </p>
-              <FooterSignup onSignupSuccess={onSignupSuccess} />
             </div>
 
             <FooterColumn
@@ -976,107 +957,6 @@ function LandingFooter({
         </div>
       </footer>
     </>
-  )
-}
-
-function FooterSignup({ onSignupSuccess }: { onSignupSuccess: (email: string) => void }) {
-  const [email, setEmail] = useState('')
-  const [pendingEmail, setPendingEmail] = useState('')
-  const [code, setCode] = useState('')
-  const [helper, setHelper] = useState('')
-  const [status, setStatus] = useState<'idle' | 'loading' | 'error' | 'success'>('idle')
-
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const normalizedEmail = email.trim().toLowerCase()
-
-    if (!pendingEmail && !EMAIL_PATTERN.test(normalizedEmail)) {
-      setStatus('error')
-      setHelper('Escribe un email válido.')
-      return
-    }
-    if (pendingEmail && code.trim().length < 4) {
-      setStatus('error')
-      setHelper('Escribe el código enviado a tu email.')
-      return
-    }
-
-    setStatus('loading')
-    try {
-      const response = await fetch(pendingEmail ? '/api/auth/verify' : '/api/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(pendingEmail
-          ? {
-              email: pendingEmail,
-              code: code.trim(),
-              source: 'landing-footer',
-            }
-          : {
-              email: normalizedEmail,
-              redirectPath: '/dashboard',
-              diagnosticData: JSON.stringify({
-                source: 'landing-footer',
-                capturedAt: new Date().toISOString(),
-              }),
-            }),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data.error || 'signup failed')
-      if (data.verificationRequired) {
-        setPendingEmail(data.email || normalizedEmail)
-        setStatus('success')
-        setHelper(data.debugCode ? `Código local: ${data.debugCode}` : 'Te enviamos un código y link de acceso.')
-        return
-      }
-      setStatus('success')
-      setEmail('')
-      setCode('')
-      setPendingEmail('')
-      setHelper('Listo. Abriendo tu dashboard.')
-      setDashboardSession(data.email || normalizedEmail, data.clientSecret)
-      onSignupSuccess(data.email || normalizedEmail)
-    } catch {
-      setStatus('error')
-      setHelper('No pudimos iniciar sesión.')
-    }
-  }
-
-  return (
-    <form className="landing-footer-signup" onSubmit={handleSubmit}>
-      <label className="sr-only" htmlFor="landing-footer-email">
-        Email
-      </label>
-      <input
-        id="landing-footer-email"
-        type="email"
-        value={email}
-        placeholder="tu@correo.mx"
-        autoComplete="email"
-        disabled={status === 'loading'}
-        onChange={(event) => {
-          setEmail(event.target.value)
-          setPendingEmail('')
-          setCode('')
-          setHelper('')
-          if (status !== 'idle') setStatus('idle')
-        }}
-      />
-      {pendingEmail ? (
-        <input
-          inputMode="numeric"
-          value={code}
-          placeholder="Código"
-          autoComplete="one-time-code"
-          disabled={status === 'loading'}
-          onChange={(event) => setCode(event.target.value)}
-        />
-      ) : null}
-      <button type="submit" disabled={status === 'loading'}>
-        {status === 'loading' ? '...' : pendingEmail ? 'Verificar' : 'Apuntarme'}
-      </button>
-      {helper ? <small>{helper}</small> : null}
-    </form>
   )
 }
 

@@ -124,8 +124,8 @@ export default function SyncfyAdminPage() {
         active: data.summary.recentErrorCount === 0,
       },
       {
-        label: 'Email sending',
-        value: data.summary.emailSendingConfigured ? 'Binding listo' : 'No onboarded',
+        label: 'Envío de correo',
+        value: data.summary.emailSendingConfigured ? 'Configurado' : 'No configurado',
         active: data.summary.emailSendingConfigured,
       },
     ]
@@ -174,7 +174,7 @@ export default function SyncfyAdminPage() {
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#00D4AA]">Soporte interno</p>
-              <h1 className="text-2xl font-semibold tracking-tight">Syncfy health desk</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">Mesa de soporte Syncfy</h1>
             </div>
           </div>
           <a href="/" className="inline-flex items-center gap-2 text-sm font-semibold text-white/70 hover:text-white">
@@ -202,7 +202,7 @@ export default function SyncfyAdminPage() {
                 tabIndex={-1}
               />
               <div className="grid gap-2">
-                <Label htmlFor="admin-secret">Admin secret</Label>
+                <Label htmlFor="admin-secret">Secreto de administración</Label>
                 <Input
                   id="admin-secret"
                   type="password"
@@ -214,7 +214,7 @@ export default function SyncfyAdminPage() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="support-email">Filtrar por email</Label>
+                <Label htmlFor="support-email">Filtrar por correo</Label>
                 <Input
                   id="support-email"
                   value={email}
@@ -264,9 +264,9 @@ export default function SyncfyAdminPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Email</TableHead>
+                        <TableHead>Correo</TableHead>
                         <TableHead>Institución</TableHead>
-                        <TableHead>Status</TableHead>
+                        <TableHead>Estado</TableHead>
                         <TableHead>RID</TableHead>
                         <TableHead>Origen</TableHead>
                         <TableHead>Fecha</TableHead>
@@ -316,10 +316,10 @@ export default function SyncfyAdminPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Email</TableHead>
+                        <TableHead>Correo</TableHead>
                         <TableHead>Institución</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Último pull</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead>Última sincronización</TableHead>
                         <TableHead>RID</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -342,7 +342,7 @@ export default function SyncfyAdminPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <ShieldCheck className="size-5 text-[#00D4AA]" />
-                    Webhooks
+                    Eventos webhook
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="overflow-x-auto">
@@ -350,8 +350,8 @@ export default function SyncfyAdminPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Evento</TableHead>
-                        <TableHead>User</TableHead>
-                        <TableHead>Credential</TableHead>
+                        <TableHead>Usuario</TableHead>
+                        <TableHead>Credencial</TableHead>
                         <TableHead>RID</TableHead>
                         <TableHead>Procesado</TableHead>
                       </TableRow>

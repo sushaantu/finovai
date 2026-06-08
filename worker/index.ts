@@ -2,7 +2,6 @@ import { extractText, getDocumentProxy } from 'unpdf'
 
 interface Env {
   DB: D1Database
-  AI: Ai
   ENVIRONMENT: string
   ENABLE_BACKUP_IMPORT?: string
   ENABLE_LEGACY_CHAT?: string
@@ -19,9 +18,19 @@ interface Env {
   SYNCFY_AUTH_HEADER_PREFIX?: string
   SYNCFY_AUTH_HEADER_VALUE?: string
   SYNCFY_ENV?: string
+  SYNCFY_TRANSACTION_LOOKBACK_MONTHS?: string
   SYNCFY_TRANSACTIONS_PATH?: string
   SYNCFY_WEBHOOK_SECRET?: string
   SUPPORT_ADMIN_SECRET?: string
+  ANTHROPIC_API_KEY?: string
+  ANTHROPIC_CHAT_MODEL?: string
+  ANTHROPIC_MODEL?: string
+  CLOUDFLARE_AI_GATEWAY_ACCOUNT_ID?: string
+  CLOUDFLARE_AI_GATEWAY_ID?: string
+  CLOUDFLARE_AI_GATEWAY_TOKEN?: string
+  CLOUDFLARE_AI_GATEWAY_BYOK_ALIAS?: string
+  CLOUDFLARE_AI_GATEWAY_COMPAT_ENDPOINT?: string
+  CLOUDFLARE_AI_GATEWAY_COMPAT_MODEL?: string
 }
 
 interface Message {
@@ -121,9 +130,16 @@ interface SyncfyCredentialPayload {
   syncfyUserId: string | null
   syncfyCredentialId: string | null
   syncfySiteId: string | null
+  syncfySiteOrganizationId: string | null
   siteName: string | null
   status: string | null
   rid: string | null
+}
+
+interface SyncfySiteMetadata {
+  syncfySiteId: string | null
+  syncfySiteOrganizationId: string | null
+  siteName: string | null
 }
 
 interface SyncfyTransactionImportResult {
@@ -132,6 +148,16 @@ interface SyncfyTransactionImportResult {
   imported: number
   skipped: number
   endpoints: string[]
+}
+
+export interface FinanceDataCoverage {
+  firstDate: string | null
+  lastDate: string | null
+  firstMonth: string | null
+  lastMonth: string | null
+  monthCount: number
+  transactionCount: number
+  preliminary: boolean
 }
 
 interface NormalizedSyncfyTransaction {
@@ -158,6 +184,7 @@ interface SyncfyCredentialsResponse {
     lastPullAt: string | null
     cooldownSeconds: number
     ready: boolean
+    needsReconnect: boolean
   }>
 }
 
@@ -198,10 +225,29 @@ interface FinanceTransactionRow {
   notes: string | null
   source: FinanceTransactionSource
   confidence: number
+  category_locked?: number | null
   raw_source: string | null
   cartola_import_id: string | null
   created_at: string
   updated_at: string | null
+}
+
+interface FinancialProfileRow {
+  email: string
+  currency: string
+  monthly_income?: number | null
+  monthly_budget?: number | null
+  category_budgets_json?: string | null
+  created_at?: string
+  updated_at?: string | null
+}
+
+export interface FinancialProfile {
+  email: string
+  currency: string
+  monthlyIncome: number | null
+  monthlyBudget: number | null
+  categoryBudgets: Record<string, number>
 }
 
 export interface FinanceTransaction {
@@ -241,11 +287,52 @@ export interface FinanceSummary {
   monthlySpending: number
   netBalance: number
   transactionCount: number
+  dataCoverage: FinanceDataCoverage
   topSpendingCategory: string
   topSpendingCategoryAmount: number
   unusualHighSpendDay: { date: string; amount: number } | null
   recurringExpenses: Array<{ key: string; description: string; amount: number; count: number }>
   estimatedSavingsOpportunity: number
+}
+
+type BudgetSource = 'user' | 'income_rule' | 'missing'
+type CategoryBudgetStatus = 'under' | 'near' | 'over' | 'unset'
+
+export interface CategoryBudgetComparison {
+  category: string
+  amount: number
+  share: number
+  previousAmount: number
+  deltaFromPrevious: number
+  budget: number | null
+  budgetUsage: number | null
+  budgetStatus: CategoryBudgetStatus
+  advice: string
+}
+
+export interface CategoryMonthRow {
+  month: string
+  spendingTotal: number
+  incomeTotal: number
+  topCategory: string
+  deltaFromPrevious: number | null
+  budgetTotal: number | null
+  status: CategoryBudgetStatus
+}
+
+export interface CategoryAnalysis {
+  period: string
+  periodLabel: string
+  previousPeriod: string | null
+  spendingTotal: number
+  incomeTotal: number
+  budgetTotal: number | null
+  budgetSource: BudgetSource
+  fixedExpenseShare: number | null
+  fixedExpenseLimit: number | null
+  summaryAdvice: string
+  categories: CategoryBudgetComparison[]
+  monthRows: CategoryMonthRow[]
 }
 
 export interface FinanceInsight {
@@ -254,6 +341,36 @@ export interface FinanceInsight {
   value: string
   body: string
   tone: 'good' | 'watch' | 'urgent'
+}
+
+type FinanceOpportunityKind = 'recurring' | 'merchant_leak' | 'category_leak' | 'unusual_day'
+
+export interface FinanceOpportunity {
+  id: string
+  kind: FinanceOpportunityKind
+  title: string
+  body: string
+  sourceLabel: string
+  estimatedMonthlySavings: number
+}
+
+export interface FinanceActionPlan {
+  monthlySavingsTarget: number
+  topOpportunities: FinanceOpportunity[]
+  investmentProjection: {
+    monthlyContribution: number
+    years: number
+    annualReturn: number
+    totalContributed: number
+    tenYearValue: number
+    potentialGrowth: number
+  }
+  nextActions: Array<{
+    id: string
+    label: string
+    body: string
+    target: 'movements' | 'categories' | 'chat' | 'connect' | 'partner'
+  }>
 }
 
 interface HouseholdInviteRow {
@@ -286,7 +403,6 @@ interface EmailLoginChallengeRow {
   consumed_at: number | null
 }
 
-const CHAT_MODEL = '@cf/meta/llama-3.1-8b-instruct' as keyof AiModels
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const DASHBOARD_SECRET_HEADER = 'x-finovai-dashboard-secret'
 const SUPPORT_ADMIN_SECRET_HEADER = 'x-finovai-admin-secret'
@@ -295,12 +411,61 @@ const EMAIL_LOGIN_TOKEN_BYTES = 32
 const EMAIL_LOGIN_TTL_SECONDS = 15 * 60
 const EMAIL_LOGIN_MAX_ATTEMPTS = 5
 const LOCAL_AI_FALLBACK =
-  'Estoy corriendo en modo local. La IA real necesita Cloudflare auth para ejecutarse, pero puedes probar la interfaz, el registro por email y el flujo del producto.'
+  'Estoy corriendo en modo local. La IA real necesita Cloudflare AI Gateway o ANTHROPIC_API_KEY para ejecutarse, pero puedes probar la interfaz, el registro por correo y el flujo del producto.'
 const DEFAULT_SYNCFY_BASE_URL = 'https://sync.paybook.com/v1'
+const DEFAULT_PRODUCT_CHAT_MODEL = 'claude-opus-4-8'
+const DEFAULT_COMPAT_CHAT_MODEL = 'anthropic/claude-opus-4-7'
+const DEFAULT_CLOUDFLARE_ACCOUNT_ID = '711cb78717605db93e601e6a06e7eeec'
+const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
+const ANTHROPIC_API_VERSION = '2023-06-01'
 const SYNCFY_REFRESH_COOLDOWN_SECONDS = 5 * 60
 const SYNCFY_BACKGROUND_REFRESH_INTERVAL_SECONDS = 60 * 60
 const SYNCFY_BACKGROUND_REFRESH_LIMIT = 25
-const SYNCFY_DEFAULT_TRANSACTION_LIMIT = 5000
+const SYNCFY_DEFAULT_TRANSACTION_LIMIT = 500
+const SYNCFY_DEFAULT_TRANSACTION_LOOKBACK_MONTHS = 6
+const SYNCFY_MAX_TRANSACTION_IMPORT_COUNT = 5000
+const SYNCFY_MAX_TRANSACTION_IMPORT_PAGES = 10
+const SYNCFY_INSTITUTION_NAME_KEYS = [
+  'institution_name',
+  'institutionName',
+  'bank_name',
+  'bankName',
+  'organization_name',
+  'organizationName',
+  'site_organization_name',
+  'siteOrganizationName',
+  'id_site_organization_name',
+  'display_name',
+  'displayName',
+  'site_name',
+  'siteName',
+  'name_site',
+  'siteNameDisplay',
+  'name',
+]
+const SYNCFY_GENERIC_INSTITUTION_NAMES = new Set([
+  'ACCOUNT',
+  'BANK',
+  'CREDENTIAL',
+  'CREDENTIALS',
+  'CREDENCIAL',
+  'CUENTA',
+  'LOGIN',
+  'MOVIMIENTO',
+  'NORMAL',
+  'PASSWORD',
+  'SITE',
+  'SITIO',
+  'SYNCFY',
+  'TOKEN',
+  'TRANSACTION',
+  'USERNAME',
+  'USUARIO',
+])
+const KNOWN_SYNCFY_INSTITUTION_NAMES = new Map<string, string>([
+  ['572930c4784806060f8b456a', 'American Express'],
+  ['572930c4784806060f8b456b', 'American Express'],
+])
 const SYNCFY_WIDGET_CONFIG = {
   locale: 'es',
   entrypoint: {
@@ -314,6 +479,27 @@ const SYNCFY_WIDGET_CONFIG = {
     socketTimeout: 600_000,
     toastDuration: 7000,
   },
+}
+
+export function getProductChatModel(env: Pick<Env, 'ANTHROPIC_CHAT_MODEL' | 'ANTHROPIC_MODEL'>): string {
+  return env.ANTHROPIC_CHAT_MODEL?.trim() || env.ANTHROPIC_MODEL?.trim() || DEFAULT_PRODUCT_CHAT_MODEL
+}
+
+export function getGatewayCompatChatModel(env: Pick<Env, 'CLOUDFLARE_AI_GATEWAY_COMPAT_MODEL'>): string {
+  return env.CLOUDFLARE_AI_GATEWAY_COMPAT_MODEL?.trim() || DEFAULT_COMPAT_CHAT_MODEL
+}
+
+export function getDashboardChatModel(
+  env: Pick<
+    Env,
+    | 'ANTHROPIC_CHAT_MODEL'
+    | 'ANTHROPIC_MODEL'
+    | 'CLOUDFLARE_AI_GATEWAY_COMPAT_ENDPOINT'
+    | 'CLOUDFLARE_AI_GATEWAY_COMPAT_MODEL'
+  >
+): string {
+  if (env.CLOUDFLARE_AI_GATEWAY_COMPAT_ENDPOINT?.trim()) return getGatewayCompatChatModel(env)
+  return getProductChatModel(env)
 }
 const DEFAULT_FINANCE_CURRENCY = 'MXN'
 const MAX_CARTOLA_UPLOAD_BYTES = 5 * 1024 * 1024
@@ -481,21 +667,201 @@ function isLocalRequest(url: URL): boolean {
   return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1'
 }
 
-async function runAIResponse(env: Env, messages: Message[], allowLocalFallback: boolean): Promise<string> {
-  try {
-    const response = await env.AI.run(CHAT_MODEL, {
-      messages,
-      max_tokens: 500,
+function buildAnthropicMessagePayload(messages: Message[]) {
+  const system = messages
+    .filter((message) => message.role === 'system')
+    .map((message) => message.content.trim())
+    .filter(Boolean)
+    .join('\n\n')
+  const chatMessages = messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .map((message) => ({
+      role: message.role,
+      content: message.content,
+    }))
+
+  return { system, messages: chatMessages }
+}
+
+function buildCompatChatCompletionMessages(messages: Message[]) {
+  return messages
+    .map((message) => ({
+      role: message.role,
+      content: message.content,
+    }))
+    .filter((message) => message.content.trim())
+}
+
+function extractAnthropicResponseText(data: unknown): string | null {
+  const record = asRecord(data)
+  if (!record) return null
+
+  const content = Array.isArray(record.content) ? record.content : []
+  const parts = content
+    .map((part) => {
+      const partRecord = asRecord(part)
+      return typeof partRecord?.text === 'string' ? partRecord.text : ''
     })
+    .filter(Boolean)
 
-    return (response as { response: string }).response
-  } catch (err) {
-    if (allowLocalFallback && String(err).includes('Binding AI needs to be run remotely')) {
-      return LOCAL_AI_FALLBACK
-    }
+  return parts.join('\n').trim() || null
+}
 
-    throw err
+function extractCompatContentText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+
+  return content
+    .map((part) => {
+      if (typeof part === 'string') return part
+      const partRecord = asRecord(part)
+      return typeof partRecord?.text === 'string' ? partRecord.text : ''
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+function extractCompatChatCompletionText(data: unknown): string | null {
+  const record = asRecord(data)
+  if (!record) return null
+
+  const choices = Array.isArray(record.choices) ? record.choices : []
+  for (const choice of choices) {
+    const choiceRecord = asRecord(choice)
+    const message = asRecord(choiceRecord?.message)
+    const delta = asRecord(choiceRecord?.delta)
+    const text = extractCompatContentText(message?.content || delta?.content).trim()
+    if (text) return text
   }
+
+  return null
+}
+
+function getCloudflareAIGatewayUrl(env: Env): string | null {
+  const gatewayId = env.CLOUDFLARE_AI_GATEWAY_ID?.trim()
+  if (!gatewayId) return null
+
+  const accountId = env.CLOUDFLARE_AI_GATEWAY_ACCOUNT_ID?.trim() || DEFAULT_CLOUDFLARE_ACCOUNT_ID
+  return `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/anthropic/v1/messages`
+}
+
+function getCloudflareAIGatewayCompatEndpoint(env: Env): string | null {
+  return env.CLOUDFLARE_AI_GATEWAY_COMPAT_ENDPOINT?.trim() || null
+}
+
+function getGatewayCompatRequestConfig(env: Env): { url: string; headers: Record<string, string> } | null {
+  const url = getCloudflareAIGatewayCompatEndpoint(env)
+  if (!url) return null
+
+  const gatewayToken = env.CLOUDFLARE_AI_GATEWAY_TOKEN?.trim()
+  const providerApiKey = env.ANTHROPIC_API_KEY?.trim()
+  if (!gatewayToken && !providerApiKey) return null
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+  const byokAlias = env.CLOUDFLARE_AI_GATEWAY_BYOK_ALIAS?.trim()
+  if (gatewayToken) headers['cf-aig-authorization'] = `Bearer ${gatewayToken}`
+  if (byokAlias) headers['cf-aig-byok-alias'] = byokAlias
+  if (!gatewayToken && providerApiKey) headers.Authorization = `Bearer ${providerApiKey}`
+
+  return { url, headers }
+}
+
+function getAnthropicRequestConfig(env: Env): { url: string; headers: Record<string, string> } | null {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'anthropic-version': ANTHROPIC_API_VERSION,
+  }
+  const gatewayUrl = getCloudflareAIGatewayUrl(env)
+
+  if (gatewayUrl) {
+    const gatewayToken = env.CLOUDFLARE_AI_GATEWAY_TOKEN?.trim()
+    const byokAlias = env.CLOUDFLARE_AI_GATEWAY_BYOK_ALIAS?.trim()
+    if (!gatewayToken && !env.ANTHROPIC_API_KEY) return null
+    if (gatewayToken) headers['cf-aig-authorization'] = `Bearer ${gatewayToken}`
+    if (byokAlias) headers['cf-aig-byok-alias'] = byokAlias
+    if (!gatewayToken && env.ANTHROPIC_API_KEY) headers['x-api-key'] = env.ANTHROPIC_API_KEY
+    return { url: gatewayUrl, headers }
+  }
+
+  if (!env.ANTHROPIC_API_KEY) return null
+  headers['x-api-key'] = env.ANTHROPIC_API_KEY
+  return { url: ANTHROPIC_MESSAGES_URL, headers }
+}
+
+async function runCompatAIResponse(
+  env: Env,
+  messages: Message[],
+  requestConfig: { url: string; headers: Record<string, string> }
+): Promise<string> {
+  const response = await fetch(requestConfig.url, {
+    method: 'POST',
+    headers: requestConfig.headers,
+    body: JSON.stringify({
+      model: getGatewayCompatChatModel(env),
+      max_tokens: 700,
+      messages: buildCompatChatCompletionMessages(messages),
+    }),
+  })
+
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const error = asRecord(asRecord(data)?.error)
+    const message = typeof error?.message === 'string' ? error.message : 'Cloudflare AI Gateway no respondió correctamente.'
+    throw new Error(message)
+  }
+
+  const answer = extractCompatChatCompletionText(data)
+  if (!answer) {
+    throw new Error('Cloudflare AI Gateway respondió sin texto.')
+  }
+
+  return answer
+}
+
+async function runAIResponse(env: Env, messages: Message[], allowLocalFallback: boolean): Promise<string> {
+  const compatEndpoint = getCloudflareAIGatewayCompatEndpoint(env)
+  if (compatEndpoint) {
+    const requestConfig = getGatewayCompatRequestConfig(env)
+    if (!requestConfig) {
+      if (allowLocalFallback) return LOCAL_AI_FALLBACK
+      throw new Error('CLOUDFLARE_AI_GATEWAY_COMPAT_ENDPOINT needs CLOUDFLARE_AI_GATEWAY_TOKEN or ANTHROPIC_API_KEY')
+    }
+    return runCompatAIResponse(env, messages, requestConfig)
+  }
+
+  const requestConfig = getAnthropicRequestConfig(env)
+  if (!requestConfig) {
+    if (allowLocalFallback) return LOCAL_AI_FALLBACK
+    throw new Error('CLOUDFLARE_AI_GATEWAY_ID with CLOUDFLARE_AI_GATEWAY_TOKEN, or ANTHROPIC_API_KEY, is not configured')
+  }
+
+  const { system, messages: anthropicMessages } = buildAnthropicMessagePayload(messages)
+  const response = await fetch(requestConfig.url, {
+    method: 'POST',
+    headers: requestConfig.headers,
+    body: JSON.stringify({
+      model: getProductChatModel(env),
+      max_tokens: 700,
+      ...(system ? { system } : {}),
+      messages: anthropicMessages,
+    }),
+  })
+
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const errorRecord = asRecord(asRecord(data)?.error)
+    const message = typeof errorRecord?.message === 'string' ? errorRecord.message : 'Anthropic no respondió correctamente.'
+    throw new Error(message)
+  }
+
+  const answer = extractAnthropicResponseText(data)
+  if (!answer) {
+    throw new Error('Anthropic respondió sin texto.')
+  }
+
+  return answer
 }
 
 async function ensureSyncfyTables(env: Env): Promise<void> {
@@ -666,14 +1032,14 @@ async function verifyDashboardEmailAccess(
   const row = await env.DB.prepare(`SELECT client_secret_hash FROM dashboard_sessions WHERE email = ?`)
     .bind(email)
     .first<{ client_secret_hash: string }>()
-  if (!row) return { ok: false, status: 401, message: 'Primero inicia sesión con este email.' }
+  if (!row) return { ok: false, status: 401, message: 'Primero inicia sesión con este correo.' }
 
   const suppliedSecret = getDashboardClientSecret(request)
-  if (!suppliedSecret) return { ok: false, status: 401, message: 'Sesión requerida. Vuelve a entrar con tu email.' }
+  if (!suppliedSecret) return { ok: false, status: 401, message: 'Sesión requerida. Vuelve a entrar con tu correo.' }
 
   const suppliedHash = await sha256Hex(suppliedSecret)
   if (!(await timingSafeStringEqual(suppliedHash, row.client_secret_hash))) {
-    return { ok: false, status: 401, message: 'Sesión inválida. Vuelve a entrar con tu email.' }
+    return { ok: false, status: 401, message: 'Sesión inválida. Vuelve a entrar con tu correo.' }
   }
 
   await env.DB.prepare(`UPDATE dashboard_sessions SET last_used_at = datetime("now") WHERE email = ?`)
@@ -749,13 +1115,13 @@ async function sendDashboardLoginEmail(env: Env, email: string, code: string, lo
     throw new Error('Cloudflare Email Sending is not configured')
   }
 
-  const fromEmail = env.EMAIL_FROM || 'contacto@finov.ai'
+  const fromEmail = env.EMAIL_FROM || 'noreply@mail.finov.ai'
   const text = [
     'Tu acceso a FinovAI',
     '',
     `Código: ${code}`,
     '',
-    `También puedes entrar con este link: ${loginLink}`,
+    `También puedes entrar con este enlace: ${loginLink}`,
     '',
     'Este acceso vence en 15 minutos. Si no lo pediste, ignora este correo.',
   ].join('\n')
@@ -776,6 +1142,67 @@ async function sendDashboardLoginEmail(env: Env, email: string, code: string, lo
       </div>
     `,
   })
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function buildHouseholdInviteLink(env: Env, request: Request, invite: HouseholdInvite): string {
+  const inviteUrl = new URL('/settings', getAppOrigin(env, request))
+  inviteUrl.searchParams.set('household_invite', invite.id)
+  inviteUrl.searchParams.set('email', invite.inviteeEmail)
+  return inviteUrl.toString()
+}
+
+async function sendHouseholdInviteEmail(
+  env: Env,
+  request: Request,
+  invite: HouseholdInvite
+): Promise<{ emailSent: boolean; inviteUrl: string }> {
+  const inviteUrl = buildHouseholdInviteLink(env, request, invite)
+
+  if (!env.EMAIL) {
+    if (isProductionEnv(env)) {
+      throw new Error('Cloudflare Email Sending is not configured')
+    }
+
+    return { emailSent: false, inviteUrl }
+  }
+
+  const fromEmail = env.EMAIL_FROM || 'noreply@mail.finov.ai'
+  const text = [
+    'Te invitaron a FinovAI',
+    '',
+    `${invite.inviterEmail} quiere preparar contigo un espacio financiero compartido en FinovAI.`,
+    '',
+    `Abre este enlace con ${invite.inviteeEmail}: ${inviteUrl}`,
+    '',
+    'Si no esperabas esta invitación, puedes ignorar este correo.',
+  ].join('\n')
+
+  await env.EMAIL.send({
+    to: invite.inviteeEmail,
+    from: { email: fromEmail, name: 'FinovAI' },
+    replyTo: fromEmail,
+    subject: 'Invitación a FinovAI',
+    text,
+    html: `
+      <div style="font-family:Inter,Arial,sans-serif;line-height:1.5;color:#071326">
+        <h1 style="font-size:20px">Te invitaron a FinovAI</h1>
+        <p><strong>${escapeHtml(invite.inviterEmail)}</strong> quiere preparar contigo un espacio financiero compartido en FinovAI.</p>
+        <p><a href="${escapeHtml(inviteUrl)}">Abrir invitación</a></p>
+        <p style="color:#536275">Entra con ${escapeHtml(invite.inviteeEmail)}. Si no esperabas esta invitación, puedes ignorar este correo.</p>
+      </div>
+    `,
+  })
+
+  return { emailSent: true, inviteUrl }
 }
 
 async function createEmailLoginChallenge(
@@ -835,11 +1262,11 @@ async function findEmailLoginChallenge(
 
     return challenge
       ? { ok: true, challenge }
-      : { ok: false, status: 401, message: 'El link de acceso expiró o no es válido.' }
+      : { ok: false, status: 401, message: 'El enlace de acceso expiró o no es válido.' }
   }
 
   if (!input.code) {
-    return { ok: false, status: 400, message: 'Código o link requerido.' }
+    return { ok: false, status: 400, message: 'Código o enlace requerido.' }
   }
 
   const challenge = await env.DB.prepare(
@@ -1025,7 +1452,25 @@ function collectSyncfyRecords(value: unknown, maxDepth = 4): Array<Record<string
     if (!record) return
 
     records.push(record)
-    for (const key of ['response', 'data', 'payload', 'credential', 'credentials', 'user', 'site', 'extra']) {
+    for (const key of [
+      'response',
+      'data',
+      'payload',
+      'credential',
+      'credentials',
+      'user',
+      'site',
+      'sites',
+      'site_organization',
+      'site_organizations',
+      'organization',
+      'organizations',
+      'institution',
+      'institutions',
+      'bank',
+      'banks',
+      'extra',
+    ]) {
       if (key in record) visit(record[key], depth + 1)
     }
   }
@@ -1051,6 +1496,55 @@ function firstSyncfyStatusString(payload: unknown, keys: string[]): string | nul
   return value
 }
 
+function lookupKnownSyncfyInstitutionName(...ids: Array<string | null | undefined>): string | null {
+  for (const id of ids) {
+    if (!id) continue
+    const knownName = KNOWN_SYNCFY_INSTITUTION_NAMES.get(id)
+    if (knownName) return knownName
+  }
+
+  return null
+}
+
+function isUsefulSyncfyInstitutionName(value: string): boolean {
+  const label = cleanText(value)
+  if (!label || label.length < 2 || label.length > 120) return false
+  if (/^[a-f0-9]{16,}$/i.test(label) || /^\d+$/.test(label)) return false
+
+  const normalized = normalizeCategoryInput(label).replace(/[^A-Z0-9]+/g, ' ').trim()
+  if (!normalized || SYNCFY_GENERIC_INSTITUTION_NAMES.has(normalized)) return false
+
+  return true
+}
+
+function firstSyncfyInstitutionName(payload: unknown): string | null {
+  for (const record of collectSyncfyRecords(payload)) {
+    for (const key of SYNCFY_INSTITUTION_NAME_KEYS) {
+      const value = stringFromUnknown(record[key], 160)
+      if (value && isUsefulSyncfyInstitutionName(value)) return cleanText(value)
+    }
+  }
+
+  return null
+}
+
+export function extractSyncfySiteMetadata(payload: unknown): SyncfySiteMetadata {
+  const syncfySiteId = firstSyncfyString(payload, ['id_site', 'site_id', 'idSite', 'syncfy_site_id'])
+  const syncfySiteOrganizationId = firstSyncfyString(payload, [
+    'id_site_organization',
+    'site_organization_id',
+    'idSiteOrganization',
+    'syncfy_site_organization_id',
+  ])
+
+  return {
+    syncfySiteId,
+    syncfySiteOrganizationId,
+    siteName: firstSyncfyInstitutionName(payload) ||
+      lookupKnownSyncfyInstitutionName(syncfySiteId, syncfySiteOrganizationId),
+  }
+}
+
 function extractSyncfyEventType(payload: unknown): string {
   const direct = firstSyncfyString(payload, ['event_type', 'event', 'webhook_event', 'type'])
   return direct || 'syncfy.webhook'
@@ -1065,6 +1559,8 @@ function extractSyncfyCode(payload: unknown): string | null {
 }
 
 function extractSyncfyCredentialPayload(payload: unknown): SyncfyCredentialPayload {
+  const site = extractSyncfySiteMetadata(payload)
+
   return {
     syncfyUserId: firstSyncfyString(payload, ['id_user', 'user_id', 'idUser', 'syncfy_user_id']),
     syncfyCredentialId: firstSyncfyString(payload, [
@@ -1073,8 +1569,9 @@ function extractSyncfyCredentialPayload(payload: unknown): SyncfyCredentialPaylo
       'idCredential',
       'syncfy_credential_id',
     ]),
-    syncfySiteId: firstSyncfyString(payload, ['id_site', 'site_id', 'idSite', 'syncfy_site_id']),
-    siteName: firstSyncfyString(payload, ['site_name', 'siteName', 'name_site', 'siteNameDisplay']),
+    syncfySiteId: site.syncfySiteId,
+    syncfySiteOrganizationId: site.syncfySiteOrganizationId,
+    siteName: site.siteName,
     status: firstSyncfyStatusString(payload, ['credential_status', 'status', 'status_code', 'statusCode']),
     rid: extractSyncfyRid(payload),
   }
@@ -1088,6 +1585,11 @@ function isSyncfyRefreshEvent(eventType: string): boolean {
 function isSyncfySuccessfulStatus(status: string | null): boolean {
   if (!status) return true
   return /success|successful|active|ok|valid|synced|refreshed/i.test(status)
+}
+
+function isSyncfyReconnectRequiredStatus(status: string | null): boolean {
+  if (!status) return false
+  return /needs[_ -]?reconnect|invalid[_ -]?user|reconnect/i.test(status)
 }
 
 async function findEmailBySyncfyUserId(env: Env, syncfyUserId: string): Promise<string | null> {
@@ -1179,13 +1681,145 @@ function getSyncfyWebhookEndpointPaths(payload: unknown, key: 'accounts' | 'cred
   return []
 }
 
-function buildSyncfyTransactionsPath(credentialId: string, skip = 0): string {
+function addUniqueSyncfyPath(paths: string[], seen: Set<string>, path: string): void {
+  const normalizedPath = normalizeSyncfyRequestPath(path)
+  if (seen.has(normalizedPath)) return
+  seen.add(normalizedPath)
+  paths.push(normalizedPath)
+}
+
+function normalizeSyncfyJobStatusPath(value: string): string | null {
+  const normalizedPath = normalizeSyncfyRequestPath(value)
+  return /^\/jobs\/[^/?#]+\/status(?:[?#].*)?$/.test(normalizedPath) ? normalizedPath : null
+}
+
+export function getSyncfyJobStatusPaths(payload: unknown): string[] {
+  const paths: string[] = []
+  const seen = new Set<string>()
+
+  for (const record of collectSyncfyRecords(payload)) {
+    for (const key of [
+      'status',
+      'status_url',
+      'statusUrl',
+      'job_status',
+      'jobStatus',
+      'job_status_url',
+      'jobStatusUrl',
+      'url_status',
+      'endpoint_status',
+    ]) {
+      const value = stringFromUnknown(record[key], 2048)
+      if (!value) continue
+      const path = normalizeSyncfyJobStatusPath(value)
+      if (path) addUniqueSyncfyPath(paths, seen, path)
+    }
+
+    for (const key of ['id_job', 'job_id', 'idJob', 'syncfy_job_id']) {
+      const jobId = stringFromUnknown(record[key], 256)
+      if (!jobId || !/^[a-z0-9_-]+$/i.test(jobId)) continue
+      addUniqueSyncfyPath(paths, seen, `/jobs/${jobId}/status`)
+    }
+  }
+
+  return paths
+}
+
+function getSyncfyCredentialJobStatusPaths(credential: SyncfyCredentialRow): string[] {
+  if (!credential.raw_json) return []
+  return getSyncfyJobStatusPaths(parseJsonUnknown(credential.raw_json))
+}
+
+function getSyncfyTransactionLookbackMonths(env: Pick<Env, 'SYNCFY_TRANSACTION_LOOKBACK_MONTHS'>): number {
+  const configured = Number(env.SYNCFY_TRANSACTION_LOOKBACK_MONTHS)
+  if (Number.isFinite(configured) && configured >= 1 && configured <= 24) {
+    return Math.floor(configured)
+  }
+
+  return SYNCFY_DEFAULT_TRANSACTION_LOOKBACK_MONTHS
+}
+
+export function buildSyncfyTransactionWindow(
+  referenceDate = new Date(),
+  lookbackMonths = SYNCFY_DEFAULT_TRANSACTION_LOOKBACK_MONTHS
+): { from: number; to: number } {
+  const to = Number.isFinite(referenceDate.getTime()) ? referenceDate : new Date()
+  const from = new Date(to.getTime())
+  from.setUTCMonth(from.getUTCMonth() - Math.max(1, Math.floor(lookbackMonths)))
+  from.setUTCHours(0, 0, 0, 0)
+
+  return {
+    from: Math.floor(from.getTime() / 1000),
+    to: Math.floor(to.getTime() / 1000),
+  }
+}
+
+export function buildSyncfyTransactionsPath(
+  credentialId: string,
+  syncfyUserId: string,
+  skip = 0,
+  options: { referenceDate?: Date; lookbackMonths?: number } = {}
+): string {
+  const window = buildSyncfyTransactionWindow(options.referenceDate, options.lookbackMonths)
   const params = new URLSearchParams({
+    id_user: syncfyUserId,
     id_credential: credentialId,
+    dt_transaction_from: String(window.from),
+    dt_transaction_to: String(window.to),
     limit: String(SYNCFY_DEFAULT_TRANSACTION_LIMIT),
     skip: String(skip),
+    order: '-dt_transaction',
   })
   return `/transactions?${params.toString()}`
+}
+
+export function buildNextSyncfyTransactionsPageEndpoint(endpoint: string, fetchedCount: number): string | null {
+  const normalizedEndpoint = normalizeSyncfyRequestPath(endpoint)
+  const [path, query = ''] = normalizedEndpoint.split('?')
+  const params = new URLSearchParams(query)
+  const limit = Number(params.get('limit') || 0)
+  const skip = Number(params.get('skip') || 0)
+
+  if (!Number.isFinite(limit) || limit <= 0 || fetchedCount < limit) return null
+  if (!Number.isFinite(skip) || skip < 0) return null
+
+  const nextSkip = skip + limit
+  if (nextSkip >= SYNCFY_MAX_TRANSACTION_IMPORT_COUNT) return null
+
+  params.set('skip', String(nextSkip))
+  return `${path}?${params.toString()}`
+}
+
+export function addSyncfyUserParamToEndpoint(endpoint: string, syncfyUserId: string | null): string {
+  if (!syncfyUserId) return endpoint
+
+  const normalizedEndpoint = normalizeSyncfyRequestPath(endpoint)
+  const [path, query = ''] = normalizedEndpoint.split('?')
+  const params = new URLSearchParams(query)
+  if (!params.has('id_user')) {
+    params.set('id_user', syncfyUserId)
+  }
+
+  const nextQuery = params.toString()
+  return nextQuery ? `${path}?${nextQuery}` : path
+}
+
+export function isSyncfyTransactionImportComplete(
+  result: Pick<SyncfyTransactionImportResult, 'fetched' | 'imported' | 'skipped'>
+): boolean {
+  return result.imported > 0
+}
+
+function getSyncfyTransactionImportMessage(result: SyncfyTransactionImportResult): string {
+  if (isSyncfyTransactionImportComplete(result)) {
+    return `${result.imported} movimientos sincronizados desde Syncfy.`
+  }
+
+  if (result.fetched > 0 && result.skipped >= result.fetched) {
+    return 'Syncfy devolvió movimientos, pero FinovAI todavía no pudo leer el formato de esa institución. El equipo debe revisar esa respuesta.'
+  }
+
+  return 'La institución quedó conectada. Syncfy todavía está preparando los movimientos; FinovAI reintentará en unos segundos.'
 }
 
 function getSyncfyCredentialCooldownSeconds(credential: SyncfyCredentialRow): number {
@@ -1200,16 +1834,18 @@ function getSyncfyCredentialCooldownSeconds(credential: SyncfyCredentialRow): nu
 
 function syncfyCredentialToApi(credential: SyncfyCredentialRow): SyncfyCredentialsResponse['credentials'][number] {
   const cooldownSeconds = getSyncfyCredentialCooldownSeconds(credential)
+  const needsReconnect = isSyncfyReconnectRequiredStatus(credential.status)
 
   return {
     id: credential.id,
     syncfyCredentialId: credential.syncfy_credential_id,
-    siteName: credential.site_name,
+    siteName: credential.site_name || lookupKnownSyncfyInstitutionName(credential.syncfy_site_id, null),
     status: credential.status,
     lastSuccessfulSyncAt: credential.last_successful_sync_at,
     lastPullAt: credential.last_pull_at,
     cooldownSeconds,
-    ready: cooldownSeconds === 0,
+    ready: !needsReconnect && cooldownSeconds === 0,
+    needsReconnect,
   }
 }
 
@@ -1227,13 +1863,183 @@ async function loadSyncfyCredentialsForEmail(env: Env, email: string): Promise<S
   return result.results
 }
 
+function buildSyncfyCataloguePath(path: string, metadata: SyncfySiteMetadata): string {
+  const params = new URLSearchParams()
+  if (metadata.syncfySiteId) params.set('id_site', metadata.syncfySiteId)
+  if (metadata.syncfySiteOrganizationId) params.set('id_site_organization', metadata.syncfySiteOrganizationId)
+
+  const query = params.toString()
+  return query ? `${path}?${query}` : path
+}
+
+async function fetchSyncfyInstitutionName(env: Env, metadata: SyncfySiteMetadata): Promise<string | null> {
+  const knownName = lookupKnownSyncfyInstitutionName(metadata.syncfySiteId, metadata.syncfySiteOrganizationId)
+  if (!env.SYNCFY_API_KEY) return knownName
+
+  const cataloguePaths = [
+    buildSyncfyCataloguePath('/catalogues/organizations/sites', metadata),
+    metadata.syncfySiteOrganizationId
+      ? buildSyncfyCataloguePath('/catalogues/site_organizations', metadata)
+      : null,
+    buildSyncfyCataloguePath('/catalogues/sites', metadata),
+  ].filter((path): path is string => Boolean(path))
+
+  for (const path of cataloguePaths) {
+    try {
+      const response = await syncfyRequest<unknown>(env, path, { method: 'GET' })
+      const siteName = firstSyncfyInstitutionName(response)
+      if (siteName) return siteName
+    } catch {
+      // Institution names are presentational; transaction imports must not fail on catalogue lookup.
+    }
+  }
+
+  return knownName
+}
+
+function mergeSyncfySiteMetadata(
+  primary: SyncfySiteMetadata,
+  fallback: SyncfySiteMetadata | null
+): SyncfySiteMetadata {
+  const syncfySiteId = primary.syncfySiteId || fallback?.syncfySiteId || null
+  const syncfySiteOrganizationId = primary.syncfySiteOrganizationId || fallback?.syncfySiteOrganizationId || null
+
+  return {
+    syncfySiteId,
+    syncfySiteOrganizationId,
+    siteName: primary.siteName ||
+      fallback?.siteName ||
+      lookupKnownSyncfyInstitutionName(syncfySiteId, syncfySiteOrganizationId),
+  }
+}
+
+function getSyncfyCredentialStoredMetadata(credential: SyncfyCredentialRow): SyncfySiteMetadata {
+  const rawMetadata = credential.raw_json
+    ? extractSyncfySiteMetadata(parseJsonUnknown(credential.raw_json))
+    : { syncfySiteId: null, syncfySiteOrganizationId: null, siteName: null }
+  const siteName = credential.site_name && isUsefulSyncfyInstitutionName(credential.site_name)
+    ? credential.site_name
+    : rawMetadata.siteName
+
+  return mergeSyncfySiteMetadata({
+    syncfySiteId: credential.syncfy_site_id || rawMetadata.syncfySiteId,
+    syncfySiteOrganizationId: rawMetadata.syncfySiteOrganizationId,
+    siteName,
+  }, rawMetadata)
+}
+
+async function findSyncfySiteMetadataFromTransactions(
+  env: Env,
+  email: string,
+  credentialId?: string | null
+): Promise<SyncfySiteMetadata | null> {
+  const credentialClause = credentialId ? `AND raw_source LIKE ?` : ''
+  const statement = env.DB.prepare(
+    `SELECT raw_source
+     FROM transactions
+     WHERE email = ?
+       AND source = 'syncfy'
+       AND raw_source IS NOT NULL
+       ${credentialClause}
+     ORDER BY updated_at DESC, created_at DESC
+     LIMIT 25`
+  )
+  const result = credentialId
+    ? await statement.bind(email, `%${credentialId}%`).all<{ raw_source: string }>()
+    : await statement.bind(email).all<{ raw_source: string }>()
+
+  for (const row of result.results) {
+    const metadata = extractSyncfySiteMetadata(parseJsonUnknown(row.raw_source))
+    if (metadata.siteName || metadata.syncfySiteId || metadata.syncfySiteOrganizationId) return metadata
+  }
+
+  return null
+}
+
+async function enrichSyncfyCredentialInstitution(
+  env: Env,
+  credential: SyncfyCredentialRow,
+  metadata: SyncfySiteMetadata
+): Promise<boolean> {
+  const currentNameIsUseful = credential.site_name ? isUsefulSyncfyInstitutionName(credential.site_name) : false
+  const siteName = currentNameIsUseful
+    ? null
+    : metadata.siteName || await fetchSyncfyInstitutionName(env, metadata)
+  const nextSiteId = !credential.syncfy_site_id ? metadata.syncfySiteId : null
+  const nextSiteName = siteName && isUsefulSyncfyInstitutionName(siteName) ? siteName : null
+
+  if (!nextSiteId && !nextSiteName) return false
+
+  await env.DB.prepare(
+    `UPDATE syncfy_credentials
+     SET syncfy_site_id = COALESCE(?, syncfy_site_id),
+         site_name = COALESCE(?, site_name),
+         updated_at = datetime("now")
+     WHERE email = ?
+       AND syncfy_credential_id = ?`
+  )
+    .bind(nextSiteId, nextSiteName, credential.email, credential.syncfy_credential_id)
+    .run()
+
+  return true
+}
+
+async function enrichSyncfyCredentialInstitutionById(
+  env: Env,
+  email: string,
+  credentialId: string,
+  metadata: SyncfySiteMetadata
+): Promise<boolean> {
+  const credential = await env.DB.prepare(
+    `SELECT * FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ?`
+  )
+    .bind(email, credentialId)
+    .first<SyncfyCredentialRow>()
+
+  if (!credential) return false
+  return enrichSyncfyCredentialInstitution(env, credential, metadata)
+}
+
+async function loadDisplaySyncfyCredentialsForEmail(env: Env, email: string): Promise<SyncfyCredentialRow[]> {
+  const credentials = await loadSyncfyCredentialsForEmail(env, email)
+  const missingLabels = credentials.filter((credential) => (
+    !credential.site_name || !isUsefulSyncfyInstitutionName(credential.site_name)
+  ))
+  if (missingLabels.length === 0) return credentials
+
+  const sharedTransactionMetadata = missingLabels.length === 1
+    ? await findSyncfySiteMetadataFromTransactions(env, email)
+    : null
+  let changed = false
+
+  for (const credential of missingLabels) {
+    const credentialTransactionMetadata = await findSyncfySiteMetadataFromTransactions(
+      env,
+      email,
+      credential.syncfy_credential_id
+    )
+    const metadata = mergeSyncfySiteMetadata(
+      getSyncfyCredentialStoredMetadata(credential),
+      credentialTransactionMetadata || sharedTransactionMetadata
+    )
+
+    if (!metadata.siteName && !metadata.syncfySiteId && !metadata.syncfySiteOrganizationId) continue
+    changed = await enrichSyncfyCredentialInstitution(env, credential, metadata) || changed
+  }
+
+  return changed ? loadSyncfyCredentialsForEmail(env, email) : credentials
+}
+
 async function loadDueSyncfyCredentials(env: Env): Promise<SyncfyCredentialRow[]> {
   await ensureSyncfyTables(env)
 
   const result = await env.DB.prepare(
     `SELECT * FROM syncfy_credentials
-     WHERE last_pull_at IS NULL
-        OR unixepoch(last_pull_at) <= unixepoch('now') - ?
+     WHERE COALESCE(status, '') <> 'needs_reconnect'
+       AND (
+         last_pull_at IS NULL
+         OR unixepoch(last_pull_at) <= unixepoch('now') - ?
+       )
      ORDER BY COALESCE(last_pull_at, created_at) ASC
      LIMIT ?`
   )
@@ -1314,18 +2120,18 @@ async function storeSyncfyError(
 
 function buildSyncfyUserMessage(error: SyncfyRequestError): string {
   if (error.status === 429) {
-    return 'Syncfy esta limitando nuevas sincronizaciones. Intenta de nuevo en unos minutos.'
+    return 'Syncfy está limitando nuevas sincronizaciones. Intenta de nuevo en unos minutos.'
   }
 
   if (error.status === 401 || error.status === 403) {
-    return 'No pudimos autenticar la conexion con Syncfy. El equipo debe revisar la configuracion.'
+    return 'No pudimos autenticar la conexión con Syncfy. El equipo debe revisar la configuración.'
   }
 
   if (error.status >= 500) {
-    return 'Syncfy no respondio correctamente. Intenta de nuevo mas tarde.'
+    return 'Syncfy no respondió correctamente. Intenta de nuevo más tarde.'
   }
 
-  return 'No pudimos completar la conexion con la institucion. Revisa los datos o intenta otra vez.'
+  return 'No pudimos completar la conexión con la institución. Revisa los datos o intenta otra vez.'
 }
 
 function getSyncfySecretFromRequest(request: Request): string | null {
@@ -1571,8 +2377,8 @@ function expensesResponse(source: 'sample' | 'syncfy', email: string, expenses: 
     expenses,
     message:
       source === 'sample'
-        ? 'Sample data shown until Syncfy transaction endpoint details are configured.'
-        : 'Transactions loaded from Syncfy.',
+        ? 'Datos de muestra hasta configurar los detalles del endpoint de transacciones de Syncfy.'
+        : 'Transacciones cargadas desde Syncfy.',
   }
 }
 
@@ -1701,16 +2507,23 @@ async function upsertSyncfyFinanceTransaction(
   await env.DB.prepare(
     `INSERT INTO transactions (
       id, email, date, type, amount, currency, category, description, merchant, notes,
-      source, confidence, raw_source, cartola_import_id, created_at, updated_at
+      source, confidence, category_locked, raw_source, cartola_import_id, created_at, updated_at
     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'syncfy', 0.9, ?, NULL, datetime("now"), datetime("now"))
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'syncfy', 0.9, 0, ?, NULL, datetime("now"), datetime("now"))
      ON CONFLICT(id) DO UPDATE SET
        email = excluded.email,
        date = excluded.date,
        type = excluded.type,
        amount = excluded.amount,
        currency = excluded.currency,
-       category = excluded.category,
+       category = CASE
+         WHEN transactions.category_locked = 1 AND transactions.type = excluded.type THEN transactions.category
+         ELSE excluded.category
+       END,
+       category_locked = CASE
+         WHEN transactions.type = excluded.type THEN transactions.category_locked
+         ELSE 0
+       END,
        description = excluded.description,
        merchant = excluded.merchant,
        raw_source = excluded.raw_source,
@@ -1736,8 +2549,10 @@ async function upsertSyncfyFinanceTransaction(
 async function importSyncfyTransactionsFromEndpoints(
   env: Env,
   email: string,
+  syncfyUserId: string | null,
   credentialId: string | null,
-  endpoints: string[]
+  endpoints: string[],
+  options: { addSyncfyUserId?: boolean } = {}
 ): Promise<SyncfyTransactionImportResult> {
   await ensureSyncfyTables(env)
   await ensureFinanceTables(env)
@@ -1745,33 +2560,142 @@ async function importSyncfyTransactionsFromEndpoints(
   let fetched = 0
   let imported = 0
   let skipped = 0
+  let siteMetadata: SyncfySiteMetadata | null = null
+  const fetchedEndpoints: string[] = []
 
   for (const endpoint of endpoints.slice(0, 20)) {
-    const response = await syncfyRequest<unknown>(env, endpoint, { method: 'GET' })
-    const transactions = extractSyncfyTransactions(response)
-    fetched += transactions.length
+    let endpointPage: string | null = endpoint
 
-    for (const [index, rawTransaction] of transactions.entries()) {
-      const normalized = normalizeSyncfyTransaction(rawTransaction, credentialId, index)
-      if (!normalized) {
-        skipped += 1
-        continue
+    for (let page = 0; endpointPage && page < SYNCFY_MAX_TRANSACTION_IMPORT_PAGES; page += 1) {
+      const requestEndpoint = options.addSyncfyUserId === false
+        ? normalizeSyncfyRequestPath(endpointPage)
+        : addSyncfyUserParamToEndpoint(endpointPage, syncfyUserId)
+      fetchedEndpoints.push(requestEndpoint)
+
+      const response = await syncfyRequest<unknown>(
+        env,
+        requestEndpoint,
+        { method: 'GET' }
+      )
+      const transactions = extractSyncfyTransactions(response)
+      fetched += transactions.length
+
+      for (const [index, rawTransaction] of transactions.entries()) {
+        if (!siteMetadata) {
+          const metadata = extractSyncfySiteMetadata(rawTransaction)
+          if (metadata.siteName || metadata.syncfySiteId || metadata.syncfySiteOrganizationId) {
+            siteMetadata = metadata
+          }
+        }
+
+        const normalized = normalizeSyncfyTransaction(rawTransaction, credentialId, fetched - transactions.length + index)
+        if (!normalized) {
+          skipped += 1
+          continue
+        }
+
+        await upsertSyncfyFinanceTransaction(env, email, normalized)
+        imported += 1
       }
 
-      await upsertSyncfyFinanceTransaction(env, email, normalized)
-      imported += 1
+      endpointPage = buildNextSyncfyTransactionsPageEndpoint(endpointPage, transactions.length)
     }
   }
 
-  return { credentialId, fetched, imported, skipped, endpoints }
+  if (credentialId && siteMetadata) {
+    await enrichSyncfyCredentialInstitutionById(env, email, credentialId, siteMetadata)
+  }
+
+  return { credentialId, fetched, imported, skipped, endpoints: fetchedEndpoints }
+}
+
+function mergeSyncfyTransactionImportResults(
+  left: SyncfyTransactionImportResult,
+  right: SyncfyTransactionImportResult
+): SyncfyTransactionImportResult {
+  return {
+    credentialId: left.credentialId || right.credentialId,
+    fetched: left.fetched + right.fetched,
+    imported: left.imported + right.imported,
+    skipped: left.skipped + right.skipped,
+    endpoints: [...left.endpoints, ...right.endpoints],
+  }
+}
+
+async function importSyncfyTransactionsFromJobStatuses(
+  env: Env,
+  email: string,
+  syncfyUserId: string | null,
+  credentialId: string | null,
+  jobStatusPaths: string[]
+): Promise<SyncfyTransactionImportResult> {
+  let result: SyncfyTransactionImportResult = {
+    credentialId,
+    fetched: 0,
+    imported: 0,
+    skipped: 0,
+    endpoints: [],
+  }
+
+  for (const jobStatusPath of jobStatusPaths.slice(0, 10)) {
+    const normalizedPath = normalizeSyncfyRequestPath(jobStatusPath)
+    const jobStatus = await syncfyRequest<unknown>(env, normalizedPath, { method: 'GET' })
+    result = {
+      ...result,
+      endpoints: [...result.endpoints, normalizedPath],
+    }
+
+    const transactionEndpoints = getSyncfyWebhookEndpointPaths(jobStatus, 'transactions')
+    if (transactionEndpoints.length === 0) continue
+
+    const endpointResult = await importSyncfyTransactionsFromEndpoints(
+      env,
+      email,
+      syncfyUserId,
+      credentialId,
+      transactionEndpoints,
+      { addSyncfyUserId: false }
+    )
+    result = mergeSyncfyTransactionImportResults(result, endpointResult)
+  }
+
+  return result
 }
 
 async function importSyncfyTransactionsForCredential(
   env: Env,
   email: string,
-  credentialId: string
+  syncfyUserId: string,
+  credentialId: string,
+  options: { jobStatusPaths?: string[] } = {}
 ): Promise<SyncfyTransactionImportResult> {
-  return importSyncfyTransactionsFromEndpoints(env, email, credentialId, [buildSyncfyTransactionsPath(credentialId)])
+  let jobStatusResult: SyncfyTransactionImportResult | null = null
+
+  if (options.jobStatusPaths?.length) {
+    jobStatusResult = await importSyncfyTransactionsFromJobStatuses(
+      env,
+      email,
+      syncfyUserId,
+      credentialId,
+      options.jobStatusPaths
+    )
+
+    if (isSyncfyTransactionImportComplete(jobStatusResult)) {
+      return jobStatusResult
+    }
+  }
+
+  const directResult = await importSyncfyTransactionsFromEndpoints(
+    env,
+    email,
+    syncfyUserId,
+    credentialId,
+    [buildSyncfyTransactionsPath(credentialId, syncfyUserId, 0, {
+      lookbackMonths: getSyncfyTransactionLookbackMonths(env),
+    })]
+  )
+
+  return jobStatusResult ? mergeSyncfyTransactionImportResults(jobStatusResult, directResult) : directResult
 }
 
 async function markSyncfyCredentialSyncSuccess(
@@ -1784,6 +2708,21 @@ async function markSyncfyCredentialSyncSuccess(
      SET last_pull_at = datetime("now"),
          last_successful_sync_at = datetime("now"),
          status = COALESCE(NULLIF(status, ''), 'synced'),
+         updated_at = datetime("now")
+     WHERE email = ? AND syncfy_credential_id = ?`
+  )
+    .bind(email, credentialId)
+    .run()
+}
+
+async function markSyncfyCredentialSyncPending(
+  env: Env,
+  email: string,
+  credentialId: string
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE syncfy_credentials
+     SET status = 'pending_transactions',
          updated_at = datetime("now")
      WHERE email = ? AND syncfy_credential_id = ?`
   )
@@ -1824,10 +2763,16 @@ async function refreshDueSyncfyCredentials(env: Env): Promise<{
       const result = await importSyncfyTransactionsForCredential(
         env,
         credential.email,
-        credential.syncfy_credential_id
+        credential.syncfy_user_id,
+        credential.syncfy_credential_id,
+        { jobStatusPaths: getSyncfyCredentialJobStatusPaths(credential) }
       )
       imported += result.imported
-      await markSyncfyCredentialSyncSuccess(env, credential.email, credential.syncfy_credential_id)
+      if (isSyncfyTransactionImportComplete(result)) {
+        await markSyncfyCredentialSyncSuccess(env, credential.email, credential.syncfy_credential_id)
+      } else {
+        await markSyncfyCredentialSyncPending(env, credential.email, credential.syncfy_credential_id)
+      }
     } catch (err) {
       failed += 1
       if (err instanceof SyncfyRequestError) {
@@ -1861,7 +2806,10 @@ async function ensureFinanceTables(env: Env): Promise<void> {
   await env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS financial_profiles (
       email TEXT PRIMARY KEY,
-      currency TEXT NOT NULL DEFAULT 'CLP',
+      currency TEXT NOT NULL DEFAULT 'MXN',
+      monthly_income REAL,
+      monthly_budget REAL,
+      category_budgets_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT
     )`
@@ -1897,6 +2845,7 @@ async function ensureFinanceTables(env: Env): Promise<void> {
       notes TEXT,
       source TEXT NOT NULL CHECK (source IN ('manual', 'cartola', 'syncfy')),
       confidence REAL NOT NULL DEFAULT 1,
+      category_locked INTEGER NOT NULL DEFAULT 0,
       raw_source TEXT,
       cartola_import_id TEXT,
       created_at TEXT NOT NULL,
@@ -1906,10 +2855,54 @@ async function ensureFinanceTables(env: Env): Promise<void> {
     )`
   ).run()
 
+  await ensureFinancialProfileBudgetColumns(env)
   await migrateTransactionsSourceConstraint(env)
+  await ensureTransactionCategoryLockColumn(env)
   await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_transactions_email_date ON transactions(email, date DESC)`).run()
   await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_transactions_email_source ON transactions(email, source)`).run()
   await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_cartola_imports_email_created ON cartola_imports(email, created_at DESC)`).run()
+}
+
+async function ensureFinancialProfileBudgetColumns(env: Env): Promise<void> {
+  let existingColumns: Set<string> | null = null
+  try {
+    const columns = await env.DB.prepare(`PRAGMA table_info(financial_profiles)`).all<{ name: string }>()
+    existingColumns = new Set(columns.results.map((column) => column.name))
+  } catch {
+    existingColumns = null
+  }
+
+  const additions = [
+    ['monthly_income', 'ALTER TABLE financial_profiles ADD COLUMN monthly_income REAL'],
+    ['monthly_budget', 'ALTER TABLE financial_profiles ADD COLUMN monthly_budget REAL'],
+    ['category_budgets_json', 'ALTER TABLE financial_profiles ADD COLUMN category_budgets_json TEXT'],
+  ] as const
+
+  for (const [column, statement] of additions) {
+    if (existingColumns?.has(column)) continue
+    try {
+      await env.DB.prepare(statement).run()
+    } catch {
+      // Existing databases may already have the column; D1 reports duplicate columns as errors.
+    }
+  }
+}
+
+async function ensureTransactionCategoryLockColumn(env: Env): Promise<void> {
+  try {
+    const columns = await env.DB.prepare(`PRAGMA table_info(transactions)`).all<{ name: string }>()
+    if (columns.results.some((column) => column.name === 'category_locked')) return
+  } catch {
+    // Some test doubles do not implement PRAGMA; the ALTER path below is still safe.
+  }
+
+  try {
+    await env.DB.prepare(
+      `ALTER TABLE transactions ADD COLUMN category_locked INTEGER NOT NULL DEFAULT 0`
+    ).run()
+  } catch {
+    // Existing databases already have the column. D1 exposes duplicate-column as an error.
+  }
 }
 
 async function migrateTransactionsSourceConstraint(env: Env): Promise<void> {
@@ -1936,6 +2929,7 @@ async function migrateTransactionsSourceConstraint(env: Env): Promise<void> {
       notes TEXT,
       source TEXT NOT NULL CHECK (source IN ('manual', 'cartola', 'syncfy')),
       confidence REAL NOT NULL DEFAULT 1,
+      category_locked INTEGER NOT NULL DEFAULT 0,
       raw_source TEXT,
       cartola_import_id TEXT,
       created_at TEXT NOT NULL,
@@ -1947,10 +2941,10 @@ async function migrateTransactionsSourceConstraint(env: Env): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO transactions (
       id, email, date, type, amount, currency, category, description, merchant, notes,
-      source, confidence, raw_source, cartola_import_id, created_at, updated_at
+      source, confidence, category_locked, raw_source, cartola_import_id, created_at, updated_at
     )
      SELECT id, email, date, type, amount, currency, category, description, merchant, notes,
-      source, confidence, raw_source, cartola_import_id, created_at, updated_at
+      source, confidence, COALESCE(category_locked, 0), raw_source, cartola_import_id, created_at, updated_at
      FROM transactions_legacy_source_constraint`
   ).run()
   await env.DB.prepare(`DROP TABLE transactions_legacy_source_constraint`).run()
@@ -1985,6 +2979,113 @@ async function upsertFinancialProfile(env: Env, email: string): Promise<void> {
   )
     .bind(email, DEFAULT_FINANCE_CURRENCY)
     .run()
+}
+
+function normalizeProfileMoney(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const number = typeof value === 'number' ? value : normalizeFinancialAmount(value)
+  if (!Number.isFinite(number) || number < 0) return null
+  return roundMoney(number)
+}
+
+function normalizeCategoryBudgets(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+
+  const normalized: Record<string, number> = {}
+  for (const [key, rawAmount] of Object.entries(value as Record<string, unknown>)) {
+    const category = normalizeRequestedFinanceCategory(key, 'expense')
+    const amount = normalizeProfileMoney(rawAmount)
+    if (!category || !amount || amount <= 0) continue
+    normalized[category] = amount
+  }
+
+  return normalized
+}
+
+function parseCategoryBudgets(jsonValue: string | null | undefined): Record<string, number> {
+  if (!jsonValue) return {}
+  try {
+    return normalizeCategoryBudgets(JSON.parse(jsonValue))
+  } catch {
+    return {}
+  }
+}
+
+function financialProfileRowToApi(row: FinancialProfileRow | null, email: string): FinancialProfile {
+  return {
+    email,
+    currency: row?.currency || DEFAULT_FINANCE_CURRENCY,
+    monthlyIncome: normalizeProfileMoney(row?.monthly_income),
+    monthlyBudget: normalizeProfileMoney(row?.monthly_budget),
+    categoryBudgets: parseCategoryBudgets(row?.category_budgets_json),
+  }
+}
+
+async function loadFinancialProfile(env: Env, email: string): Promise<FinancialProfile> {
+  await ensureFinanceTables(env)
+  await upsertFinancialProfile(env, email)
+
+  const row = await env.DB.prepare(
+    `SELECT * FROM financial_profiles WHERE email = ?`
+  )
+    .bind(email)
+    .first<FinancialProfileRow>()
+
+  return financialProfileRowToApi(row, email)
+}
+
+async function updateFinancialProfile(
+  env: Env,
+  email: string,
+  input: {
+    currency?: unknown
+    monthlyIncome?: unknown
+    monthlyBudget?: unknown
+    categoryBudgets?: unknown
+  }
+): Promise<FinancialProfile> {
+  await ensureFinanceTables(env)
+  await upsertFinancialProfile(env, email)
+
+  const current = await loadFinancialProfile(env, email)
+  const currency = typeof input.currency === 'string' && input.currency.trim()
+    ? input.currency.trim().toUpperCase().slice(0, 8)
+    : current.currency
+  const monthlyIncome = Object.prototype.hasOwnProperty.call(input, 'monthlyIncome')
+    ? normalizeProfileMoney(input.monthlyIncome)
+    : current.monthlyIncome
+  const monthlyBudget = Object.prototype.hasOwnProperty.call(input, 'monthlyBudget')
+    ? normalizeProfileMoney(input.monthlyBudget)
+    : current.monthlyBudget
+  const categoryBudgets = Object.prototype.hasOwnProperty.call(input, 'categoryBudgets')
+    ? normalizeCategoryBudgets(input.categoryBudgets)
+    : current.categoryBudgets
+
+  await env.DB.prepare(
+    `UPDATE financial_profiles
+     SET currency = ?,
+         monthly_income = ?,
+         monthly_budget = ?,
+         category_budgets_json = ?,
+         updated_at = datetime("now")
+     WHERE email = ?`
+  )
+    .bind(
+      currency,
+      monthlyIncome,
+      monthlyBudget,
+      JSON.stringify(categoryBudgets),
+      email
+    )
+    .run()
+
+  return {
+    email,
+    currency,
+    monthlyIncome,
+    monthlyBudget,
+    categoryBudgets,
+  }
 }
 
 function householdInviteRowToApi(row: HouseholdInviteRow): HouseholdInvite {
@@ -2041,6 +3142,10 @@ async function upsertHouseholdInvite(env: Env, inviterEmail: string, inviteeEmai
 }
 
 function transactionRowToApi(row: FinanceTransactionRow): FinanceTransaction {
+  const category = row.category_locked
+    ? row.category
+    : resolveFinanceCategory(row.category, row.description, row.merchant, row.type, row.source)
+
   return {
     id: row.id,
     email: row.email,
@@ -2048,7 +3153,7 @@ function transactionRowToApi(row: FinanceTransactionRow): FinanceTransaction {
     type: row.type,
     amount: Number(row.amount),
     currency: row.currency,
-    category: resolveFinanceCategory(row.category, row.description, row.merchant, row.type, row.source),
+    category,
     description: row.description,
     merchant: row.merchant,
     notes: row.notes,
@@ -2072,21 +3177,297 @@ async function loadFinanceTransactions(env: Env, email: string): Promise<Finance
   return result.results.map(transactionRowToApi)
 }
 
+const FIXED_EXPENSE_CATEGORIES = new Set(['Deuda', 'Hogar', 'Suscripciones', 'Impuestos', 'Salud'])
+
+function getTransactionMonths(transactions: FinanceTransaction[]): string[] {
+  return [...new Set(transactions.map((transaction) => transaction.date.slice(0, 7)).filter(Boolean))]
+    .sort()
+    .reverse()
+}
+
+export function buildFinanceDataCoverage(transactions: Array<Pick<FinanceTransaction, 'date'>>): FinanceDataCoverage {
+  const dates = transactions
+    .map((transaction) => transaction.date)
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    .sort()
+  const months = [...new Set(dates.map((date) => date.slice(0, 7)))]
+
+  return {
+    firstDate: dates[0] || null,
+    lastDate: dates.at(-1) || null,
+    firstMonth: months[0] || null,
+    lastMonth: months.at(-1) || null,
+    monthCount: months.length,
+    transactionCount: transactions.length,
+    preliminary: months.length < 3 || transactions.length < 30,
+  }
+}
+
+function formatAnalysisMonth(month: string) {
+  const [year, monthNumber] = month.split('-')
+  const monthIndex = Number(monthNumber) - 1
+  if (!year || !Number.isFinite(monthIndex)) return month
+  return new Intl.DateTimeFormat('es-MX', { month: 'long', year: 'numeric' })
+    .format(new Date(Number(year), monthIndex, 1))
+}
+
+function getMonthTotals(transactions: FinanceTransaction[], month: string) {
+  const categoryTotals = new Map<string, number>()
+  let spendingTotal = 0
+  let incomeTotal = 0
+  let fixedExpenseTotal = 0
+
+  for (const transaction of transactions) {
+    if (!transaction.date.startsWith(month)) continue
+    if (transaction.type === 'income') {
+      incomeTotal += transaction.amount
+      continue
+    }
+
+    spendingTotal += transaction.amount
+    categoryTotals.set(transaction.category, (categoryTotals.get(transaction.category) || 0) + transaction.amount)
+    if (FIXED_EXPENSE_CATEGORIES.has(transaction.category)) {
+      fixedExpenseTotal += transaction.amount
+    }
+  }
+
+  const topCategory = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'Sin datos'
+
+  return {
+    categoryTotals,
+    spendingTotal: roundMoney(spendingTotal),
+    incomeTotal: roundMoney(incomeTotal),
+    fixedExpenseTotal: roundMoney(fixedExpenseTotal),
+    topCategory,
+  }
+}
+
+function resolveBudgetTotal(profile: FinancialProfile, incomeTotal: number): { value: number | null; source: BudgetSource } {
+  if (profile.monthlyBudget && profile.monthlyBudget > 0) return { value: profile.monthlyBudget, source: 'user' }
+
+  const income = profile.monthlyIncome || incomeTotal
+  if (income > 0) return { value: roundMoney(income * 0.8), source: 'income_rule' }
+
+  return { value: null, source: 'missing' }
+}
+
+function getBudgetStatus(amount: number, budget: number | null): CategoryBudgetStatus {
+  if (!budget || budget <= 0) return 'unset'
+  if (amount > budget) return 'over'
+  if (amount / budget >= 0.85) return 'near'
+  return 'under'
+}
+
+function buildCategoryAdvice(
+  category: string,
+  amount: number,
+  previousAmount: number,
+  budget: number | null,
+  budgetStatus: CategoryBudgetStatus,
+  currency: string
+) {
+  if (budgetStatus === 'over' && budget) {
+    return `${category} está ${formatFinanceCurrency(amount - budget, currency)} sobre presupuesto. Revisa los movimientos principales antes de cerrar el mes.`
+  }
+  if (budgetStatus === 'near') {
+    return `${category} está cerca del tope. Define una pausa o límite semanal para no pasarte.`
+  }
+  if (previousAmount > 0 && amount > previousAmount) {
+    return `${category} subió ${formatFinanceCurrency(amount - previousAmount, currency)} frente al mes anterior. Revisa si fue puntual o nuevo patrón.`
+  }
+  if (!budget) {
+    return `Sin presupuesto asignado para ${category}. Agrega un tope para comparar este gasto con una meta real.`
+  }
+  return `${category} sigue dentro del presupuesto. Mantén el seguimiento durante el mes.`
+}
+
+export function buildCategoryAnalysis(
+  transactions: FinanceTransaction[],
+  summary: FinanceSummary,
+  profile: FinancialProfile
+): CategoryAnalysis {
+  const months = getTransactionMonths(transactions)
+  const period = summary.month || months[0] || new Date().toISOString().slice(0, 7)
+  const previousPeriod = months.find((month) => month < period) || null
+  const current = getMonthTotals(transactions, period)
+  const previous = previousPeriod ? getMonthTotals(transactions, previousPeriod) : null
+  const budget = resolveBudgetTotal(profile, current.incomeTotal)
+  const incomeForGuidance = profile.monthlyIncome || current.incomeTotal
+  const fixedExpenseShare = incomeForGuidance > 0
+    ? Math.round((current.fixedExpenseTotal / incomeForGuidance) * 100)
+    : null
+  const fixedExpenseLimit = incomeForGuidance > 0 ? roundMoney(incomeForGuidance * 0.5) : null
+  const currency = profile.currency || transactions[0]?.currency || DEFAULT_FINANCE_CURRENCY
+  const spendingShareDenominator = current.spendingTotal || 1
+  const categoryBudgets = profile.categoryBudgets
+
+  const categories = [...current.categoryTotals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([category, amount]) => {
+      const roundedAmount = roundMoney(amount)
+      const previousAmount = roundMoney(previous?.categoryTotals.get(category) || 0)
+      const categoryBudget = categoryBudgets[category] || null
+      const budgetStatus = getBudgetStatus(roundedAmount, categoryBudget)
+
+      return {
+        category,
+        amount: roundedAmount,
+        share: Math.round((roundedAmount / spendingShareDenominator) * 100),
+        previousAmount,
+        deltaFromPrevious: roundMoney(roundedAmount - previousAmount),
+        budget: categoryBudget,
+        budgetUsage: categoryBudget ? Math.round((roundedAmount / categoryBudget) * 100) : null,
+        budgetStatus,
+        advice: buildCategoryAdvice(category, roundedAmount, previousAmount, categoryBudget, budgetStatus, currency),
+      }
+    })
+
+  const summaryAdvice = (() => {
+    if (budget.source === 'missing') {
+      return 'Falta tu ingreso y presupuesto mensual. Agrega esos datos para comparar el gasto contra una meta real.'
+    }
+    if (fixedExpenseShare !== null && fixedExpenseShare > 50) {
+      return `Tus gastos fijos son ${fixedExpenseShare}% de tus ingresos. Intenta mantenerlos bajo 50%.`
+    }
+    if (budget.value && current.spendingTotal > budget.value) {
+      return `Este mes estás ${formatFinanceCurrency(current.spendingTotal - budget.value, currency)} sobre presupuesto. Prioriza las categorías excedidas.`
+    }
+    if (budget.source === 'income_rule') {
+      return `Aún no tienes presupuesto guardado. FinovAI propone partir con ${formatFinanceCurrency(budget.value || 0, currency)} como tope mensual.`
+    }
+    return `Vas dentro del presupuesto mensual. Revisa las categorías que crecieron frente al mes anterior.`
+  })()
+
+  const monthRows = months.map((month, index) => {
+    const totals = getMonthTotals(transactions, month)
+    const nextMonth = months[index + 1]
+    const previousTotals = nextMonth ? getMonthTotals(transactions, nextMonth) : null
+    const monthBudget = resolveBudgetTotal(profile, totals.incomeTotal).value
+
+    return {
+      month,
+      spendingTotal: totals.spendingTotal,
+      incomeTotal: totals.incomeTotal,
+      topCategory: totals.topCategory,
+      deltaFromPrevious: previousTotals ? roundMoney(totals.spendingTotal - previousTotals.spendingTotal) : null,
+      budgetTotal: monthBudget,
+      status: getBudgetStatus(totals.spendingTotal, monthBudget),
+    }
+  })
+
+  return {
+    period,
+    periodLabel: formatAnalysisMonth(period),
+    previousPeriod,
+    spendingTotal: current.spendingTotal,
+    incomeTotal: current.incomeTotal,
+    budgetTotal: budget.value,
+    budgetSource: budget.source,
+    fixedExpenseShare,
+    fixedExpenseLimit,
+    summaryAdvice,
+    categories,
+    monthRows,
+  }
+}
+
 async function getFinanceDashboard(env: Env, email: string) {
   await ensureFinanceTables(env)
   await upsertFinancialProfile(env, email)
 
+  const profile = await loadFinancialProfile(env, email)
   const transactions = await loadFinanceTransactions(env, email)
   const summary = buildFinancialSummary(transactions)
-  const insights = buildFinancialInsights(summary, transactions)
+  const categoryAnalysis = buildCategoryAnalysis(transactions, summary, profile)
+  const insights = buildFinancialInsights(summary, transactions, profile)
+  const actionPlan = buildActionPlan(summary, transactions)
 
   return {
     success: true,
     email,
     transactions,
+    profile,
     summary,
+    categoryAnalysis,
     insights,
+    actionPlan,
   }
+}
+
+export function buildExpenseCategoryBreakdown(
+  transactions: Array<Pick<FinanceTransaction, 'type' | 'date' | 'category' | 'amount'>>,
+  month?: string | null
+) {
+  const totals = new Map<string, { category: string; amount: number; count: number }>()
+
+  for (const transaction of transactions) {
+    if (transaction.type !== 'expense') continue
+    if (month && !transaction.date.startsWith(month)) continue
+
+    const current = totals.get(transaction.category) || {
+      category: transaction.category,
+      amount: 0,
+      count: 0,
+    }
+    current.amount += transaction.amount
+    current.count += 1
+    totals.set(transaction.category, current)
+  }
+
+  const totalAmount = [...totals.values()].reduce((sum, item) => sum + item.amount, 0)
+
+  return [...totals.values()]
+    .sort((a, b) => b.amount - a.amount)
+    .map((item) => ({
+      category: item.category,
+      amount: roundMoney(item.amount),
+      count: item.count,
+      share: totalAmount > 0 ? Math.round((item.amount / totalAmount) * 100) : 0,
+    }))
+}
+
+export function buildDashboardChatContext(dashboard: Awaited<ReturnType<typeof getFinanceDashboard>>): string {
+  const transactions = dashboard.transactions.slice(0, 80).map((transaction) => (
+    `${transaction.date} | ${transaction.type} | ${transaction.currency} ${transaction.amount} | ${transaction.category} | ${transaction.description}`
+  ))
+
+  return JSON.stringify({
+    email: dashboard.email,
+    profile: dashboard.profile,
+    summary: dashboard.summary,
+    categoryAnalysis: dashboard.categoryAnalysis,
+    insights: dashboard.insights,
+    actionPlan: dashboard.actionPlan,
+    analysisWindow: {
+      ...dashboard.summary.dataCoverage,
+      rule: 'Menciona esta cobertura cuando respondas preguntas amplias sobre patrones. Si el historial es preliminar, aclara que la lectura es direccional y pide sincronizar más historial.',
+    },
+    categoryBreakdown: {
+      allExpenses: buildExpenseCategoryBreakdown(dashboard.transactions),
+      currentMonth: buildExpenseCategoryBreakdown(dashboard.transactions, dashboard.summary.month),
+      rule: 'Use allExpenses for category/rubro questions unless the user explicitly asks about the current month.',
+    },
+    transactions,
+    transactionCount: dashboard.transactions.length,
+  })
+}
+
+async function answerDashboardChatWithAnthropic(
+  env: Env,
+  question: string,
+  dashboard: Awaited<ReturnType<typeof getFinanceDashboard>>,
+  allowLocalFallback: boolean
+): Promise<{ answer: string; model: string }> {
+  const model = getDashboardChatModel(env)
+  const answer = await runAIResponse(env, [
+    { role: 'system', content: DASHBOARD_CHAT_SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: `Pregunta del usuario: ${question}\n\nDatos financieros disponibles:\n${buildDashboardChatContext(dashboard)}`,
+    },
+  ], allowLocalFallback)
+
+  return { answer, model }
 }
 
 async function insertFinanceTransaction(
@@ -2115,26 +3496,31 @@ async function insertFinanceTransaction(
     : DEFAULT_FINANCE_CURRENCY
   const description = cleanText(input.description) || (type === 'income' ? 'Ingreso manual' : 'Gasto manual')
   const merchant = cleanText(input.merchant) || inferFinanceMerchant(description)
-  const category = resolveFinanceCategory(cleanText(input.category), description, merchant, type, source)
+  const requestedCategory = normalizeRequestedFinanceCategory(input.category, type)
+  const inferredCategory = resolveFinanceCategory(cleanText(input.category), description, merchant, type, source)
+  const category = source === 'manual'
+    ? requestedCategory || inferredCategory
+    : inferredCategory
+  const categoryLocked = source === 'manual' && requestedCategory ? 1 : 0
   const notes = cleanText(input.notes)
 
   if (!date) {
-    throw new Error('Fecha invalida')
+    throw new Error('Fecha inválida')
   }
   if (amount <= 0) {
-    throw new Error('Monto invalido')
+    throw new Error('Monto inválido')
   }
   if (!category) {
-    throw new Error('Categoria invalida')
+    throw new Error('Categoría inválida')
   }
 
   const id = crypto.randomUUID()
   await env.DB.prepare(
     `INSERT INTO transactions (
       id, email, date, type, amount, currency, category, description, merchant, notes,
-      source, confidence, raw_source, cartola_import_id, created_at, updated_at
+      source, confidence, category_locked, raw_source, cartola_import_id, created_at, updated_at
     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))`
   )
     .bind(
       id,
@@ -2149,6 +3535,7 @@ async function insertFinanceTransaction(
       notes || null,
       source,
       clampConfidence(confidence),
+      categoryLocked,
       rawSource,
       cartolaImportId
     )
@@ -2163,6 +3550,76 @@ async function insertFinanceTransaction(
   }
 
   return transactionRowToApi(created)
+}
+
+function getFinanceCategoriesForType(type: FinanceTransactionType): string[] {
+  return type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES
+}
+
+function normalizeRequestedFinanceCategory(value: unknown, type: FinanceTransactionType): string | null {
+  const requested = cleanText(value)
+  if (!requested) return null
+
+  const normalizedRequested = normalizeCategoryInput(requested)
+  return getFinanceCategoriesForType(type).find((category) => (
+    normalizeCategoryInput(category) === normalizedRequested
+  )) || null
+}
+
+async function updateFinanceTransactionCategory(
+  env: Env,
+  email: string,
+  transactionId: string,
+  category: unknown
+): Promise<{ transaction: FinanceTransaction; updatedCount: number } | null> {
+  const existing = await env.DB.prepare(`SELECT * FROM transactions WHERE id = ? AND email = ?`)
+    .bind(transactionId, email)
+    .first<FinanceTransactionRow>()
+
+  if (!existing) return null
+
+  const nextCategory = normalizeRequestedFinanceCategory(category, existing.type)
+  if (!nextCategory) {
+    throw new Error('Categoría inválida')
+  }
+  const previousCategory = existing.category
+
+  const primaryUpdate = await env.DB.prepare(
+    `UPDATE transactions
+     SET category = ?,
+         category_locked = 1,
+         updated_at = datetime("now")
+     WHERE id = ?
+       AND email = ?`
+  )
+    .bind(nextCategory, transactionId, email)
+    .run()
+
+  let updatedCount = Number(primaryUpdate.meta?.changes || 1)
+  const merchant = cleanText(existing.merchant)
+
+  if (merchant) {
+    const merchantUpdate = await env.DB.prepare(
+      `UPDATE transactions
+       SET category = ?,
+           category_locked = 1,
+           updated_at = datetime("now")
+       WHERE email = ?
+         AND type = ?
+         AND merchant = ?
+         AND id <> ?
+         AND (COALESCE(category_locked, 0) = 0 OR category = ?)`
+    )
+      .bind(nextCategory, email, existing.type, merchant, transactionId, previousCategory)
+      .run()
+    updatedCount += Number(merchantUpdate.meta?.changes || 0)
+  }
+
+  const updated = await env.DB.prepare(`SELECT * FROM transactions WHERE id = ? AND email = ?`)
+    .bind(transactionId, email)
+    .first<FinanceTransactionRow>()
+
+  return updated ? { transaction: transactionRowToApi(updated), updatedCount } : null
 }
 
 export function normalizeFinancialAmount(value: unknown): number {
@@ -2635,19 +4092,19 @@ export function inferFinanceCategory(description: string, type: FinanceTransacti
 
   const value = normalizeCategoryInput(description)
 
-  if (/(UBER EATS|DLO\*?UBER EATS|RAPPI|PEDIDOSYA|DELIVERY|RESTAUR|RESTA|REST |RESTMONARCH|PASTA|SUSHI|PESCAD|TAQU|CAFE|COFFEE|STARBUCKS|COMIDA|BAR )/.test(value)) return 'Comida fuera'
-  if (/(NETFLIX|SPOTIFY|YOUTUBE|APPLE|GOOGLE|PRIME|DISNEY|HBO|OPENAI|MICROSOFT|ADOBE|ZOOM|SUBSCRIP|SUSCRIP)/.test(value)) return 'Suscripciones'
-  if (/(AMERICAN EXPRESS|AMEX|PAGO TARJETA|TARJETA DE CREDITO|TDC|CREDITO 0*\d{3,})/.test(value)) return 'Deuda'
+  if (/(UBER EATS|DLO\*?UBER EATS|RAPPI|PEDIDOSYA|DELIVERY|RESTAUR|RESTA|REST |RESTMONARCH|PASTA|SUSHI|PESCAD|TAQU|TACO|ASADO|PIZZA|DOMINO|KFC|CAFE|COFFEE|STARBUCKS|COMIDA|BAR |CERVECER|FISHER|DOCENA|AROMI|SAPORI|BALCON DEL ZOCALO|PASTELERIA|HELADOS|LE PAIN|VINATA|SIGNORA|SONORA GRILL|JAPANTOWN|SIEMBRA)/.test(value)) return 'Comida fuera'
+  if (/(NETFLIX|SPOTIFY|YOUTUBE|APPLE|GOOGLE|PRIME|DISNEY|HBO|OPENAI|MICROSOFT|ADOBE|ZOOM|FIGMA|SUBSCRIP|SUSCRIP)/.test(value)) return 'Suscripciones'
+  if (/(AMERICAN EXPRESS|AMEX|PAGO TARJETA|TARJETA DE CREDITO|TDC|CREDITO 0*\d{3,}|GRACIAS POR SU PAGO|PLAN DE PAGOS DIFERIDOS|COMISION POR PLAN DE PAGOS DIFERIDOS|COMISION POR PLAN|IVA APLICABLE|SERVICIO DE FACTURACION|REVERSION CARGO)/.test(value)) return 'Deuda'
   if (/(SPEI ENVIADO|TRANSFERENCIA ENVIADA|PAGO CUENTA DE TERCERO|TRASPASO|STP|PAGO TERCERO)/.test(value)) return 'Transferencias'
   if (/(RETIRO CAJERO|RET CAJ|CAJERO AUTOMATICO|ATM)/.test(value)) return 'Retiros'
   if (/(UBER RIDE|UBER RIDES|DLO\*?TDA UBER RIDES|DLO\*?UBER RIDES|DIDI|TAXI|CABIFY|METRO|BENCINA|GASOLINA|COPEC|SHELL|PETROBRAS|TRANSPORTE|PEMEX)/.test(value)) return 'Transporte'
-  if (/(SUPERMERCADO|JUMBO|LIDER|SANTA ISABEL|UNIMARC|TOTTUS|WALMART|WM EXPRESS|COSTCO|CHEDRAUI|OXXO|MERCADO)/.test(value)) return 'Supermercado'
-  if (/(FARMACIA|HOSPITAL|CLINICA|MEDIC|SALUD|SOFIA)/.test(value)) return 'Salud'
+  if (/(SUPERMERCADO|JUMBO|LIDER|SANTA ISABEL|UNIMARC|TOTTUS|WALMART|WM EXPRESS|SUPERAMA|SAMS|COSTCO|CHEDRAUI|OXXO|MERCADO|ESTADO NATURAL)/.test(value)) return 'Supermercado'
+  if (/(FARMACIA|HOSPITAL|CLINICA|MEDIC|SALUD|SOFIA|GYMPASS|GIMNASIO|FITNESS|PEDIATR|CLUB DEPORTIVO|CUICACALLI)/.test(value)) return 'Salud'
   if (/(ARRIENDO|RENTA|DIVIDENDO|HIPOTECA|LUZ|AGUA|GAS|INTERNET|TELCO|HOGAR|CFE|TELCEL)/.test(value)) return 'Hogar'
   if (/(COLEGIO|UNIVERSIDAD|EDUCACION|CURSO)/.test(value)) return 'Educación'
   if (/(IMPUESTO|SAT|SII|TESORERIA)/.test(value)) return 'Impuestos'
   if (/(ONLYFANS|CINE|CINEMEX|CINEPOLIS|TICKETMASTER|PALACIO DEPORTES|AUDITORIO|TEATRO|CONCIERTO|EVENTO|JUEGO|GAMING)/.test(value)) return 'Ocio'
-  if (/(AMAZON|MERCADOPAGO|MERPAGO|LIVERPOOL|PALACIO|SEARS|SHOP|STORE|TIENDA|STRIPE)/.test(value)) return 'Compras'
+  if (/(AMAZON|MERCADOPAGO|MERPAGO|LIVERPOOL|PALACIO|SEARS|SHOP|STORE|TIENDA|STRIPE|ADIDAS|LEVIS|HM MX|H M |FLORERIA|BOUT )/.test(value)) return 'Compras'
 
   return 'Otro'
 }
@@ -2717,6 +4174,7 @@ export function buildFinancialSummary(transactions: FinanceTransaction[]): Finan
     monthlySpending: roundMoney(monthlySpending),
     netBalance: roundMoney(monthlyIncome - monthlySpending),
     transactionCount: transactions.length,
+    dataCoverage: buildFinanceDataCoverage(transactions),
     topSpendingCategory,
     topSpendingCategoryAmount: roundMoney(topSpendingCategoryAmount),
     unusualHighSpendDay,
@@ -2725,7 +4183,11 @@ export function buildFinancialSummary(transactions: FinanceTransaction[]): Finan
   }
 }
 
-export function buildFinancialInsights(summary: FinanceSummary, transactions: FinanceTransaction[]): FinanceInsight[] {
+export function buildFinancialInsights(
+  summary: FinanceSummary,
+  transactions: FinanceTransaction[],
+  profile?: FinancialProfile
+): FinanceInsight[] {
   if (transactions.length === 0) {
     return [
       {
@@ -2738,15 +4200,23 @@ export function buildFinancialInsights(summary: FinanceSummary, transactions: Fi
     ]
   }
 
-  const insights: FinanceInsight[] = [
-    {
+  const effectiveIncome = summary.monthlyIncome || profile?.monthlyIncome || 0
+  const effectiveNetBalance = roundMoney(effectiveIncome - summary.monthlySpending)
+  const insights: FinanceInsight[] = effectiveIncome > 0
+    ? [{
       id: 'net-balance',
       title: 'Balance mensual',
-      value: formatFinanceCurrency(summary.netBalance),
-      body: `Ingresos ${formatFinanceCurrency(summary.monthlyIncome)} menos gastos ${formatFinanceCurrency(summary.monthlySpending)}.`,
-      tone: summary.netBalance >= 0 ? 'good' : 'urgent',
-    },
-  ]
+      value: formatFinanceCurrency(effectiveNetBalance, profile?.currency),
+      body: `Ingresos ${formatFinanceCurrency(effectiveIncome, profile?.currency)} menos gastos ${formatFinanceCurrency(summary.monthlySpending, profile?.currency)}.`,
+      tone: effectiveNetBalance >= 0 ? 'good' : 'urgent',
+    }]
+    : [{
+      id: 'income-missing',
+      title: 'Falta ingreso',
+      value: 'Completa perfil',
+      body: 'Agrega tu ingreso mensual y presupuesto para comparar este gasto contra una meta real.',
+      tone: 'watch',
+    }]
 
   if (summary.topSpendingCategoryAmount > 0) {
     const share = summary.monthlySpending > 0
@@ -2766,7 +4236,7 @@ export function buildFinancialInsights(summary: FinanceSummary, transactions: Fi
       id: 'unusual-day',
       title: 'Día atípico',
       value: summary.unusualHighSpendDay.date,
-      body: `Ese día salieron ${formatFinanceCurrency(summary.unusualHighSpendDay.amount)}. Revisa si fue gasto puntual.`,
+      body: `Ese día salieron ${formatFinanceCurrency(summary.unusualHighSpendDay.amount, profile?.currency)}. Analiza si fue un gasto extraño o un patrón nuevo.`,
       tone: 'watch',
     })
   }
@@ -2793,6 +4263,204 @@ export function buildFinancialInsights(summary: FinanceSummary, transactions: Fi
   }
 
   return insights.slice(0, 5)
+}
+
+export function buildActionPlan(summary: FinanceSummary, transactions: FinanceTransaction[]): FinanceActionPlan {
+  const opportunities = buildFinanceOpportunities(summary, transactions)
+  const monthlySavingsTarget = roundMoney(
+    opportunities.slice(0, 3).reduce((sum, opportunity) => sum + opportunity.estimatedMonthlySavings, 0)
+  )
+  const investmentProjection = projectInvestmentContribution(monthlySavingsTarget)
+
+  return {
+    monthlySavingsTarget,
+    topOpportunities: opportunities.slice(0, 4),
+    investmentProjection,
+    nextActions: buildFinanceNextActions(monthlySavingsTarget, opportunities, transactions.length),
+  }
+}
+
+function buildFinanceOpportunities(
+  summary: FinanceSummary,
+  transactions: FinanceTransaction[]
+): FinanceOpportunity[] {
+  if (transactions.length === 0) return []
+
+  const latestMonth = summary.month
+  const currentMonthExpenses = transactions.filter((transaction) => (
+    transaction.type === 'expense' && transaction.date.startsWith(latestMonth)
+  ))
+  const opportunities: FinanceOpportunity[] = []
+
+  for (const recurring of summary.recurringExpenses.slice(0, 3)) {
+    const estimatedMonthlySavings = roundMoney(Math.max(recurring.amount * 0.5, 0))
+    if (estimatedMonthlySavings <= 0) continue
+    opportunities.push({
+      id: `recurring:${recurring.key}`,
+      kind: 'recurring',
+      title: `Revisar ${recurring.description}`,
+      body: `${recurring.count} cargos similares detectados. Cancela, baja plan o confirma que sigue siendo necesario.`,
+      sourceLabel: recurring.description,
+      estimatedMonthlySavings,
+    })
+  }
+
+  const merchantTotals = new Map<string, { merchant: string; amount: number; count: number; category: string }>()
+  const categoryTotals = new Map<string, number>()
+  const monthlySpending = Math.max(summary.monthlySpending, 1)
+
+  for (const transaction of currentMonthExpenses) {
+    categoryTotals.set(transaction.category, (categoryTotals.get(transaction.category) || 0) + transaction.amount)
+
+    if (!DISCRETIONARY_CATEGORIES.has(transaction.category)) continue
+    const merchant = cleanText(transaction.merchant) || cleanText(transaction.description)
+    const merchantKey = normalizeRecurringKey(merchant)
+    if (!merchantKey) continue
+
+    const current = merchantTotals.get(merchantKey) || {
+      merchant,
+      amount: 0,
+      count: 0,
+      category: transaction.category,
+    }
+    current.amount += transaction.amount
+    current.count += 1
+    merchantTotals.set(merchantKey, current)
+  }
+
+  for (const [merchantKey, merchant] of merchantTotals.entries()) {
+    if (merchant.count < 2 || merchant.amount / monthlySpending < 0.04) continue
+    const estimatedMonthlySavings = roundMoney(merchant.amount * 0.2)
+    opportunities.push({
+      id: `merchant:${merchantKey}`,
+      kind: 'merchant_leak',
+      title: `Bajar frecuencia en ${merchant.merchant}`,
+      body: `${merchant.count} cargos este mes en ${merchant.category}. Reducir una parte crea margen sin cambiar todo el presupuesto.`,
+      sourceLabel: merchant.merchant,
+      estimatedMonthlySavings,
+    })
+  }
+
+  for (const [category, amount] of [...categoryTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)) {
+    if (!DISCRETIONARY_CATEGORIES.has(category) || amount / monthlySpending < 0.15) continue
+    const estimatedMonthlySavings = roundMoney(amount * 0.1)
+    opportunities.push({
+      id: `category:${normalizeRecurringKey(category)}`,
+      kind: 'category_leak',
+      title: `Tope suave para ${category}`,
+      body: `${formatFinanceCurrency(amount)} concentrados en ${category} durante ${summary.month}. Empieza con una reducción conservadora del 10%.`,
+      sourceLabel: category,
+      estimatedMonthlySavings,
+    })
+  }
+
+  if (summary.unusualHighSpendDay && summary.unusualHighSpendDay.amount / monthlySpending >= 0.25) {
+    opportunities.push({
+      id: `unusual-day:${summary.unusualHighSpendDay.date}`,
+      kind: 'unusual_day',
+      title: 'Revisar día atípico',
+      body: `El ${summary.unusualHighSpendDay.date} salió ${formatFinanceCurrency(summary.unusualHighSpendDay.amount)}. Si no fue puntual, conviértelo en regla.`,
+      sourceLabel: summary.unusualHighSpendDay.date,
+      estimatedMonthlySavings: roundMoney(summary.unusualHighSpendDay.amount * 0.1),
+    })
+  }
+
+  return dedupeFinanceOpportunities(opportunities)
+    .sort((a, b) => b.estimatedMonthlySavings - a.estimatedMonthlySavings)
+}
+
+function dedupeFinanceOpportunities(opportunities: FinanceOpportunity[]): FinanceOpportunity[] {
+  const seen = new Set<string>()
+  const result: FinanceOpportunity[] = []
+
+  for (const opportunity of opportunities) {
+    if (opportunity.estimatedMonthlySavings <= 0 || seen.has(opportunity.id)) continue
+    seen.add(opportunity.id)
+    result.push(opportunity)
+  }
+
+  return result
+}
+
+function projectInvestmentContribution(
+  monthlyContribution: number,
+  years = 10,
+  annualReturn = 0.08
+): FinanceActionPlan['investmentProjection'] {
+  const roundedContribution = roundMoney(monthlyContribution)
+  const months = years * 12
+  const monthlyReturn = annualReturn / 12
+  let value = 0
+
+  for (let month = 0; month < months; month += 1) {
+    value = (value + roundedContribution) * (1 + monthlyReturn)
+  }
+
+  const totalContributed = roundMoney(roundedContribution * months)
+  const tenYearValue = roundMoney(value)
+
+  return {
+    monthlyContribution: roundedContribution,
+    years,
+    annualReturn,
+    totalContributed,
+    tenYearValue,
+    potentialGrowth: roundMoney(tenYearValue - totalContributed),
+  }
+}
+
+function buildFinanceNextActions(
+  monthlySavingsTarget: number,
+  opportunities: FinanceOpportunity[],
+  transactionCount: number
+): FinanceActionPlan['nextActions'] {
+  if (transactionCount === 0) {
+    return [
+      {
+        id: 'connect',
+        label: 'Conectar institución',
+        body: 'Trae movimientos reales con Syncfy para que FinovAI pueda detectar fugas.',
+        target: 'connect',
+      },
+    ]
+  }
+
+  const actions: FinanceActionPlan['nextActions'] = []
+  if (opportunities.some((opportunity) => opportunity.kind === 'recurring')) {
+    actions.push({
+      id: 'review-recurring',
+      label: 'Revisar recurrentes',
+      body: 'Confirma qué cargos siguen siendo necesarios y elimina los que ya no uses.',
+      target: 'movements',
+    })
+  }
+
+  if (opportunities.some((opportunity) => opportunity.kind === 'merchant_leak' || opportunity.kind === 'category_leak')) {
+    actions.push({
+      id: 'fix-categories',
+      label: 'Afinar categorías',
+      body: 'Corrige comercios repetidos para que FinovAI aprenda tus reglas y calcule mejor el margen.',
+      target: 'categories',
+    })
+  }
+
+  actions.push({
+    id: 'ask-plan',
+    label: 'Preguntar a FinovAI',
+    body: 'Pide un plan semanal basado en estas fugas y movimientos.',
+    target: 'chat',
+  })
+
+  if (monthlySavingsTarget > 0) {
+    actions.push({
+      id: 'route-investment',
+      label: 'Preparar inversión',
+      body: 'Convierte el margen mensual en una ruta ilustrativa hacia una plataforma aliada.',
+      target: 'partner',
+    })
+  }
+
+  return actions.slice(0, 4)
 }
 
 function getUnusualHighSpendDay(dailySpending: Map<string, number>) {
@@ -3184,22 +4852,22 @@ async function updateQuizState(env: Env, conversationId: number, quizState: Quiz
 // SYSTEM PROMPT
 // =====================
 
-const SYSTEM_PROMPT = `Eres FinovAI, un copiloto financiero para Mexico y Latinoamerica.
+const SYSTEM_PROMPT = `Eres FinovAI, un copiloto financiero para México y Latinoamérica.
 
 TU MISIÓN:
 Analizar transacciones autorizadas, encontrar fugas de dinero, explicar patrones de gasto y mostrar oportunidades de ahorro que puedan convertirse en aportaciones de inversión.
 
 FILOSOFÍA CORE:
-- Primero detectas la fuga, luego decides que hacer con ese margen.
+- Primero detectas la fuga, luego decides qué hacer con ese margen.
 - FinovAI trabaja con lectura transaccional; no inicia pagos, retiros ni inversiones.
-- Syncfy es la fuente principal de conexion transaccional, bancaria, fiscal y de fuentes compatibles.
+- Syncfy es la fuente principal de conexión transaccional, bancaria, fiscal y de fuentes compatibles.
 - Las proyecciones de inversión son ilustrativas, no garantías.
 
 TU ROL EN ESTA CONVERSACIÓN:
-1. Explicar que patrones aparecen en los movimientos del usuario.
+1. Explicar qué patrones aparecen en los movimientos del usuario.
 2. Priorizar fugas accionables: comercios repetidos, días de gasto, suscripciones y picos inusuales.
 3. Estimar ahorro posible de forma conservadora.
-4. Explicar como ese ahorro podria convertirse en aportacion hacia una plataforma de inversion aliada.
+4. Explicar cómo ese ahorro podría convertirse en aportación hacia una plataforma de inversión aliada.
 5. Ser claro cuando faltan transacciones conectadas y pedir conectar una cuenta con Syncfy.
 
 TONO:
@@ -3218,6 +4886,19 @@ IMPORTANTE:
 - SÍ enfoca la respuesta en ahorro, patrones y siguientes pasos
 
 Responde siempre en español. Mantén las respuestas concisas (2-4 párrafos máximo).`
+
+const DASHBOARD_CHAT_SYSTEM_PROMPT = `Eres FinovAI, un copiloto financiero para México y Latinoamérica.
+
+Responde siempre en español. Usa solo los datos financieros incluidos en el mensaje del usuario. Si faltan movimientos, dilo con claridad y pide conectar o sincronizar la institución.
+
+Tu trabajo:
+- detectar fugas de gasto, patrones, recurrencias y oportunidades de ahorro;
+- explicar los hallazgos con montos y categorías concretas;
+- mencionar la ventana de datos analizada cuando respondas preguntas amplias de patrones, ahorro o plan;
+- tratar conjuntos de datos marcados como preliminares como lecturas direccionales, no conclusiones definitivas;
+- usar categoryBreakdown.allExpenses cuando la pregunta sea sobre categorías/rubros en general, salvo que el usuario pida el mes actual;
+- evitar consejos de inversión específicos, promesas de rendimiento o jerga innecesaria;
+- mantener respuestas breves, accionables y orientadas a próximos pasos.`
 
 // =====================
 // MAIN HANDLER
@@ -3275,12 +4956,122 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     if (url.pathname === '/api/transactions' && request.method === 'GET') {
       const normalizedEmail = normalizeSignupEmail(url.searchParams.get('email'))
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
 
       return json(await getFinanceDashboard(env, normalizedEmail))
+    }
+
+    if (url.pathname === '/api/profile' && request.method === 'GET') {
+      const normalizedEmail = normalizeSignupEmail(url.searchParams.get('email'))
+      if (!normalizedEmail) {
+        return error('Correo inválido')
+      }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
+
+      return json({
+        success: true,
+        email: normalizedEmail,
+        profile: await loadFinancialProfile(env, normalizedEmail),
+      })
+    }
+
+    if (url.pathname === '/api/profile' && request.method === 'PATCH') {
+      const body = (await request.json()) as {
+        email?: string
+        currency?: unknown
+        monthlyIncome?: unknown
+        monthlyBudget?: unknown
+        categoryBudgets?: unknown
+      }
+      const normalizedEmail = normalizeSignupEmail(body.email)
+      if (!normalizedEmail) {
+        return error('Correo inválido')
+      }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
+
+      const profile = await updateFinancialProfile(env, normalizedEmail, body)
+      const dashboard = await getFinanceDashboard(env, normalizedEmail)
+
+      return json({
+        ...dashboard,
+        profile,
+        message: 'Perfil financiero actualizado.',
+      })
+    }
+
+    if (url.pathname === '/api/dashboard/chat' && request.method === 'POST') {
+      const body = (await request.json()) as {
+        email?: string
+        question?: string
+      }
+      const normalizedEmail = normalizeSignupEmail(body.email)
+      const question = typeof body.question === 'string' ? body.question.trim() : ''
+
+      if (!normalizedEmail) {
+        return error('Correo inválido')
+      }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
+      if (!question) {
+        return error('Pregunta requerida')
+      }
+
+      const dashboard = await getFinanceDashboard(env, normalizedEmail)
+      let answer: { answer: string; model: string }
+      try {
+        answer = await answerDashboardChatWithAnthropic(env, question, dashboard, false)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'No pudimos conectar con el modelo financiero.'
+        return error(message, 502)
+      }
+
+      return json({
+        success: true,
+        email: normalizedEmail,
+        source: 'anthropic',
+        model: answer.model,
+        answer: answer.answer,
+      })
+    }
+
+    if (url.pathname === '/api/transactions/category' && request.method === 'PATCH') {
+      const body = (await request.json()) as {
+        email?: string
+        transactionId?: string
+        category?: unknown
+      }
+      const normalizedEmail = normalizeSignupEmail(body.email)
+      const transactionId = typeof body.transactionId === 'string' ? body.transactionId.trim() : ''
+
+      if (!normalizedEmail) {
+        return error('Correo inválido')
+      }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
+      if (!transactionId) {
+        return error('Movimiento requerido')
+      }
+
+      await ensureFinanceTables(env)
+      const categoryUpdate = await updateFinanceTransactionCategory(env, normalizedEmail, transactionId, body.category)
+      if (!categoryUpdate) {
+        return error('Movimiento no encontrado', 404)
+      }
+      const dashboard = await getFinanceDashboard(env, normalizedEmail)
+      const updateMessage = categoryUpdate.updatedCount > 1
+        ? `Categoría actualizada en ${categoryUpdate.updatedCount} movimientos similares.`
+        : 'Categoría actualizada.'
+
+      return json({
+        ...dashboard,
+        transaction: categoryUpdate.transaction,
+        message: updateMessage,
+      })
     }
 
     if (url.pathname === '/api/transactions/manual' && request.method === 'POST') {
@@ -3297,7 +5088,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       }
       const normalizedEmail = normalizeSignupEmail(body.email)
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
@@ -3327,7 +5118,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       const file = formData.get('file')
 
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
@@ -3383,7 +5174,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       const rows = Array.isArray(body.rows) ? body.rows.slice(0, MAX_CARTOLA_ROWS) : []
 
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
@@ -3391,7 +5182,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         return error('Not found', 404)
       }
       if (!importId) {
-        return error('Importacion requerida')
+        return error('Importación requerida')
       }
       if (rows.length === 0) {
         return error('Selecciona al menos un movimiento')
@@ -3407,7 +5198,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         .first<{ id: string }>()
 
       if (!cartolaImport) {
-        return error('Importacion no encontrada', 404)
+        return error('Importación no encontrada', 404)
       }
 
       const selectedRows = rows.filter((row) => row.selected !== false)
@@ -3456,7 +5247,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     if (url.pathname === '/api/household' && request.method === 'GET') {
       const normalizedEmail = normalizeSignupEmail(url.searchParams.get('email'))
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
@@ -3478,25 +5269,28 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       const inviteeEmail = normalizeSignupEmail(body.spouseEmail || body.inviteeEmail)
 
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
       if (!inviteeEmail) {
-        return error('Email de pareja invalido')
+        return error('Correo de pareja inválido')
       }
       if (normalizedEmail === inviteeEmail) {
-        return error('Usa un email distinto para invitar a tu pareja')
+        return error('Usa un correo distinto para invitar a tu pareja')
       }
 
       const invite = await upsertHouseholdInvite(env, normalizedEmail, inviteeEmail)
+      const delivery = await sendHouseholdInviteEmail(env, request, invite)
 
       return json({
         success: true,
         email: normalizedEmail,
         invite,
         invites: await loadHouseholdInvites(env, normalizedEmail),
-        message: 'Invitacion guardada.',
+        emailSent: delivery.emailSent,
+        inviteUrl: delivery.inviteUrl,
+        message: delivery.emailSent ? 'Invitación enviada.' : 'Invitación guardada. Correo no configurado en local.',
       }, 201)
     }
 
@@ -3509,7 +5303,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       const phone = normalizePhone(body.phone)
 
       if (!phone || phone.length < 10) {
-        return error('Numero de telefono invalido')
+        return error('Número de teléfono inválido')
       }
 
       const recentOTP = await env.DB.prepare(
@@ -3520,7 +5314,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         .first<{ count: number }>()
 
       if (recentOTP && recentOTP.count >= 1) {
-        return error('Espera un minuto antes de solicitar otro codigo', 429)
+        return error('Espera un minuto antes de solicitar otro código', 429)
       }
 
       const otpCode = generateOTP()
@@ -3536,7 +5330,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       const result = await sendWhatsAppOTP(env, phone, otpCode)
       if (!result.success) {
         console.error('OTP send failed:', result.error)
-        return error(`Error enviando codigo: ${result.error}`, 500)
+        return error(`Error enviando código: ${result.error}`, 500)
       }
 
       return json({ success: true, expiresIn: 300 })
@@ -3548,7 +5342,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       const code = body.code?.trim()
 
       if (!phone || !code) {
-        return error('Telefono y codigo son requeridos')
+        return error('Teléfono y código son requeridos')
       }
 
       const otp = await env.DB.prepare(
@@ -3567,11 +5361,11 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
           .bind(phone)
           .run()
 
-        return error('Codigo invalido o expirado', 401)
+        return error('Código inválido o expirado', 401)
       }
 
       if (otp.attempts >= 3) {
-        return error('Demasiados intentos. Solicita un nuevo codigo.', 429)
+        return error('Demasiados intentos. Solicita un nuevo código.', 429)
       }
 
       await env.DB.prepare(`UPDATE otp_verifications SET verified_at = datetime('now') WHERE id = ?`)
@@ -3626,7 +5420,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!token) return error('No autorizado', 401)
 
       const user = await getSessionUser(env, token)
-      if (!user) return error('Sesion invalida', 401)
+      if (!user) return error('Sesión inválida', 401)
 
       let partner = null
       if (user.couple_id) {
@@ -3665,7 +5459,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!token) return error('No autorizado', 401)
 
       const user = await getSessionUser(env, token)
-      if (!user) return error('Sesion invalida', 401)
+      if (!user) return error('Sesión inválida', 401)
 
       const body = (await request.json()) as { displayName?: string }
 
@@ -3689,7 +5483,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!token) return error('No autorizado', 401)
 
       const user = await getSessionUser(env, token)
-      if (!user) return error('Sesion invalida', 401)
+      if (!user) return error('Sesión inválida', 401)
 
       const conversations = await env.DB.prepare(
         `SELECT DISTINCT c.*,
@@ -3711,7 +5505,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!token) return error('No autorizado', 401)
 
       const user = await getSessionUser(env, token)
-      if (!user) return error('Sesion invalida', 401)
+      if (!user) return error('Sesión inválida', 401)
 
       const body = (await request.json()) as {
         type?: 'private_ai' | 'couple_ai' | 'couple_direct'
@@ -3722,7 +5516,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       const title = body.title || null
 
       if ((conversationType === 'couple_ai' || conversationType === 'couple_direct') && !user.couple_id) {
-        return error('Necesitas estar en pareja para crear esta conversacion', 400)
+        return error('Necesitas estar en pareja para crear esta conversación', 400)
       }
 
       const result = await env.DB.prepare(
@@ -3773,7 +5567,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!token) return error('No autorizado', 401)
 
       const user = await getSessionUser(env, token)
-      if (!user) return error('Sesion invalida', 401)
+      if (!user) return error('Sesión inválida', 401)
 
       const conversationId = parseInt(messagesMatch[1])
       const limit = parseInt(url.searchParams.get('limit') || '50')
@@ -3788,7 +5582,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         .first()
 
       if (!hasAccess) {
-        return error('No tienes acceso a esta conversacion', 403)
+        return error('No tienes acceso a esta conversación', 403)
       }
 
       let query = `SELECT m.*, u.display_name as sender_name, u.phone as sender_phone
@@ -3827,13 +5621,13 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (!token) return error('No autorizado', 401)
 
       const user = await getSessionUser(env, token)
-      if (!user) return error('Sesion invalida', 401)
+      if (!user) return error('Sesión inválida', 401)
 
       const conversationId = parseInt(messagesMatch[1])
       const body = (await request.json()) as { content: string }
 
       if (!body.content?.trim()) {
-        return error('El mensaje no puede estar vacio')
+        return error('El mensaje no puede estar vacío')
       }
 
       const conversation = await env.DB.prepare(
@@ -3845,7 +5639,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         .first<{ id: number; conversation_type: string; couple_id: number | null }>()
 
       if (!conversation) {
-        return error('No tienes acceso a esta conversacion', 403)
+        return error('No tienes acceso a esta conversación', 403)
       }
 
       const messageContent = body.content.trim()
@@ -4113,7 +5907,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       const emailParam = url.searchParams.get('email')
       const normalizedEmail = emailParam ? normalizeSignupEmail(emailParam) : null
       if (emailParam && !normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
 
       const requestedLimit = Number(url.searchParams.get('limit') || 50)
@@ -4246,7 +6040,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
 
       const normalizedEmail = normalizeSignupEmail(email)
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
@@ -4323,7 +6117,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     if (url.pathname === '/api/syncfy/credentials' && request.method === 'GET') {
       const normalizedEmail = normalizeSignupEmail(url.searchParams.get('email'))
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
@@ -4343,13 +6137,13 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       }
       const normalizedEmail = normalizeSignupEmail(email)
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
 
       const reset = await resetSyncfyConnectionForEmail(env, normalizedEmail, name)
-      const credentials = await loadSyncfyCredentialsForEmail(env, normalizedEmail)
+      const credentials = await loadDisplaySyncfyCredentialsForEmail(env, normalizedEmail)
 
       return json({
         success: true,
@@ -4371,7 +6165,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       }
       const normalizedEmail = normalizeSignupEmail(body.email)
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
@@ -4382,17 +6176,20 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       const payload = body.payload ?? body
       const credential = await storeSyncfyCredential(env, payload, eventType, normalizedEmail)
       if (!credential) {
-        return error('Syncfy aun no regreso una credencial lista. Esperando webhook de refresh.', 422)
+        return error('Syncfy aún no regresó una credencial lista. Esperando webhook de refresh.', 422)
       }
 
       const transactionEndpoints = getSyncfyWebhookEndpointPaths(payload, 'transactions')
       let importResult: SyncfyTransactionImportResult | null = null
+
+      const jobStatusPaths = getSyncfyJobStatusPaths(payload)
 
       if (transactionEndpoints.length > 0) {
         try {
           importResult = await importSyncfyTransactionsFromEndpoints(
             env,
             normalizedEmail,
+            credential.syncfy_user_id,
             credential.syncfy_credential_id,
             transactionEndpoints
           )
@@ -4413,19 +6210,47 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
             throw err
           }
         }
+      } else if (jobStatusPaths.length > 0) {
+        try {
+          importResult = await importSyncfyTransactionsFromJobStatuses(
+            env,
+            normalizedEmail,
+            credential.syncfy_user_id,
+            credential.syncfy_credential_id,
+            jobStatusPaths
+          )
+        } catch (err) {
+          if (err instanceof SyncfyRequestError) {
+            await storeSyncfyError(env, {
+              email: normalizedEmail,
+              syncfyUserId: credential.syncfy_user_id,
+              syncfyCredentialId: credential.syncfy_credential_id,
+              rid: err.rid,
+              statusCode: err.status,
+              errorCode: err.code,
+              message: err.message,
+              source: 'syncfy-widget-job-status',
+              payload: err.responseBody,
+            })
+          } else {
+            throw err
+          }
+        }
       }
 
-      const credentials = await loadSyncfyCredentialsForEmail(env, normalizedEmail)
+      const credentials = await loadDisplaySyncfyCredentialsForEmail(env, normalizedEmail)
+      const displayCredential = credentials.find((item) => item.syncfy_credential_id === credential.syncfy_credential_id) || credential
       const dashboard = importResult ? await getFinanceDashboard(env, normalizedEmail) : null
       return json({
         ...(dashboard || {}),
         success: true,
         email: normalizedEmail,
-        credential: syncfyCredentialToApi(credential),
+        credential: syncfyCredentialToApi(displayCredential),
         credentials: credentials.map(syncfyCredentialToApi),
         syncfy: importResult,
+        pendingTransactions: importResult ? !isSyncfyTransactionImportComplete(importResult) : true,
         message: importResult
-          ? `${importResult.imported} movimientos sincronizados desde Syncfy.`
+          ? getSyncfyTransactionImportMessage(importResult)
           : 'Credencial Syncfy guardada. Ya puedes sincronizar transacciones.',
       })
     }
@@ -4437,7 +6262,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       }
       const normalizedEmail = normalizeSignupEmail(body.email)
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
@@ -4448,14 +6273,22 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         : credentials[0]
 
       if (!credential) {
-        return error('Primero conecta una institucion con Syncfy.', 404)
+        return error('Primero conecta una institución con Syncfy.', 404)
+      }
+
+      if (isSyncfyReconnectRequiredStatus(credential.status)) {
+        return json({
+          success: false,
+          error: 'Syncfy requiere reconectar esta institución antes de volver a sincronizar.',
+          credential: syncfyCredentialToApi(credential),
+        }, 409)
       }
 
       const cooldownSeconds = getSyncfyCredentialCooldownSeconds(credential)
       if (cooldownSeconds > 0) {
         return json({
           success: false,
-          error: 'Syncfy permite un pull exitoso por credencial cada 5 minutos.',
+          error: 'Syncfy permite una sincronización exitosa por credencial cada 5 minutos.',
           retryAfterSeconds: cooldownSeconds,
           credential: syncfyCredentialToApi(credential),
         }, 429)
@@ -4465,17 +6298,25 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         const importResult = await importSyncfyTransactionsForCredential(
           env,
           normalizedEmail,
-          credential.syncfy_credential_id
+          credential.syncfy_user_id,
+          credential.syncfy_credential_id,
+          { jobStatusPaths: getSyncfyCredentialJobStatusPaths(credential) }
         )
-        await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
+        const importComplete = isSyncfyTransactionImportComplete(importResult)
+        if (importComplete) {
+          await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
+        } else {
+          await markSyncfyCredentialSyncPending(env, normalizedEmail, credential.syncfy_credential_id)
+        }
         const dashboard = await getFinanceDashboard(env, normalizedEmail)
 
         return json({
           ...dashboard,
           source: 'syncfy',
           syncfy: importResult,
-          message: `${importResult.imported} movimientos sincronizados desde Syncfy.`,
-        })
+          pendingTransactions: !importComplete,
+          message: getSyncfyTransactionImportMessage(importResult),
+        }, importComplete ? 200 : 202)
       } catch (err) {
         if (err instanceof SyncfyRequestError) {
           await storeSyncfyError(env, {
@@ -4506,7 +6347,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
 
       const verified = await verifySyncfySecret(request, env)
       if (env.SYNCFY_WEBHOOK_SECRET && !verified) {
-        return error('Invalid Syncfy webhook secret', 401)
+        return error('Secreto de webhook Syncfy inválido', 401)
       }
 
       const payload = await request.json() as unknown
@@ -4523,6 +6364,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
             importResult = await importSyncfyTransactionsFromEndpoints(
               env,
               email,
+              event.syncfy_user_id || credential?.syncfy_user_id || null,
               event.syncfy_credential_id || credential?.syncfy_credential_id || null,
               transactionEndpoints
             )
@@ -4567,7 +6409,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
 
       const normalizedEmail = normalizeSignupEmail(url.searchParams.get('email'))
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
 
       await ensureSyncfyTables(env)
@@ -4616,7 +6458,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
 
       const normalizedEmail = normalizeSignupEmail(url.searchParams.get('email'))
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
@@ -4646,14 +6488,17 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
           }
 
           if (getSyncfyCredentialCooldownSeconds(credential) === 0) {
-            importResult = await importSyncfyTransactionsForCredential(env, normalizedEmail, credential.syncfy_credential_id)
-            await env.DB.prepare(
-              `UPDATE syncfy_credentials
-               SET last_pull_at = datetime("now"), last_successful_sync_at = datetime("now"), updated_at = datetime("now")
-               WHERE email = ? AND syncfy_credential_id = ?`
+            importResult = await importSyncfyTransactionsForCredential(
+              env,
+              normalizedEmail,
+              credential.syncfy_user_id,
+              credential.syncfy_credential_id
             )
-              .bind(normalizedEmail, credential.syncfy_credential_id)
-              .run()
+            if (isSyncfyTransactionImportComplete(importResult)) {
+              await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
+            } else {
+              await markSyncfyCredentialSyncPending(env, normalizedEmail, credential.syncfy_credential_id)
+            }
           }
 
           const persisted = await loadFinanceTransactions(env, normalizedEmail)
@@ -4748,7 +6593,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
 
       const normalizedEmail = normalizeSignupEmail(email)
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
 
       if (url.pathname === '/api/auth/request-link' || isEmailAuthRequired(env)) {
@@ -4763,7 +6608,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
           )
         } catch (challengeError) {
           console.error('Email auth challenge failed:', challengeError)
-          return error('Email transaccional no configurado. Activa Cloudflare Email Sending para finov.ai.', 503)
+          return error('Correo transaccional no configurado. Activa el envío de correo de Cloudflare para mail.finov.ai.', 503)
         }
 
         await upsertLead(env, normalizedEmail, name, diagnosticData)
@@ -4795,7 +6640,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       }
       const normalizedEmail = normalizeSignupEmail(email)
       if (!normalizedEmail) {
-        return error('Email invalido')
+        return error('Correo inválido')
       }
 
       const verified = await verifyEmailLoginChallenge(env, normalizedEmail, {

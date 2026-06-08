@@ -1,4 +1,4 @@
-import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   Area,
   AreaChart,
@@ -6,35 +6,47 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Pie,
-  PieChart,
   XAxis,
   YAxis,
 } from 'recharts'
 
 import {
   ArrowLeft,
+  ArrowRightLeft,
+  Banknote,
   Bot,
-  ChartNoAxesColumn,
+  Car,
   ChartPie,
   Check,
+  CircleDollarSign,
   Copy,
   FileSearch,
   FileUp,
+  Film,
+  HeartPulse,
+  Home,
   Landmark,
-  LayoutDashboard,
   Loader2,
   LogOut,
   Mail,
+  Moon,
+  PiggyBank,
   Plus,
   ReceiptText,
+  Repeat2,
   SendHorizontal,
   Settings,
-  Sparkles,
+  ShoppingBag,
+  ShoppingCart,
+  SlidersHorizontal,
+  Sun,
   Trash2,
   TrendingDown,
   TrendingUp,
+  Utensils,
   UserPlus,
+  WalletCards,
+  type LucideIcon,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -47,23 +59,12 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import {
-  ChatContainerContent,
-  ChatContainerRoot,
-  ChatContainerScrollAnchor,
-} from '@/components/ui/chat-container'
-import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -83,12 +84,10 @@ import {
 } from '@/components/ui/message'
 import {
   PromptInput,
-  PromptInputAction,
   PromptInputActions,
   PromptInputTextarea,
 } from '@/components/ui/prompt-input'
 import { PromptSuggestion } from '@/components/ui/prompt-suggestion'
-import { ScrollButton } from '@/components/ui/scroll-button'
 import {
   Table,
   TableBody,
@@ -97,13 +96,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { SystemMessage } from '@/components/ui/system-message'
 import { ThinkingBar } from '@/components/ui/thinking-bar'
 import {
   Reasoning,
   ReasoningContent,
   ReasoningTrigger,
 } from '@/components/ai-elements/reasoning'
+import { MessageResponse } from '@/components/ai-elements/message-response'
 import { Shimmer } from '@/components/ai-elements/shimmer'
 import { SyncfyConnect } from '@/components/SyncfyConnect'
 import { cn } from '@/lib/utils'
@@ -115,6 +114,7 @@ import {
 
 interface DashboardProps {
   email: string | null
+  initialPath?: string
   onBackHome: () => void
   onLogout: () => void
 }
@@ -122,7 +122,8 @@ interface DashboardProps {
 type TransactionType = 'income' | 'expense'
 type TransactionSource = 'manual' | 'cartola' | 'syncfy'
 type DashboardPage = 'inicio' | 'syncfy' | 'cartola' | 'movimientos' | 'categorias' | 'analisis' | 'ajustes'
-type DashboardChartView = 'flujo' | 'categorias' | 'movimientos'
+type DashboardTheme = 'light' | 'dark'
+type CategoryPeriodFilter = 'current' | 'previous' | 'all'
 
 interface FinanceTransaction {
   id: string
@@ -161,11 +162,67 @@ interface FinanceSummary {
   monthlySpending: number
   netBalance: number
   transactionCount: number
+  dataCoverage: {
+    firstDate: string | null
+    lastDate: string | null
+    firstMonth: string | null
+    lastMonth: string | null
+    monthCount: number
+    transactionCount: number
+    preliminary: boolean
+  }
   topSpendingCategory: string
   topSpendingCategoryAmount: number
   unusualHighSpendDay: { date: string; amount: number } | null
   recurringExpenses: Array<{ key: string; description: string; amount: number; count: number }>
   estimatedSavingsOpportunity: number
+}
+
+interface FinancialProfile {
+  email: string
+  currency: string
+  monthlyIncome: number | null
+  monthlyBudget: number | null
+  categoryBudgets: Record<string, number>
+}
+
+type BudgetStatus = 'under' | 'near' | 'over' | 'unset'
+
+interface CategoryBudgetComparison {
+  category: string
+  amount: number
+  share: number
+  previousAmount: number
+  deltaFromPrevious: number
+  budget: number | null
+  budgetUsage: number | null
+  budgetStatus: BudgetStatus
+  advice: string
+}
+
+interface CategoryMonthRow {
+  month: string
+  spendingTotal: number
+  incomeTotal: number
+  topCategory: string
+  deltaFromPrevious: number | null
+  budgetTotal: number | null
+  status: BudgetStatus
+}
+
+interface CategoryAnalysis {
+  period: string
+  periodLabel: string
+  previousPeriod: string | null
+  spendingTotal: number
+  incomeTotal: number
+  budgetTotal: number | null
+  budgetSource: 'user' | 'income_rule' | 'missing'
+  fixedExpenseShare: number | null
+  fixedExpenseLimit: number | null
+  summaryAdvice: string
+  categories: CategoryBudgetComparison[]
+  monthRows: CategoryMonthRow[]
 }
 
 interface FinanceInsight {
@@ -176,13 +233,61 @@ interface FinanceInsight {
   tone: 'good' | 'watch' | 'urgent'
 }
 
+interface FinanceOpportunity {
+  id: string
+  kind: 'recurring' | 'merchant_leak' | 'category_leak' | 'unusual_day'
+  title: string
+  body: string
+  sourceLabel: string
+  estimatedMonthlySavings: number
+}
+
+interface FinanceActionPlan {
+  monthlySavingsTarget: number
+  topOpportunities: FinanceOpportunity[]
+  investmentProjection: {
+    monthlyContribution: number
+    years: number
+    annualReturn: number
+    totalContributed: number
+    tenYearValue: number
+    potentialGrowth: number
+  }
+  nextActions: Array<{
+    id: string
+    label: string
+    body: string
+    target: 'movements' | 'categories' | 'chat' | 'connect' | 'partner'
+  }>
+}
+
 interface DashboardResponse {
   success: boolean
   email: string
   transactions: FinanceTransaction[]
+  profile?: FinancialProfile
   summary: FinanceSummary
+  categoryAnalysis?: CategoryAnalysis
   insights: FinanceInsight[]
+  actionPlan?: FinanceActionPlan
   message?: string
+}
+
+interface SyncfyCredential {
+  id: string
+  syncfyCredentialId: string
+  siteName: string | null
+  status: string | null
+  lastSuccessfulSyncAt: string | null
+  lastPullAt: string | null
+  cooldownSeconds: number
+  ready: boolean
+}
+
+interface SyncfyCredentialsResponse {
+  success: boolean
+  email: string
+  credentials: SyncfyCredential[]
 }
 
 interface CartolaImportResponse {
@@ -209,6 +314,11 @@ interface ManualDraft extends ManualForm {
   id: string
 }
 
+interface ProfileForm {
+  monthlyIncome: string
+  monthlyBudget: string
+}
+
 interface DashboardChatMessage {
   id: string
   role: 'assistant' | 'user'
@@ -216,6 +326,17 @@ interface DashboardChatMessage {
   chart?: DashboardChatChartType
   reasoning?: string
   reasoningDuration?: number
+}
+
+interface DashboardChatResponse {
+  success: boolean
+  answer: string
+  model: string
+  source: 'anthropic'
+}
+
+interface TransactionCategoryResponse extends DashboardResponse {
+  transaction: FinanceTransaction
 }
 
 type DashboardChatChartType = 'categories' | 'daily-spend' | 'savings' | 'recurring'
@@ -239,6 +360,7 @@ interface HouseholdResponse {
   email: string
   invite?: HouseholdInvite
   invites: HouseholdInvite[]
+  emailSent?: boolean
   message?: string
 }
 
@@ -269,18 +391,51 @@ const DASHBOARD_CHAT_SUGGESTIONS = [
   '¿Qué patrón se repite?',
   '¿Cuánto podría invertir?',
 ]
-const DASHBOARD_PAGES: Array<{ id: DashboardPage; label: string; icon: typeof Sparkles }> = [
-  { id: 'inicio', label: 'Inicio', icon: LayoutDashboard },
+const DASHBOARD_THEME_STORAGE_KEY = 'finovai-dashboard-theme'
+const DASHBOARD_PAGES: Array<{ id: DashboardPage; label: string; icon: LucideIcon }> = [
+  { id: 'inicio', label: 'Chat', icon: Bot },
   { id: 'syncfy', label: 'Conectar cuenta', icon: Landmark },
   { id: 'movimientos', label: 'Movimientos', icon: ReceiptText },
   { id: 'categorias', label: 'Categorías', icon: ChartPie },
-  { id: 'analisis', label: 'Análisis', icon: ChartNoAxesColumn },
   { id: 'ajustes', label: 'Ajustes', icon: Settings },
 ]
+const DASHBOARD_PAGE_PATHS: Record<DashboardPage, string> = {
+  inicio: '/dashboard',
+  syncfy: '/connect',
+  movimientos: '/movements',
+  categorias: '/categories',
+  cartola: '/import',
+  analisis: '/analysis',
+  ajustes: '/settings',
+}
+
+function FinovAILogoMark({ className }: { className?: string }) {
+  return (
+    <img
+      src="/favicon.svg"
+      alt=""
+      aria-hidden="true"
+      className={cn('size-9 shrink-0 rounded-md', className)}
+    />
+  )
+}
+
+const LEGACY_DASHBOARD_PAGE_PATHS: Partial<Record<string, DashboardPage>> = {
+  '/dashboard/connect': 'syncfy',
+  '/dashboard/movements': 'movimientos',
+  '/dashboard/movement': 'movimientos',
+  '/dashboard/categories': 'categorias',
+  '/dashboard/category': 'categorias',
+  '/dashboard/import': 'cartola',
+  '/dashboard/analysis': 'analisis',
+  '/dashboard/settings': 'ajustes',
+  '/movement': 'movimientos',
+  '/category': 'categorias',
+}
 const PAGE_META: Record<DashboardPage, { title: string; description: string }> = {
   inicio: {
-    title: 'Inicio',
-    description: 'Tus fugas, patrones y oportunidades para ahorrar e invertir.',
+    title: 'Chat financiero',
+    description: 'Pregunta sobre tus movimientos, fugas, patrones y ahorro posible.',
   },
   syncfy: {
     title: 'Conectar cuenta',
@@ -307,7 +462,6 @@ const PAGE_META: Record<DashboardPage, { title: string; description: string }> =
     description: 'Perfil, seguridad y controles de datos.',
   },
 }
-const METRIC_VALUE_CLASS = 'mt-2 min-w-0 text-[1.35rem] font-semibold leading-tight tracking-normal tabular-nums [overflow-wrap:anywhere]'
 const PANEL_VALUE_CLASS = 'mt-2 min-w-0 text-lg font-semibold leading-tight tracking-normal tabular-nums [overflow-wrap:anywhere]'
 const CHART_COLORS = [
   'var(--chart-1)',
@@ -317,6 +471,11 @@ const CHART_COLORS = [
   'var(--chart-5)',
   'var(--primary)',
 ]
+const FINANCE_APP_SHELL_CLASS = 'mx-auto grid h-[calc(100vh-1.5rem)] w-full max-w-[1760px] overflow-hidden rounded-[1.85rem] border border-border/70 bg-background shadow-[0_30px_90px_rgba(34,73,58,0.14)] sm:h-[calc(100vh-2.5rem)] md:grid-cols-[236px_minmax(0,1fr)] lg:h-[calc(100vh-3.5rem)] dark:shadow-[0_30px_90px_rgba(0,0,0,0.38)]'
+const FINANCE_ARTIFACT_CARD_CLASS = 'min-w-0 rounded-[1.45rem] border-border/70 bg-card py-5 shadow-[0_16px_45px_rgba(20,33,27,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.26)]'
+const FINANCE_ARTIFACT_INSET_CLASS = 'rounded-2xl bg-secondary/45 p-3 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]'
+const FINANCE_ARTIFACT_TILE_CLASS = 'rounded-2xl bg-secondary/45 p-4 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]'
+const FINANCE_SCROLLBAR_CLASS = '[scrollbar-width:thin] [scrollbar-color:var(--border)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-corner]:bg-transparent [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/40'
 const CASHFLOW_CHART_CONFIG = {
   spending: {
     label: 'Gastos',
@@ -351,6 +510,15 @@ const EMPTY_SUMMARY: FinanceSummary = {
   monthlySpending: 0,
   netBalance: 0,
   transactionCount: 0,
+  dataCoverage: {
+    firstDate: null,
+    lastDate: null,
+    firstMonth: null,
+    lastMonth: null,
+    monthCount: 0,
+    transactionCount: 0,
+    preliminary: true,
+  },
   topSpendingCategory: 'Sin datos',
   topSpendingCategoryAmount: 0,
   unusualHighSpendDay: null,
@@ -360,6 +528,40 @@ const EMPTY_SUMMARY: FinanceSummary = {
 
 const EMPTY_TRANSACTIONS: FinanceTransaction[] = []
 const EMPTY_INSIGHTS: FinanceInsight[] = []
+const EMPTY_PROFILE: FinancialProfile = {
+  email: '',
+  currency: 'MXN',
+  monthlyIncome: null,
+  monthlyBudget: null,
+  categoryBudgets: {},
+}
+const EMPTY_CATEGORY_ANALYSIS: CategoryAnalysis = {
+  period: EMPTY_SUMMARY.month,
+  periodLabel: formatMonth(EMPTY_SUMMARY.month),
+  previousPeriod: null,
+  spendingTotal: 0,
+  incomeTotal: 0,
+  budgetTotal: null,
+  budgetSource: 'missing',
+  fixedExpenseShare: null,
+  fixedExpenseLimit: null,
+  summaryAdvice: 'Falta tu ingreso y presupuesto mensual. Agrega esos datos para comparar el gasto contra una meta real.',
+  categories: [],
+  monthRows: [],
+}
+const EMPTY_ACTION_PLAN: FinanceActionPlan = {
+  monthlySavingsTarget: 0,
+  topOpportunities: [],
+  investmentProjection: {
+    monthlyContribution: 0,
+    years: DEFAULT_INVESTMENT_ASSUMPTION.years,
+    annualReturn: DEFAULT_INVESTMENT_ASSUMPTION.annualReturn,
+    totalContributed: 0,
+    tenYearValue: 0,
+    potentialGrowth: 0,
+  },
+  nextActions: [],
+}
 
 function getTodayInputDate() {
   return new Date().toISOString().slice(0, 10)
@@ -421,6 +623,35 @@ function formatMonth(value: string) {
   }).format(date)
 }
 
+function buildDataCoverage(transactions: Array<Pick<AnalysisTransaction, 'date'>>): FinanceSummary['dataCoverage'] {
+  const dates = transactions
+    .map((transaction) => transaction.date)
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    .sort()
+  const months = [...new Set(dates.map((date) => date.slice(0, 7)))]
+
+  return {
+    firstDate: dates[0] || null,
+    lastDate: dates.at(-1) || null,
+    firstMonth: months[0] || null,
+    lastMonth: months.at(-1) || null,
+    monthCount: months.length,
+    transactionCount: transactions.length,
+    preliminary: months.length < 3 || transactions.length < 30,
+  }
+}
+
+function formatDataCoverage(coverage: FinanceSummary['dataCoverage']) {
+  if (!coverage.transactionCount || !coverage.firstMonth || !coverage.lastMonth) return 'Sin historial analizado'
+  const monthRange = coverage.firstMonth === coverage.lastMonth
+    ? formatMonth(coverage.lastMonth)
+    : `${formatMonth(coverage.firstMonth)} - ${formatMonth(coverage.lastMonth)}`
+  const monthLabel = coverage.monthCount === 1 ? '1 mes' : `${coverage.monthCount} meses`
+  const transactionLabel = coverage.transactionCount === 1 ? '1 movimiento' : `${coverage.transactionCount} movimientos`
+
+  return `${monthLabel} analizados · ${transactionLabel} · ${monthRange}`
+}
+
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -444,10 +675,39 @@ function getStoredEmail(fallback: string | null) {
   return getStoredDashboardEmail()
 }
 
+function getStoredDashboardTheme(): DashboardTheme {
+  if (typeof window === 'undefined') return 'light'
+  const storedTheme = window.localStorage.getItem(DASHBOARD_THEME_STORAGE_KEY)
+  return storedTheme === 'dark' ? 'dark' : 'light'
+}
+
+function getDashboardPreviewEnabled() {
+  if (typeof window === 'undefined') return false
+  if (!import.meta.env.DEV) return false
+  return new URLSearchParams(window.location.search).get('preview') === 'dashboard'
+}
+
+function normalizeDashboardPath(path: string | null | undefined): string {
+  const normalizedPath = (path || '/dashboard').replace(/\/+$/, '') || '/dashboard'
+  return normalizedPath
+}
+
+function getDashboardPageFromPath(path: string | null | undefined): DashboardPage {
+  const normalizedPath = normalizeDashboardPath(path)
+  const match = (Object.entries(DASHBOARD_PAGE_PATHS) as Array<[DashboardPage, string]>)
+    .find(([, pagePath]) => pagePath === normalizedPath)
+
+  return match?.[0] || LEGACY_DASHBOARD_PAGE_PATHS[normalizedPath] || 'inicio'
+}
+
+function shouldCanonicalizeDashboardPath(path: string | null | undefined): boolean {
+  return Boolean(LEGACY_DASHBOARD_PAGE_PATHS[normalizeDashboardPath(path)])
+}
+
 function getInsightToneClasses(tone: FinanceInsight['tone']) {
-  if (tone === 'good') return 'border-[#00D4AA]/25 bg-[#00D4AA]/10 text-[#00D4AA]'
-  if (tone === 'urgent') return 'border-rose-500/20 bg-rose-500/8 text-rose-300'
-  return 'border-amber-500/20 bg-amber-500/8 text-amber-300'
+  if (tone === 'good') return 'border-primary/25 bg-primary/10 text-primary'
+  if (tone === 'urgent') return 'border-rose-500/20 bg-rose-500/8 text-rose-700 dark:text-rose-300'
+  return 'border-amber-500/20 bg-amber-500/8 text-amber-700 dark:text-amber-300'
 }
 
 function normalizeQuestion(value: string) {
@@ -457,11 +717,56 @@ function normalizeQuestion(value: string) {
     .toLowerCase()
 }
 
-function getExpenseBreakdown(transactions: AnalysisTransaction[], month: string) {
+const CATEGORY_QUESTION_PATTERN = /(donde|categoria|rubro|gaste|gast[eé]|mas|mayor|principal)/
+const CURRENT_MONTH_QUESTION_PATTERN = /(mes|mensual|este mes|mes actual|actual|ultimo mes|último mes|reciente)/
+
+function isCategoryQuestion(normalizedQuestion: string) {
+  return CATEGORY_QUESTION_PATTERN.test(normalizedQuestion)
+}
+
+function getCategoryQuestionMonth(normalizedQuestion: string, summary: FinanceSummary) {
+  return CURRENT_MONTH_QUESTION_PATTERN.test(normalizedQuestion) ? summary.month : null
+}
+
+function getCategoryScopeLabel(month: string | null) {
+  return month ? `de ${formatMonth(month)}` : 'en todos tus movimientos'
+}
+
+const CATEGORY_ICON_RULES: Array<{ terms: string[]; icon: LucideIcon }> = [
+  { terms: ['transfer', 'traspas', 'spei'], icon: ArrowRightLeft },
+  { terms: ['impuesto', 'sat', 'tax'], icon: Landmark },
+  { terms: ['supermercado', 'super', 'mercado', 'despensa', 'grocery'], icon: ShoppingCart },
+  { terms: ['compra', 'shopping', 'amazon', 'retail'], icon: ShoppingBag },
+  { terms: ['transporte', 'uber', 'didi', 'taxi', 'metro', 'gasolina'], icon: Car },
+  { terms: ['salud', 'farmacia', 'medic', 'doctor'], icon: HeartPulse },
+  { terms: ['comida', 'restaurante', 'cafe', 'starbucks', 'food'], icon: Utensils },
+  { terms: ['suscripcion', 'recurrente', 'netflix', 'spotify'], icon: Repeat2 },
+  { terms: ['ocio', 'cine', 'entretenimiento', 'cinemex'], icon: Film },
+  { terms: ['renta', 'alquiler', 'vivienda', 'hogar', 'servicio', 'utilities'], icon: Home },
+  { terms: ['inversion', 'ahorro', 'bitso', 'cripto', 'crypto'], icon: PiggyBank },
+  { terms: ['sueldo', 'nomina', 'ingreso', 'salario'], icon: Banknote },
+  { terms: ['comision', 'cargo', 'fee'], icon: ReceiptText },
+]
+
+function getCategoryIcon(category: string): LucideIcon {
+  const normalizedCategory = normalizeQuestion(category)
+  const match = CATEGORY_ICON_RULES.find((rule) => (
+    rule.terms.some((term) => normalizedCategory.includes(term))
+  ))
+
+  return match?.icon || CircleDollarSign
+}
+
+function getFinanceCategoriesForType(type: TransactionType) {
+  return type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES
+}
+
+function getExpenseBreakdown(transactions: AnalysisTransaction[], month?: string | null) {
   const totals = new Map<string, number>()
 
   for (const transaction of transactions) {
-    if (transaction.type !== 'expense' || !transaction.date.startsWith(month)) continue
+    if (transaction.type !== 'expense') continue
+    if (month && !transaction.date.startsWith(month)) continue
     totals.set(transaction.category, (totals.get(transaction.category) || 0) + transaction.amount)
   }
 
@@ -482,6 +787,315 @@ function getShortChartLabel(value: string, maxLength = 18) {
   if (clean.length <= maxLength) return clean
 
   return `${clean.slice(0, maxLength - 1).trim()}…`
+}
+
+function getBreakdownTotal(breakdown: Array<{ total: number }>) {
+  return Math.round(breakdown.reduce((sum, item) => sum + item.total, 0) * 100) / 100
+}
+
+function roundUiMoney(value: number) {
+  return Math.round(value * 100) / 100
+}
+
+function parseMoneyInput(value: string): number | null {
+  const normalized = value.replace(/[^\d.,-]/g, '').trim()
+  if (!normalized) return null
+  const hasCommaDecimal = /,\d{1,2}$/.test(normalized)
+  const clean = hasCommaDecimal
+    ? normalized.replace(/\./g, '').replace(',', '.')
+    : normalized.replace(/,/g, '')
+  const number = Number(clean)
+  return Number.isFinite(number) && number >= 0 ? roundUiMoney(number) : null
+}
+
+function moneyInputValue(value: number | null | undefined) {
+  return value && value > 0 ? String(value) : ''
+}
+
+function getBudgetStatus(amount: number, budget: number | null | undefined): BudgetStatus {
+  if (!budget || budget <= 0) return 'unset'
+  if (amount > budget) return 'over'
+  if (amount / budget >= 0.85) return 'near'
+  return 'under'
+}
+
+function getBudgetStatusLabel(status: BudgetStatus) {
+  if (status === 'over') return 'Excedido'
+  if (status === 'near') return 'Cerca del tope'
+  if (status === 'under') return 'Bajo control'
+  return 'Sin presupuesto'
+}
+
+function getBudgetStatusClass(status: BudgetStatus) {
+  if (status === 'over') return 'border-rose-500/25 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+  if (status === 'near') return 'border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+  if (status === 'under') return 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+  return 'border-border/70 bg-secondary text-muted-foreground'
+}
+
+function getMonthTotalsForAnalysis(transactions: AnalysisTransaction[], month: string) {
+  const categoryTotals = new Map<string, number>()
+  let spendingTotal = 0
+  let incomeTotal = 0
+
+  for (const transaction of transactions) {
+    if (!transaction.date.startsWith(month)) continue
+    if (transaction.type === 'income') {
+      incomeTotal += transaction.amount
+      continue
+    }
+    spendingTotal += transaction.amount
+    categoryTotals.set(transaction.category, (categoryTotals.get(transaction.category) || 0) + transaction.amount)
+  }
+
+  const topCategory = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'Sin datos'
+  return {
+    categoryTotals,
+    spendingTotal: roundUiMoney(spendingTotal),
+    incomeTotal: roundUiMoney(incomeTotal),
+    topCategory,
+  }
+}
+
+function getAvailableMonths(transactions: AnalysisTransaction[]) {
+  return [...new Set(transactions.map((transaction) => transaction.date.slice(0, 7)).filter(Boolean))]
+    .sort()
+    .reverse()
+}
+
+function getProfileIncome(profile: FinancialProfile, fallbackIncome: number) {
+  return profile.monthlyIncome && profile.monthlyIncome > 0 ? profile.monthlyIncome : fallbackIncome
+}
+
+function getMonthlyBudget(profile: FinancialProfile, fallbackIncome: number) {
+  if (profile.monthlyBudget && profile.monthlyBudget > 0) {
+    return { value: profile.monthlyBudget, source: 'user' as const }
+  }
+  const income = getProfileIncome(profile, fallbackIncome)
+  if (income > 0) return { value: roundUiMoney(income * 0.8), source: 'income_rule' as const }
+  return { value: null, source: 'missing' as const }
+}
+
+function buildClientCategoryAnalysis(
+  transactions: AnalysisTransaction[],
+  summary: FinanceSummary,
+  profile: FinancialProfile,
+  period = summary.month
+): CategoryAnalysis {
+  const months = getAvailableMonths(transactions)
+  const currentPeriod = period || months[0] || summary.month
+  const previousPeriod = months.find((month) => month < currentPeriod) || null
+  const current = getMonthTotalsForAnalysis(transactions, currentPeriod)
+  const previous = previousPeriod ? getMonthTotalsForAnalysis(transactions, previousPeriod) : null
+  const budget = getMonthlyBudget(profile, current.incomeTotal)
+  const denominator = current.spendingTotal || 1
+  const currency = profile.currency || transactions[0]?.currency || 'MXN'
+
+  const categories = [...current.categoryTotals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([category, rawAmount]) => {
+      const amount = roundUiMoney(rawAmount)
+      const previousAmount = roundUiMoney(previous?.categoryTotals.get(category) || 0)
+      const categoryBudget = profile.categoryBudgets[category] || null
+      const budgetStatus = getBudgetStatus(amount, categoryBudget)
+      const deltaFromPrevious = roundUiMoney(amount - previousAmount)
+      const advice = budgetStatus === 'over' && categoryBudget
+        ? `${category} está ${formatCardCurrency(amount - categoryBudget, currency)} sobre presupuesto.`
+        : deltaFromPrevious > 0
+          ? `${category} subió ${formatCardCurrency(deltaFromPrevious, currency)} frente al mes anterior.`
+          : categoryBudget
+            ? `${category} sigue dentro del presupuesto.`
+            : `Sin presupuesto para ${category}.`
+
+      return {
+        category,
+        amount,
+        share: Math.round((amount / denominator) * 100),
+        previousAmount,
+        deltaFromPrevious,
+        budget: categoryBudget,
+        budgetUsage: categoryBudget ? Math.round((amount / categoryBudget) * 100) : null,
+        budgetStatus,
+        advice,
+      }
+    })
+
+  const income = getProfileIncome(profile, current.incomeTotal)
+  const summaryAdvice = budget.source === 'missing'
+    ? 'Falta tu ingreso y presupuesto mensual. Agrega esos datos para comparar el gasto contra una meta real.'
+    : budget.value && current.spendingTotal > budget.value
+      ? `Este mes estás ${formatCardCurrency(current.spendingTotal - budget.value, currency)} sobre presupuesto.`
+      : budget.source === 'income_rule'
+        ? `Aún no tienes presupuesto guardado. FinovAI propone ${formatCardCurrency(budget.value || 0, currency)} como tope mensual.`
+        : income > 0 && current.spendingTotal / income > 0.5
+          ? `Tus gastos superan 50% de tus ingresos. Revisa gastos fijos y deuda.`
+          : 'Vas dentro del presupuesto mensual.'
+
+  const monthRows = months.map((month, index) => {
+    const totals = getMonthTotalsForAnalysis(transactions, month)
+    const previousMonth = months[index + 1]
+    const previousTotals = previousMonth ? getMonthTotalsForAnalysis(transactions, previousMonth) : null
+    const monthBudget = getMonthlyBudget(profile, totals.incomeTotal).value
+
+    return {
+      month,
+      spendingTotal: totals.spendingTotal,
+      incomeTotal: totals.incomeTotal,
+      topCategory: totals.topCategory,
+      deltaFromPrevious: previousTotals ? roundUiMoney(totals.spendingTotal - previousTotals.spendingTotal) : null,
+      budgetTotal: monthBudget,
+      status: getBudgetStatus(totals.spendingTotal, monthBudget),
+    }
+  })
+
+  return {
+    period: currentPeriod,
+    periodLabel: formatMonth(currentPeriod),
+    previousPeriod,
+    spendingTotal: current.spendingTotal,
+    incomeTotal: current.incomeTotal,
+    budgetTotal: budget.value,
+    budgetSource: budget.source,
+    fixedExpenseShare: income > 0 ? Math.round((current.spendingTotal / income) * 100) : null,
+    fixedExpenseLimit: income > 0 ? roundUiMoney(income * 0.5) : null,
+    summaryAdvice,
+    categories,
+    monthRows,
+  }
+}
+
+function CategorySearchSelect({
+  disabled,
+  onSelect,
+  type,
+  value,
+}: {
+  disabled?: boolean
+  onSelect: (category: string) => void
+  type: TransactionType
+  value: string
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [dropdownStyle, setDropdownStyle] = useState<CSSProperties>({})
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const options = getFinanceCategoriesForType(type)
+  const normalizedQuery = normalizeQuestion(query)
+  const filteredOptions = options.filter((option) => (
+    normalizeQuestion(option).includes(normalizedQuery)
+  ))
+
+  const updateDropdownPosition = () => {
+    const rect = buttonRef.current?.getBoundingClientRect()
+    if (!rect) return
+
+    const width = Math.max(rect.width, 240)
+    const left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - width - 12))
+    setDropdownStyle({
+      left,
+      top: Math.min(rect.bottom + 6, window.innerHeight - 320),
+      width,
+    })
+  }
+
+  useLayoutEffect(() => {
+    if (!isOpen) return
+
+    updateDropdownPosition()
+    window.addEventListener('resize', updateDropdownPosition)
+    window.addEventListener('scroll', updateDropdownPosition, true)
+    return () => {
+      window.removeEventListener('resize', updateDropdownPosition)
+      window.removeEventListener('scroll', updateDropdownPosition, true)
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen) setQuery('')
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (!target) return
+      if (buttonRef.current?.contains(target) || panelRef.current?.contains(target)) return
+      setIsOpen(false)
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [isOpen])
+
+  return (
+    <div className="min-w-40 max-w-56">
+      <Button
+        ref={buttonRef}
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8 w-full min-w-0 justify-between px-2 text-left font-normal"
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        disabled={disabled}
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <span className="min-w-0 truncate">{value}</span>
+        {disabled ? <Loader2 className="size-3.5 animate-spin" /> : null}
+      </Button>
+
+      {isOpen ? (
+        <div
+          ref={panelRef}
+          className="fixed z-50 rounded-md border bg-popover p-2 text-popover-foreground shadow-md"
+          style={dropdownStyle}
+        >
+          <Input
+            value={query}
+            className="h-8"
+            placeholder="Buscar categoría"
+            autoFocus
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setIsOpen(false)
+              if (event.key === 'Enter' && filteredOptions[0]) {
+                event.preventDefault()
+                onSelect(filteredOptions[0])
+                setIsOpen(false)
+              }
+            }}
+          />
+          <div className={cn('mt-2 flex max-h-44 flex-col gap-1 overflow-y-auto', FINANCE_SCROLLBAR_CLASS)} role="listbox">
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  role="option"
+                  aria-selected={option === value}
+                  className={cn(
+                    'flex min-w-0 items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground',
+                    option === value && 'bg-accent text-accent-foreground'
+                  )}
+                  onClick={() => {
+                    onSelect(option)
+                    setIsOpen(false)
+                  }}
+                >
+                  <span className="min-w-0 truncate">{option}</span>
+                  {option === value ? <Check className="size-3.5" /> : null}
+                </button>
+              ))
+            ) : (
+              <p className="px-2 py-2 text-sm text-muted-foreground">Sin resultados</p>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function getDailyFlowChartData(transactions: AnalysisTransaction[], month: string) {
@@ -521,16 +1135,6 @@ function getCategoryChartData(breakdown: Array<{ category: string; total: number
     label: getShortChartLabel(item.category, 16),
     amount: Math.round(item.total * 100) / 100,
     share: monthlySpending > 0 ? Math.round((item.total / monthlySpending) * 100) : 0,
-    fill: CHART_COLORS[index % CHART_COLORS.length],
-  }))
-}
-
-function getTopExpenseChartData(transactions: AnalysisTransaction[], month: string) {
-  return getTopTransactions(transactions, month).slice(0, 5).map((transaction, index) => ({
-    label: getShortChartLabel(transaction.description || transaction.category, 22),
-    description: transaction.description,
-    category: transaction.category,
-    amount: Math.round(transaction.amount * 100) / 100,
     fill: CHART_COLORS[index % CHART_COLORS.length],
   }))
 }
@@ -612,13 +1216,188 @@ function buildLocalSummary(transactions: AnalysisTransaction[]): FinanceSummary 
     monthlyIncome: Math.round(monthlyIncome * 100) / 100,
     monthlySpending: Math.round(monthlySpending * 100) / 100,
     netBalance: Math.round((monthlyIncome - monthlySpending) * 100) / 100,
-    transactionCount: monthlyTransactions.length,
+    transactionCount: transactions.length,
+    dataCoverage: buildDataCoverage(transactions),
     topSpendingCategory: topCategory?.[0] || 'Sin datos',
     topSpendingCategoryAmount: Math.round((topCategory?.[1] || 0) * 100) / 100,
     unusualHighSpendDay: unusualDay ? { date: unusualDay[0], amount: Math.round(unusualDay[1] * 100) / 100 } : null,
     recurringExpenses,
     estimatedSavingsOpportunity: Math.round(estimatedSavingsOpportunity * 100) / 100,
   }
+}
+
+function createPreviewTransaction(
+  id: string,
+  date: string,
+  category: string,
+  description: string,
+  amount: number,
+  type: TransactionType = 'expense'
+): FinanceTransaction {
+  return {
+    id,
+    email: 'demo@finov.ai',
+    date,
+    type,
+    amount,
+    currency: 'MXN',
+    category,
+    description,
+    merchant: description,
+    notes: null,
+    source: 'syncfy',
+    confidence: 0.94,
+    rawSource: 'syncfy-preview',
+    cartolaImportId: null,
+    created_at: `${date}T12:00:00.000Z`,
+  }
+}
+
+function createPreviewDashboardResponse(email: string): DashboardResponse {
+  const transactions: FinanceTransaction[] = [
+    createPreviewTransaction('preview-may-1', '2026-05-01', 'Sueldo', 'Nómina', 52000, 'income'),
+    createPreviewTransaction('preview-may-2', '2026-05-02', 'Transferencias', 'Renta departamento', 16500),
+    createPreviewTransaction('preview-may-3', '2026-05-06', 'Supermercado', 'City Market', 2200),
+    createPreviewTransaction('preview-may-4', '2026-05-09', 'Comida fuera', 'Restaurante', 980),
+    createPreviewTransaction('preview-may-5', '2026-05-14', 'Suscripciones', 'Netflix', 299),
+    createPreviewTransaction('preview-may-6', '2026-05-18', 'Transporte', 'Uber', 610),
+    createPreviewTransaction('preview-1', '2026-06-01', 'Sueldo', 'Nómina', 52000, 'income'),
+    createPreviewTransaction('preview-2', '2026-06-01', 'Transferencias', 'Renta departamento', 16500),
+    createPreviewTransaction('preview-3', '2026-06-02', 'Supermercado', 'City Market', 2840),
+    createPreviewTransaction('preview-4', '2026-06-03', 'Suscripciones', 'Netflix', 299),
+    createPreviewTransaction('preview-5', '2026-06-04', 'Transporte', 'Uber', 480),
+    createPreviewTransaction('preview-6', '2026-06-05', 'Comida fuera', 'Starbucks', 185),
+    createPreviewTransaction('preview-7', '2026-06-06', 'Comida fuera', 'Starbucks', 165),
+    createPreviewTransaction('preview-8', '2026-06-07', 'Compras', 'Amazon MX', 1450),
+    createPreviewTransaction('preview-9', '2026-06-08', 'Suscripciones', 'Spotify', 129),
+    createPreviewTransaction('preview-10', '2026-06-09', 'Salud', 'Farmacia Guadalajara', 780),
+    createPreviewTransaction('preview-11', '2026-06-10', 'Ocio', 'Cinemex', 620),
+    createPreviewTransaction('preview-12', '2026-06-11', 'Transporte', 'Didi', 360),
+    createPreviewTransaction('preview-13', '2026-06-12', 'Comida fuera', 'Starbucks', 195),
+    createPreviewTransaction('preview-14', '2026-06-13', 'Impuestos', 'SAT pago provisional', 3800),
+    createPreviewTransaction('preview-15', '2026-06-14', 'Inversión', 'Bitso compra recurrente', 2500, 'income'),
+  ].map((transaction) => ({ ...transaction, email }))
+
+  const summary = buildLocalSummary(transactions)
+  const profile: FinancialProfile = {
+    email,
+    currency: 'MXN',
+    monthlyIncome: 52000,
+    monthlyBudget: 39000,
+    categoryBudgets: {
+      Transferencias: 17000,
+      Supermercado: 6000,
+      'Comida fuera': 1800,
+      Suscripciones: 900,
+      Transporte: 1800,
+      Impuestos: 3500,
+    },
+  }
+  const categoryAnalysis = buildClientCategoryAnalysis(transactions, summary, profile)
+  const actionPlan: FinanceActionPlan = {
+    monthlySavingsTarget: summary.estimatedSavingsOpportunity,
+    topOpportunities: [
+      {
+        id: 'preview-coffee',
+        kind: 'merchant_leak',
+        title: 'Café entre semana',
+        body: 'Starbucks aparece varias veces en pocos días. Reducir dos visitas por semana libera margen sin cambiar gastos fijos.',
+        sourceLabel: 'Starbucks',
+        estimatedMonthlySavings: 1480,
+      },
+      {
+        id: 'preview-subscriptions',
+        kind: 'recurring',
+        title: 'Suscripciones pequeñas',
+        body: 'Netflix y Spotify no son grandes solos, pero juntos ya son una fuga recurrente revisable.',
+        sourceLabel: 'Suscripciones',
+        estimatedMonthlySavings: 428,
+      },
+    ],
+    investmentProjection: {
+      monthlyContribution: summary.estimatedSavingsOpportunity,
+      years: 10,
+      annualReturn: DEFAULT_INVESTMENT_ASSUMPTION.annualReturn,
+      totalContributed: summary.estimatedSavingsOpportunity * 120,
+      tenYearValue: projectMonthlyContribution(summary.estimatedSavingsOpportunity),
+      potentialGrowth: Math.max(0, projectMonthlyContribution(summary.estimatedSavingsOpportunity) - summary.estimatedSavingsOpportunity * 120),
+    },
+    nextActions: [
+      {
+        id: 'preview-plan',
+        label: 'Plan semanal',
+        body: 'Convierte estas fugas en una meta automática de ahorro.',
+        target: 'chat',
+      },
+      {
+        id: 'preview-invest',
+        label: 'Ruta de inversión',
+        body: 'Simula el margen mensual como aportación futura.',
+        target: 'partner',
+      },
+    ],
+  }
+
+  return {
+    success: true,
+    email,
+    transactions,
+    profile,
+    summary,
+    categoryAnalysis,
+    insights: [
+      {
+        id: 'preview-leak',
+        title: 'Fuga principal',
+        value: 'Comida fuera',
+        body: 'El gasto repetido en cafés y salidas pequeñas tiene margen de reducción inmediato.',
+        tone: 'watch',
+      },
+      {
+        id: 'preview-investable',
+        title: 'Ahorro invertible',
+        value: formatCardCurrency(summary.estimatedSavingsOpportunity, 'MXN'),
+        body: 'FinovAI puede transformar ese margen en próximos pasos de inversión.',
+        tone: 'good',
+      },
+    ],
+    actionPlan,
+  }
+}
+
+function createPreviewSyncfyCredentials(): SyncfyCredential[] {
+  return [
+    {
+      id: 'preview-bbva',
+      syncfyCredentialId: 'preview-bbva',
+      siteName: 'BBVA México',
+      status: 'synced',
+      lastSuccessfulSyncAt: '2026-06-02T12:00:00.000Z',
+      lastPullAt: '2026-06-02T12:00:00.000Z',
+      cooldownSeconds: 0,
+      ready: true,
+    },
+    {
+      id: 'preview-amex',
+      syncfyCredentialId: 'preview-amex',
+      siteName: 'American Express',
+      status: 'synced',
+      lastSuccessfulSyncAt: '2026-06-02T12:00:00.000Z',
+      lastPullAt: '2026-06-02T12:00:00.000Z',
+      cooldownSeconds: 0,
+      ready: true,
+    },
+    {
+      id: 'preview-bitso',
+      syncfyCredentialId: 'preview-bitso',
+      siteName: 'Bitso',
+      status: 'synced',
+      lastSuccessfulSyncAt: '2026-06-02T12:00:00.000Z',
+      lastPullAt: '2026-06-02T12:00:00.000Z',
+      cooldownSeconds: 0,
+      ready: true,
+    },
+  ]
 }
 
 function projectMonthlyContribution(monthlyContribution: number, years = DEFAULT_INVESTMENT_ASSUMPTION.years) {
@@ -650,7 +1429,12 @@ function draftRowToAnalysisTransaction(row: CartolaDraftRow): AnalysisTransactio
   }
 }
 
-function buildDashboardChatOpening(transactions: AnalysisTransaction[], draftCount: number, selectedDraftCount: number) {
+function buildDashboardChatOpening(
+  transactions: AnalysisTransaction[],
+  draftCount: number,
+  selectedDraftCount: number,
+  hasConnectedInstitution: boolean
+) {
   if (draftCount > 0 && selectedDraftCount > 0) {
     return `Ya puedo hacer un análisis preliminar de ${selectedDraftCount} movimientos seleccionados. Pregúntame qué se repite, dónde se fuga dinero o qué podrías ahorrar.`
   }
@@ -660,6 +1444,10 @@ function buildDashboardChatOpening(transactions: AnalysisTransaction[], draftCou
   }
 
   if (transactions.length === 0) {
+    if (hasConnectedInstitution) {
+      return 'La institución ya está conectada. En cuanto Syncfy entregue movimientos, puedo encontrar fugas, patrones y oportunidades para ahorrar.'
+    }
+
     return 'Conecta una cuenta con Syncfy. En cuanto entren transacciones, puedo encontrar fugas, patrones y oportunidades para ahorrar.'
   }
 
@@ -671,25 +1459,32 @@ function buildDashboardChatAnswer(
   transactions: AnalysisTransaction[],
   summary: FinanceSummary,
   currency: string,
-  isDraftAnalysis = false
+  isDraftAnalysis = false,
+  hasConnectedInstitution = false
 ) {
   if (transactions.length === 0) {
+    if (hasConnectedInstitution) {
+      return 'La institución ya está conectada, pero todavía no tengo transacciones disponibles. Syncfy puede tardar en entregar movimientos; vuelve a sincronizar desde Conectar cuenta si esto no cambia en unos minutos.'
+    }
+
     return 'Todavía no tengo transacciones para analizar. Conecta una cuenta con Syncfy para que FinovAI lea movimientos reales.'
   }
 
   const normalized = normalizeQuestion(question)
-  const breakdown = getExpenseBreakdown(transactions, summary.month)
+  const categoryQuestionMonth = getCategoryQuestionMonth(normalized, summary)
+  const breakdown = getExpenseBreakdown(transactions, categoryQuestionMonth)
   const topCategory = breakdown[0]
   const topTransactions = getTopTransactions(transactions, summary.month)
   const prefix = isDraftAnalysis ? 'Preliminar: ' : ''
 
-  if (/(donde|categoria|rubro|gaste|gast[eé]|mas|mayor|principal)/.test(normalized) && topCategory) {
-    const share = summary.monthlySpending > 0 ? Math.round((topCategory.total / summary.monthlySpending) * 100) : 0
+  if (isCategoryQuestion(normalized) && topCategory) {
+    const totalSpending = getBreakdownTotal(breakdown)
+    const share = totalSpending > 0 ? Math.round((topCategory.total / totalSpending) * 100) : 0
     const nextCategories = breakdown.slice(1, 3)
       .map((item) => `${item.category}: ${formatCurrency(item.total, currency)}`)
       .join(' · ')
 
-    return `${prefix}Tu mayor gasto de ${formatMonth(summary.month)} está en ${topCategory.category}: ${formatCurrency(topCategory.total, currency)} (${share}% del gasto).${nextCategories ? ` Después viene ${nextCategories}.` : ''}`
+    return `${prefix}Tu mayor gasto ${getCategoryScopeLabel(categoryQuestionMonth)} está en ${topCategory.category}: ${formatCurrency(topCategory.total, currency)} (${share}% del gasto).${nextCategories ? ` Después viene ${nextCategories}.` : ''}`
   }
 
   if (/(ahorr|reduc|bajar|optim|invert|invers|futur)/.test(normalized)) {
@@ -740,7 +1535,7 @@ function getDashboardChatChartType(
   const normalized = normalizeQuestion(question)
   const hasMonthSpending = summary.monthlySpending > 0
 
-  if (/(donde|categoria|rubro|gaste|gast[eé]|mas|mayor|principal)/.test(normalized) && hasMonthSpending) {
+  if (isCategoryQuestion(normalized) && hasMonthSpending) {
     return 'categories'
   }
 
@@ -772,8 +1567,9 @@ function buildDashboardChatReasoning(
   const normalized = normalizeQuestion(question)
   const scope = isDraftAnalysis ? 'movimientos seleccionados' : 'transacciones confirmadas'
 
-  if (/(donde|categoria|rubro|gaste|gast[eé]|mas|mayor|principal)/.test(normalized)) {
-    return `Agrupo ${transactions.length} ${scope} por categoría, sumo solo gastos de ${formatMonth(summary.month)} y comparo el peso relativo de los rubros principales.`
+  if (isCategoryQuestion(normalized)) {
+    const month = getCategoryQuestionMonth(normalized, summary)
+    return `Agrupo ${transactions.length} ${scope} por categoría, ${month ? `sumo solo gastos de ${formatMonth(month)}` : 'uso todos los gastos disponibles'} y comparo el peso relativo de los rubros principales.`
   }
 
   if (/(ahorr|reduc|bajar|optim|invert|invers|futur)/.test(normalized)) {
@@ -791,18 +1587,20 @@ function buildDashboardChatReasoning(
   return `Reviso ingresos, gastos, balance neto, categorías y movimientos grandes de ${formatMonth(summary.month)} antes de responder.`
 }
 
-export default function Dashboard({ email, onBackHome, onLogout }: DashboardProps) {
-  const [activeEmail, setActiveEmail] = useState<string | null>(() => getStoredEmail(email))
-  const [emailInput, setEmailInput] = useState(() => getStoredEmail(email) || '')
+export default function Dashboard({ email, initialPath, onBackHome, onLogout }: DashboardProps) {
+  const previewEnabled = getDashboardPreviewEnabled()
+  const previewEmail = previewEnabled ? 'preview@finov.ai' : null
+  const [activeEmail, setActiveEmail] = useState<string | null>(() => getStoredEmail(email) || previewEmail)
+  const [emailInput, setEmailInput] = useState(() => getStoredEmail(email) || previewEmail || '')
   const [pendingLoginEmail, setPendingLoginEmail] = useState('')
   const [loginCode, setLoginCode] = useState('')
-  const [data, setData] = useState<DashboardResponse | null>(null)
+  const [data, setData] = useState<DashboardResponse | null>(() => previewEmail ? createPreviewDashboardResponse(previewEmail) : null)
   const [manualForm, setManualForm] = useState<ManualForm>(() => createManualForm())
   const [manualDrafts, setManualDrafts] = useState<ManualDraft[]>([])
   const [draftRows, setDraftRows] = useState<CartolaDraftRow[]>([])
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set())
   const [currentImport, setCurrentImport] = useState<CartolaImportResponse | null>(null)
-  const [status, setStatus] = useState('Identifícate con email para conectar una cuenta con Syncfy.')
+  const [status, setStatus] = useState('Identifícate con tu correo para conectar una cuenta con Syncfy.')
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -810,14 +1608,42 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
   const [chatInput, setChatInput] = useState('')
   const [chatMessages, setChatMessages] = useState<DashboardChatMessage[]>([])
   const [pendingChatAnswer, setPendingChatAnswer] = useState<PendingChatAnswer | null>(null)
-  const [activePage, setActivePage] = useState<DashboardPage>('inicio')
-  const [activeChartView, setActiveChartView] = useState<DashboardChartView>('flujo')
-  const [isMobileChatOpen, setIsMobileChatOpen] = useState(false)
+  const [activePage, setActivePageState] = useState<DashboardPage>(() => getDashboardPageFromPath(initialPath))
+  const [dashboardTheme, setDashboardTheme] = useState<DashboardTheme>(() => getStoredDashboardTheme())
+  const [syncfyCredentials, setSyncfyCredentials] = useState<SyncfyCredential[]>(() => previewEnabled ? createPreviewSyncfyCredentials() : [])
+  const [isLoadingCredentials, setIsLoadingCredentials] = useState(() => Boolean(getStoredEmail(email)) && !previewEnabled)
   const [spouseEmail, setSpouseEmail] = useState('')
   const [householdInvites, setHouseholdInvites] = useState<HouseholdInvite[]>([])
   const [isInvitingSpouse, setIsInvitingSpouse] = useState(false)
+  const [profileForm, setProfileForm] = useState<ProfileForm>({ monthlyIncome: '', monthlyBudget: '' })
+  const [categoryBudgetInputs, setCategoryBudgetInputs] = useState<Record<string, string>>({})
+  const [isSavingProfile, setIsSavingProfile] = useState(false)
+  const [categoryPeriodFilter, setCategoryPeriodFilter] = useState<CategoryPeriodFilter>('current')
   const [copiedChatMessageId, setCopiedChatMessageId] = useState<string | null>(null)
+  const [updatingCategoryId, setUpdatingCategoryId] = useState<string | null>(null)
   const chatAnswerTimeoutRef = useRef<number | null>(null)
+  const chatMessagesEndRef = useRef<HTMLDivElement | null>(null)
+  const connectedInstitutionCount = syncfyCredentials.length
+  const hasConnectedInstitution = connectedInstitutionCount > 0
+  const showConnectNudge = !hasConnectedInstitution && activePage !== 'syncfy'
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(DASHBOARD_THEME_STORAGE_KEY, dashboardTheme)
+  }, [dashboardTheme])
+
+  const setActivePage = (nextPage: DashboardPage) => {
+    setActivePageState(nextPage)
+    if (typeof window === 'undefined') return
+
+    const nextPath = previewEnabled && import.meta.env.DEV
+      ? `${DASHBOARD_PAGE_PATHS[nextPage]}?preview=dashboard`
+      : DASHBOARD_PAGE_PATHS[nextPage]
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }
+  }
 
   useEffect(() => {
     if (email && email !== activeEmail) {
@@ -827,7 +1653,26 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
   }, [activeEmail, email])
 
   useEffect(() => {
+    const nextPage = getDashboardPageFromPath(initialPath)
+    setActivePageState(nextPage)
+
+    if (typeof window === 'undefined' || !shouldCanonicalizeDashboardPath(initialPath)) return
+
+    const canonicalPath = DASHBOARD_PAGE_PATHS[nextPage]
+    if (window.location.pathname !== canonicalPath) {
+      window.history.replaceState({}, '', canonicalPath)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }
+  }, [initialPath])
+
+  useEffect(() => {
     let cancelled = false
+    if (previewEnabled) {
+      const nextEmail = activeEmail || previewEmail || 'preview@finov.ai'
+      setData(createPreviewDashboardResponse(nextEmail))
+      setStatus('Vista local de referencia para revisar el panel financiero.')
+      return
+    }
     if (!activeEmail) return
 
     setIsLoading(true)
@@ -839,7 +1684,9 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
         setData(response)
         setStatus(response.transactions.length > 0
           ? 'Transacciones listas para análisis.'
-          : 'Conecta una cuenta con Syncfy para analizar tus datos reales.')
+          : hasConnectedInstitution
+            ? 'Institución conectada. Esperando movimientos de Syncfy.'
+            : 'Conecta una cuenta con Syncfy para analizar tus datos reales.')
       })
       .catch((error: Error) => {
         if (cancelled) return
@@ -852,10 +1699,44 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
     return () => {
       cancelled = true
     }
-  }, [activeEmail])
+  }, [activeEmail, hasConnectedInstitution, previewEmail, previewEnabled])
 
   useEffect(() => {
     let cancelled = false
+    if (previewEnabled) {
+      setSyncfyCredentials(createPreviewSyncfyCredentials())
+      setIsLoadingCredentials(false)
+      return
+    }
+    if (!activeEmail) {
+      setSyncfyCredentials([])
+      setIsLoadingCredentials(false)
+      return
+    }
+
+    setIsLoadingCredentials(true)
+    apiJson<SyncfyCredentialsResponse>(`/api/syncfy/credentials?email=${encodeURIComponent(activeEmail)}`)
+      .then((response) => {
+        if (!cancelled) setSyncfyCredentials(response.credentials)
+      })
+      .catch(() => {
+        if (!cancelled) setSyncfyCredentials([])
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingCredentials(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeEmail, previewEnabled])
+
+  useEffect(() => {
+    let cancelled = false
+    if (previewEnabled) {
+      setHouseholdInvites([])
+      return
+    }
     if (!activeEmail) {
       setHouseholdInvites([])
       return
@@ -872,15 +1753,20 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
     return () => {
       cancelled = true
     }
-  }, [activeEmail])
+  }, [activeEmail, previewEnabled])
 
   const transactions = data?.transactions || EMPTY_TRANSACTIONS
-  const summary = data?.summary || EMPTY_SUMMARY
+  const rawSummary = data?.summary || EMPTY_SUMMARY
+  const summary = rawSummary.dataCoverage
+    ? rawSummary
+    : { ...rawSummary, dataCoverage: buildDataCoverage(transactions) }
+  const profile = data?.profile || EMPTY_PROFILE
+  const serverCategoryAnalysis = data?.categoryAnalysis || EMPTY_CATEGORY_ANALYSIS
   const insights = data?.insights || EMPTY_INSIGHTS
-  const categories = manualForm.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES
+  const actionPlan = data?.actionPlan || EMPTY_ACTION_PLAN
+  const categories = getFinanceCategoriesForType(manualForm.type)
   const hasTransactions = transactions.length > 0
   const hasDraftRows = draftRows.length > 0
-  const showExampleAnalysis = !hasTransactions && !hasDraftRows
   const selectedRows = useMemo(
     () => draftRows.filter((row) => selectedDraftIds.has(row.id)),
     [draftRows, selectedDraftIds]
@@ -891,11 +1777,53 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
   )
   const chatTransactions: AnalysisTransaction[] = hasDraftRows ? draftAnalysisTransactions : transactions
   const chatSummary = hasDraftRows ? buildLocalSummary(draftAnalysisTransactions) : summary
+  const chatProfile = profile.email ? profile : { ...profile, email: activeEmail || profile.email }
   const latestCurrency = transactions[0]?.currency || 'MXN'
-  const chatCurrency = chatTransactions[0]?.currency || latestCurrency
+  const chatCurrency = chatProfile.currency || chatTransactions[0]?.currency || latestCurrency
+  const effectiveMonthlyIncome = chatSummary.monthlyIncome || chatProfile.monthlyIncome || 0
+  const effectiveNetBalance = effectiveMonthlyIncome > 0
+    ? Math.round((effectiveMonthlyIncome - chatSummary.monthlySpending) * 100) / 100
+    : null
+  const savedMonthlyBudget = chatProfile.monthlyBudget || 0
+  const savedCategoryBudgetEntries = Object.entries(chatProfile.categoryBudgets || {})
+    .filter(([, amount]) => amount > 0)
+  const savedCategoryBudgetTotal = roundUiMoney(savedCategoryBudgetEntries.reduce((sum, [, amount]) => sum + amount, 0))
+  const budgetCoveragePercent = savedMonthlyBudget > 0
+    ? Math.round((savedCategoryBudgetTotal / savedMonthlyBudget) * 100)
+    : null
+  const budgetRunwayAmount = savedMonthlyBudget > 0
+    ? roundUiMoney(savedMonthlyBudget - chatSummary.monthlySpending)
+    : null
   const isDraftChat = hasDraftRows
   const pageMeta = PAGE_META[activePage]
-  const categoryBreakdown = getExpenseBreakdown(chatTransactions, chatSummary.month)
+  const monthlyCategoryBreakdown = useMemo(
+    () => getExpenseBreakdown(chatTransactions, chatSummary.month),
+    [chatTransactions, chatSummary.month]
+  )
+  const allCategoryBreakdown = useMemo(
+    () => getExpenseBreakdown(chatTransactions),
+    [chatTransactions]
+  )
+  const fallbackCategoryAnalysis = useMemo(
+    () => buildClientCategoryAnalysis(chatTransactions, chatSummary, chatProfile),
+    [chatProfile, chatSummary, chatTransactions]
+  )
+  const baseCategoryAnalysis = hasDraftRows || !data?.categoryAnalysis
+    ? fallbackCategoryAnalysis
+    : serverCategoryAnalysis
+  const previousCategoryAnalysis = useMemo(
+    () => baseCategoryAnalysis.previousPeriod
+      ? buildClientCategoryAnalysis(chatTransactions, chatSummary, chatProfile, baseCategoryAnalysis.previousPeriod)
+      : null,
+    [baseCategoryAnalysis.previousPeriod, chatProfile, chatSummary, chatTransactions]
+  )
+  const selectedCategoryAnalysis = categoryPeriodFilter === 'previous'
+    ? previousCategoryAnalysis || baseCategoryAnalysis
+    : baseCategoryAnalysis
+  const categoryBreakdown = categoryPeriodFilter === 'all'
+    ? allCategoryBreakdown
+    : selectedCategoryAnalysis.categories.map((item) => ({ category: item.category, total: item.amount }))
+  const categoryBreakdownTotal = getBreakdownTotal(categoryBreakdown)
   const topAnalysisTransactions = getTopTransactions(chatTransactions, chatSummary.month)
   const lowConfidenceRows = draftRows.filter((row) => row.confidence < 0.75).length
   const dataModeLabel = hasDraftRows ? 'Preliminar' : hasTransactions ? 'Confirmado' : 'Sin datos'
@@ -904,12 +1832,12 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
     [chatTransactions, chatSummary.month]
   )
   const categoryChartData = useMemo(
-    () => getCategoryChartData(categoryBreakdown, chatSummary.monthlySpending),
-    [categoryBreakdown, chatSummary.monthlySpending]
+    () => getCategoryChartData(categoryBreakdown, categoryBreakdownTotal),
+    [categoryBreakdown, categoryBreakdownTotal]
   )
   const savingsChartData = useMemo(
-    () => getSavingsChartData(categoryBreakdown),
-    [categoryBreakdown]
+    () => getSavingsChartData(monthlyCategoryBreakdown),
+    [monthlyCategoryBreakdown]
   )
   const recurringChartData = useMemo(
     () => getRecurringChartData(chatSummary),
@@ -919,17 +1847,41 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
     () => getSavingsProjection(chatSummary),
     [chatSummary]
   )
-  const topExpenseChartData = useMemo(
-    () => getTopExpenseChartData(chatTransactions, chatSummary.month),
-    [chatTransactions, chatSummary.month]
-  )
   const hasChartData = chatTransactions.length > 0
-  const chatPromptPlaceholder = hasDraftRows ? 'Pregunta por estos movimientos...' : 'Pregunta por tus fugas o patrones...'
-  const chatSystemMessage = hasDraftRows
-    ? 'Estás viendo datos preliminares. FinovAI puede analizarlos antes de guardar, pero todavía debes confirmar las filas.'
-    : hasTransactions
-      ? `FinovAI está leyendo ${transactions.length} transacciones para responder con fugas, patrones y ahorro posible.`
-      : 'Conecta una cuenta con Syncfy para que FinovAI pueda darte una lectura real.'
+  const categoryPageRows = categoryChartData
+  const categoryPeriodLabel = categoryPeriodFilter === 'all'
+    ? 'Todo el historial'
+    : selectedCategoryAnalysis.periodLabel
+  const categoryPageAdvice = categoryPeriodFilter === 'all'
+    ? 'Vista histórica. Cambia a este mes para comparar contra presupuesto y mes anterior.'
+    : selectedCategoryAnalysis.summaryAdvice
+  const categoryBudgetLabel = selectedCategoryAnalysis.budgetTotal
+    ? formatCardCurrency(selectedCategoryAnalysis.budgetTotal, chatCurrency)
+    : 'Sin presupuesto'
+  const categoryOverBudgetAmount = selectedCategoryAnalysis.budgetTotal
+    ? selectedCategoryAnalysis.spendingTotal - selectedCategoryAnalysis.budgetTotal
+    : 0
+  const chatDataCoverageLabel = formatDataCoverage(chatSummary.dataCoverage)
+  const chatDataCoverageQualifier = chatSummary.dataCoverage.preliminary
+    ? 'Lectura preliminar'
+    : 'Historial suficiente'
+  const savedDataCoverageLabel = formatDataCoverage(summary.dataCoverage)
+  const savedDataCoverageQualifier = summary.dataCoverage.preliminary
+    ? 'Lectura preliminar'
+    : 'Historial suficiente'
+
+  useEffect(() => {
+    setProfileForm({
+      monthlyIncome: moneyInputValue(profile.monthlyIncome),
+      monthlyBudget: moneyInputValue(profile.monthlyBudget),
+    })
+    setCategoryBudgetInputs(
+      EXPENSE_CATEGORIES.reduce<Record<string, string>>((next, category) => {
+        next[category] = moneyInputValue(profile.categoryBudgets[category])
+        return next
+      }, {})
+    )
+  }, [profile.categoryBudgets, profile.monthlyBudget, profile.monthlyIncome])
 
   useEffect(() => {
     if (!activeEmail) {
@@ -946,12 +1898,17 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
         {
           id: welcomeId,
           role: 'assistant',
-          content: buildDashboardChatOpening(chatTransactions, draftRows.length, selectedRows.length),
+          content: buildDashboardChatOpening(
+            chatTransactions,
+            draftRows.length,
+            selectedRows.length,
+            hasConnectedInstitution
+          ),
         },
         ...current.filter((message) => !message.id.startsWith(`welcome-${activeEmail}`)),
       ]
     })
-  }, [activeEmail, chatTransactions, draftRows.length, hasDraftRows, selectedRows.length, transactions.length])
+  }, [activeEmail, chatTransactions, draftRows.length, hasConnectedInstitution, hasDraftRows, selectedRows.length, transactions.length])
 
   useEffect(() => () => {
     if (chatAnswerTimeoutRef.current) {
@@ -959,20 +1916,24 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
     }
   }, [])
 
+  useEffect(() => {
+    chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [chatMessages, pendingChatAnswer])
+
   const handleIdentify = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const normalizedEmail = emailInput.trim().toLowerCase()
     if (!pendingLoginEmail && !normalizedEmail.includes('@')) {
-      setStatus('Ingresa un email válido.')
+      setStatus('Ingresa un correo válido.')
       return
     }
     if (pendingLoginEmail && loginCode.trim().length < 4) {
-      setStatus('Ingresa el código que enviamos a tu email.')
+      setStatus('Ingresa el código que enviamos a tu correo.')
       return
     }
 
     setIsLoading(true)
-    setStatus(pendingLoginEmail ? 'Verificando código.' : 'Registrando email.')
+    setStatus(pendingLoginEmail ? 'Verificando código.' : 'Registrando correo.')
 
     try {
       const response = await apiJson<{
@@ -1001,7 +1962,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
       const registeredEmail = response.email || normalizedEmail
       if (response.verificationRequired) {
         setPendingLoginEmail(registeredEmail)
-        setStatus(response.debugCode ? `Código local: ${response.debugCode}` : 'Te enviamos un código y link de acceso a tu email.')
+        setStatus(response.debugCode ? `Código local: ${response.debugCode}` : 'Te enviamos un código y enlace de acceso a tu correo.')
         return
       }
       setDashboardSession(registeredEmail, response.clientSecret)
@@ -1010,7 +1971,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
       setPendingLoginEmail('')
       setLoginCode('')
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'No pudimos registrar el email.')
+      setStatus(error instanceof Error ? error.message : 'No pudimos registrar el correo.')
     } finally {
       setIsLoading(false)
     }
@@ -1022,11 +1983,11 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
 
     const normalizedSpouseEmail = spouseEmail.trim().toLowerCase()
     if (!normalizedSpouseEmail.includes('@')) {
-      setStatus('Ingresa el email de tu pareja.')
+      setStatus('Ingresa el correo de tu pareja.')
       return
     }
     if (normalizedSpouseEmail === activeEmail) {
-      setStatus('Usa un email distinto para invitar a tu pareja.')
+      setStatus('Usa un correo distinto para invitar a tu pareja.')
       return
     }
 
@@ -1042,11 +2003,73 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
 
       setHouseholdInvites(response.invites || [])
       setSpouseEmail('')
-      setStatus(`Invitación guardada para ${normalizedSpouseEmail}.`)
+      setStatus(response.emailSent
+        ? `Invitación enviada a ${normalizedSpouseEmail}.`
+        : `Invitación guardada para ${normalizedSpouseEmail}. El correo solo se envía cuando Cloudflare Email está configurado.`
+      )
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'No pudimos guardar la invitación.')
     } finally {
       setIsInvitingSpouse(false)
+    }
+  }
+
+  const handleProfileSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!activeEmail) {
+      setStatus('Primero identifica el correo del usuario.')
+      return
+    }
+
+    const monthlyIncome = parseMoneyInput(profileForm.monthlyIncome)
+    const monthlyBudget = parseMoneyInput(profileForm.monthlyBudget)
+    if (!monthlyIncome && !monthlyBudget) {
+      setStatus('Agrega ingreso mensual o presupuesto mensual.')
+      return
+    }
+
+    setIsSavingProfile(true)
+    try {
+      const categoryBudgets = Object.entries(categoryBudgetInputs).reduce<Record<string, number>>((next, [category, value]) => {
+        const amount = parseMoneyInput(value)
+        if (amount && amount > 0) next[category] = amount
+        return next
+      }, {})
+      if (previewEnabled) {
+        const nextProfile: FinancialProfile = {
+          ...profile,
+          email: activeEmail || profile.email || 'preview@finov.ai',
+          currency: chatCurrency,
+          monthlyIncome,
+          monthlyBudget,
+          categoryBudgets,
+        }
+        const nextData: DashboardResponse = {
+          ...(data || createPreviewDashboardResponse(nextProfile.email)),
+          profile: nextProfile,
+          categoryAnalysis: buildClientCategoryAnalysis(chatTransactions, chatSummary, nextProfile),
+          message: 'Perfil financiero actualizado.',
+        }
+        setData(nextData)
+        setStatus('Perfil financiero actualizado.')
+        return
+      }
+      const response = await apiJson<DashboardResponse>('/api/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          email: activeEmail,
+          currency: chatCurrency,
+          monthlyIncome,
+          monthlyBudget,
+          categoryBudgets,
+        }),
+      })
+      setData(response)
+      setStatus(response.message || 'Perfil financiero actualizado.')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'No pudimos guardar el perfil financiero.')
+    } finally {
+      setIsSavingProfile(false)
     }
   }
 
@@ -1091,7 +2114,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
 
   const handleSaveManualDrafts = async () => {
     if (!activeEmail) {
-      setStatus('Primero identifica el email del usuario.')
+      setStatus('Primero identifica el correo del usuario.')
       return
     }
     if (manualDrafts.length === 0) {
@@ -1128,6 +2151,28 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
       setStatus(error instanceof Error ? error.message : 'No pudimos guardar los movimientos.')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleTransactionCategoryChange = async (transaction: FinanceTransaction, category: string) => {
+    if (!activeEmail || category === transaction.category || updatingCategoryId) return
+
+    setUpdatingCategoryId(transaction.id)
+    try {
+      const response = await apiJson<TransactionCategoryResponse>('/api/transactions/category', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          email: activeEmail,
+          transactionId: transaction.id,
+          category,
+        }),
+      })
+      setData(response)
+      setStatus(response.message || `Categoría actualizada a ${category}.`)
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'No pudimos actualizar la categoría.')
+    } finally {
+      setUpdatingCategoryId(null)
     }
   }
 
@@ -1213,29 +2258,71 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
     ])
     setPendingChatAnswer({ question, reasoning, startedAt })
     setChatInput('')
+    window.setTimeout(() => {
+      chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }, 0)
 
     if (chatAnswerTimeoutRef.current) {
       window.clearTimeout(chatAnswerTimeoutRef.current)
     }
 
     chatAnswerTimeoutRef.current = window.setTimeout(() => {
-      const answer = buildDashboardChatAnswer(question, chatTransactions, chatSummary, chatCurrency, isDraftChat)
-      const chart = getDashboardChatChartType(question, chatTransactions, chatSummary)
-      const reasoningDuration = Math.max(1, Math.ceil((Date.now() - startedAt) / 1000))
+      void (async () => {
+        let answer = ''
+        let model: string | undefined
+        let chatError: string | null = null
 
-      setChatMessages((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: answer,
-          chart,
-          reasoning,
-          reasoningDuration,
-        },
-      ])
-      setPendingChatAnswer(null)
-      chatAnswerTimeoutRef.current = null
+        if (activeEmail && !hasDraftRows) {
+          try {
+            const response = await apiJson<DashboardChatResponse>('/api/dashboard/chat', {
+              method: 'POST',
+              body: JSON.stringify({
+                email: activeEmail,
+                question,
+              }),
+            })
+            answer = response.answer
+            model = response.model
+          } catch (error) {
+            chatError = error instanceof Error ? error.message : 'No pudimos conectar con el modelo financiero.'
+          }
+        } else {
+          answer = buildDashboardChatAnswer(
+            question,
+            chatTransactions,
+            chatSummary,
+            chatCurrency,
+            isDraftChat,
+            hasConnectedInstitution
+          )
+          model = isDraftChat ? 'análisis local preliminar' : undefined
+        }
+
+        if (chatError) {
+          answer = `No pude usar el modelo real para esta respuesta: ${chatError}\n\nConfigura Cloudflare AI Gateway o Anthropic para que el chat analice pagos, categorías y patrones con el contexto financiero completo.`
+        }
+
+        const chart = chatError ? undefined : getDashboardChatChartType(question, chatTransactions, chatSummary)
+        const reasoningDuration = Math.max(1, Math.ceil((Date.now() - startedAt) / 1000))
+
+        setChatMessages((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: answer,
+            chart,
+            reasoning: model
+              ? `${reasoning}\nModelo: ${model}`
+              : chatError
+                ? `${reasoning}\nModelo no ejecutado: ${chatError}`
+                : reasoning,
+            reasoningDuration,
+          },
+        ])
+        setPendingChatAnswer(null)
+        chatAnswerTimeoutRef.current = null
+      })()
     }, 1200)
   }
 
@@ -1247,6 +2334,11 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
     queueDashboardChatAnswer(question)
   }
 
+  const analyzeWithFinovAI = (question: string) => {
+    setActivePage('inicio')
+    window.setTimeout(() => queueDashboardChatAnswer(question), 0)
+  }
+
   const copyChatMessage = (message: DashboardChatMessage) => {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       void navigator.clipboard.writeText(message.content)
@@ -1255,6 +2347,185 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
     window.setTimeout(() => {
       setCopiedChatMessageId((current) => (current === message.id ? null : current))
     }, 1200)
+  }
+
+  const toggleDashboardTheme = () => {
+    setDashboardTheme((current) => (current === 'dark' ? 'light' : 'dark'))
+  }
+
+  const handleActionPlanTarget = (target: FinanceActionPlan['nextActions'][number]['target']) => {
+    if (target === 'connect') {
+      setActivePage('syncfy')
+      return
+    }
+    if (target === 'movements') {
+      setActivePage('movimientos')
+      return
+    }
+    if (target === 'categories') {
+      setActivePage('categorias')
+      return
+    }
+
+    setActivePage('inicio')
+    if (target === 'partner') {
+      askDashboardQuestion('¿Cómo convierto este ahorro mensual en una ruta de inversión?')
+      return
+    }
+
+    askDashboardQuestion('Dame un plan semanal para reducir estas fugas.')
+  }
+
+  const renderDashboardRail = () => (
+    <aside className="flex min-w-0 items-center justify-between gap-3 border-b border-border/70 bg-background px-3 py-2 md:h-full md:flex-col md:items-stretch md:border-b-0 md:border-r md:px-3 md:py-4">
+      <div className="flex min-w-0 items-center gap-2 md:flex-col md:items-stretch md:gap-5">
+        <button
+          type="button"
+          className="flex h-10 min-w-10 shrink-0 items-center justify-center gap-3 rounded-full px-0 text-foreground transition-colors hover:bg-secondary md:w-full md:justify-start md:px-2"
+          aria-label="FinovAI"
+          title="FinovAI"
+          onClick={() => setActivePage('inicio')}
+        >
+          <FinovAILogoMark className="size-6 rounded-full" />
+          <span className="hidden truncate text-sm font-semibold md:block">FinovAI</span>
+        </button>
+
+        <nav className="-mx-1 flex min-w-0 items-center gap-1 overflow-x-auto px-1 [scrollbar-width:none] md:mx-0 md:flex-col md:items-stretch md:overflow-visible md:px-0 [&::-webkit-scrollbar]:hidden" aria-label="Dashboard">
+          {DASHBOARD_PAGES.map((page) => {
+            const Icon = page.icon
+            const isActive = activePage === page.id
+
+            return (
+              <button
+                key={page.id}
+                type="button"
+                aria-label={page.label}
+                title={page.label}
+                className={cn(
+                  'flex h-10 shrink-0 items-center justify-center gap-3 rounded-full px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground md:w-full md:justify-start',
+                  isActive && 'bg-secondary text-foreground shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]'
+                )}
+                onClick={() => setActivePage(page.id)}
+              >
+                <Icon className="size-4" />
+                <span className="hidden truncate md:block">{page.label}</span>
+              </button>
+            )
+          })}
+        </nav>
+      </div>
+
+      <div className="flex items-center gap-1 md:flex-col md:items-stretch">
+        <button
+          type="button"
+          aria-label={dashboardTheme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+          title={dashboardTheme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+          className="flex h-10 shrink-0 items-center justify-center gap-3 rounded-full px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground md:w-full md:justify-start"
+          onClick={toggleDashboardTheme}
+        >
+          {dashboardTheme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          <span className="hidden truncate md:block">{dashboardTheme === 'dark' ? 'Modo claro' : 'Modo oscuro'}</span>
+        </button>
+        <button
+          type="button"
+          aria-label="Cerrar sesión"
+          title="Cerrar sesión"
+          className="flex h-10 shrink-0 items-center justify-center gap-3 rounded-full px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground md:w-full md:justify-start"
+          onClick={onLogout}
+        >
+          <LogOut className="size-4" />
+          <span className="hidden truncate md:block">Cerrar sesión</span>
+        </button>
+      </div>
+    </aside>
+  )
+
+  const renderActionPlanPanel = () => {
+    const hasOpportunities = actionPlan.topOpportunities.length > 0
+    const projection = actionPlan.investmentProjection
+    const projectionYears = projection.years || DEFAULT_INVESTMENT_ASSUMPTION.years
+
+    return (
+      <Card className={cn(FINANCE_ARTIFACT_CARD_CLASS, 'border-primary/20 bg-primary/5')}>
+        <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle>Plan de ahorro invertible</CardTitle>
+            <CardDescription>
+              Fugas detectadas que FinovAI puede convertir en próximos pasos.
+            </CardDescription>
+          </div>
+          <Badge variant={hasOpportunities ? 'secondary' : 'outline'}>
+            {hasOpportunities ? `${actionPlan.topOpportunities.length} oportunidades` : 'Sin oportunidad clara'}
+          </Badge>
+        </CardHeader>
+        <CardContent className="grid gap-4 xl:grid-cols-[minmax(220px,0.7fr)_minmax(0,1fr)_minmax(240px,0.8fr)]">
+          <div className="rounded-lg bg-background/45 p-4 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]">
+            <p className="text-sm text-muted-foreground">Meta mensual</p>
+            <p className="mt-2 text-2xl font-semibold tracking-normal text-primary tabular-nums [overflow-wrap:anywhere]">
+              {formatCardCurrency(actionPlan.monthlySavingsTarget, chatCurrency)}
+            </p>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              {actionPlan.monthlySavingsTarget > 0
+                ? `Si se invierte cada mes, en ${projectionYears} años podría ser ${formatCardCurrency(projection.tenYearValue, chatCurrency)} bajo un supuesto anual ilustrativo de ${Math.round(projection.annualReturn * 100)}%.`
+                : hasConnectedInstitution
+                  ? 'Syncfy está conectado, pero todavía falta suficiente señal para estimar una meta real.'
+                  : 'Conecta una institución para calcular una meta con movimientos reales.'}
+            </p>
+          </div>
+
+          <div className="grid gap-2">
+            {hasOpportunities ? (
+              actionPlan.topOpportunities.map((opportunity) => (
+                <div
+                  key={opportunity.id}
+                  className="rounded-lg bg-background/40 p-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"
+                >
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium leading-tight [overflow-wrap:anywhere]">{opportunity.title}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{opportunity.body}</p>
+                    </div>
+                    <p className="shrink-0 text-sm font-semibold text-primary tabular-nums">
+                      {formatCardCurrency(opportunity.estimatedMonthlySavings, chatCurrency)}
+                    </p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-lg border border-dashed border-border p-4 text-sm leading-relaxed text-muted-foreground">
+                {hasTransactions
+                  ? 'Hay movimientos, pero FinovAI necesita más recurrencia o concentración para sugerir una acción fuerte.'
+                  : 'Cuando entren movimientos, aquí aparecerán fugas concretas como suscripciones, comercios repetidos y días atípicos.'}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            {(actionPlan.nextActions.length > 0 ? actionPlan.nextActions : [{
+              id: hasConnectedInstitution ? 'sync-wait' : 'connect',
+              label: hasConnectedInstitution ? 'Ver movimientos' : 'Conectar cuenta',
+              body: hasConnectedInstitution ? 'Revisa si Syncfy ya entregó transacciones.' : 'Trae movimientos reales con Syncfy.',
+              target: hasConnectedInstitution ? 'movements' : 'connect',
+            } satisfies FinanceActionPlan['nextActions'][number]]).map((action) => (
+              <Button
+                key={action.id}
+                type="button"
+                variant={action.target === 'partner' ? 'default' : 'outline'}
+                className="h-auto min-w-0 justify-start whitespace-normal px-3 py-2 text-left"
+                onClick={() => handleActionPlanTarget(action.target)}
+                disabled={Boolean(pendingChatAnswer) && (action.target === 'chat' || action.target === 'partner')}
+              >
+                {action.target === 'partner' ? <TrendingUp data-icon="inline-start" /> : <TrendingDown data-icon="inline-start" />}
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium leading-tight">{action.label}</span>
+                  <span className="mt-1 block text-xs font-normal leading-relaxed opacity-75">{action.body}</span>
+                </span>
+              </Button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   const renderChatChart = (chart?: DashboardChatChartType) => {
@@ -1383,10 +2654,10 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
       if (data.length === 0) return null
 
       return (
-        <div className="mt-3 rounded-lg bg-[#00D4AA]/10 p-3 text-teal-50 shadow-[inset_0_0_0_1px_rgba(0,212,170,0.18)]">
+        <div className="mt-3 rounded-lg bg-primary/10 p-3 text-foreground shadow-[inset_0_0_0_1px_rgba(40,114,68,0.18)] dark:shadow-[inset_0_0_0_1px_rgba(114,215,134,0.18)]">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-teal-200/80">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-primary">
                 Ahorro invertible
               </p>
               <p className="mt-1 text-lg font-semibold tabular-nums">
@@ -1397,7 +2668,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
               <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 10 años
               </p>
-              <p className="mt-1 text-sm font-semibold tabular-nums text-[#00D4AA]">
+              <p className="mt-1 text-sm font-semibold tabular-nums text-primary">
                 {formatCardCurrency(projectedSavingsValue, chatCurrency)}
               </p>
             </div>
@@ -1517,17 +2788,19 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
       )}
     >
       {!hasTransactions || hasDraftRows ? (
-        <PromptSuggestion
-          type="button"
-          variant="secondary"
-          size="sm"
-          className={cn('rounded-full', isMobile && 'shrink-0')}
-          onClick={() => setActivePage('syncfy')}
-          disabled={Boolean(pendingChatAnswer)}
-        >
-          <Landmark data-icon="inline-start" />
-          Conectar cuenta
-        </PromptSuggestion>
+        !hasConnectedInstitution ? (
+          <PromptSuggestion
+            type="button"
+            variant="secondary"
+            size="sm"
+            className={cn('rounded-full', isMobile && 'shrink-0')}
+            onClick={() => setActivePage('syncfy')}
+            disabled={Boolean(pendingChatAnswer)}
+          >
+            <Landmark data-icon="inline-start" />
+            Conectar cuenta
+          </PromptSuggestion>
+        ) : null
       ) : null}
       {DASHBOARD_CHAT_SUGGESTIONS.map((question) => (
         <PromptSuggestion
@@ -1563,7 +2836,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
             src=""
             alt="FinovAI"
             fallback="F"
-            className="mt-1 border border-[#2B7AE8]/20 bg-[#2B7AE8]/10 text-[#9dc2ff]"
+            className="mt-1 border border-[#2B7AE8]/20 bg-[#2B7AE8]/10 text-blue-700 dark:text-[#9dc2ff]"
           />
         ) : null}
         <div
@@ -1599,7 +2872,11 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                 duration: message.reasoningDuration,
               })
               : null}
-            <p>{message.content}</p>
+            {isAssistant ? (
+              <MessageResponse>{message.content}</MessageResponse>
+            ) : (
+              <p>{message.content}</p>
+            )}
             {isAssistant ? renderChatChart(message.chart) : null}
           </MessageContent>
           {!isMobile && isAssistant ? (
@@ -1638,7 +2915,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
           src=""
           alt="FinovAI"
           fallback="F"
-          className="mt-1 border border-[#2B7AE8]/20 bg-[#2B7AE8]/10 text-[#9dc2ff]"
+          className="mt-1 border border-[#2B7AE8]/20 bg-[#2B7AE8]/10 text-blue-700 dark:text-[#9dc2ff]"
         />
       ) : null}
       <MessageContent
@@ -1657,143 +2934,109 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
     </Message>
   )
 
-  const renderDashboardChat = (isMobile = false) => (
-    <Card
-      className={cn(
-        'flex min-w-0 overflow-hidden border-[#2B7AE8]/20 bg-card/95',
-        isMobile
-          ? 'h-full min-h-0 gap-0 rounded-none border-0 p-0 shadow-none'
-          : 'h-full min-h-[560px] gap-0 rounded-xl border-border/70 bg-card/80 p-0 shadow-[0_24px_70px_rgba(0,0,0,0.22)]'
-      )}
-    >
-      <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col">
-        {isMobile ? <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-border" /> : null}
-        <CardHeader
-          className={cn(
-            'min-w-0',
-            isMobile ? 'gap-0 border-b border-border/60 px-4 py-3 pr-12' : 'gap-0 border-b border-border/60 px-4 py-4'
-          )}
-        >
-          <div className="flex items-center gap-3">
-            <div className={cn('flex min-w-0 gap-3', isMobile ? 'items-center' : 'items-start')}>
-              <div
-                className={cn(
-                  'flex shrink-0 items-center justify-center rounded-md bg-[#2B7AE8]/10 text-[#7aa8ff]',
-                  isMobile ? 'size-8' : 'size-9'
-                )}
-              >
-                <Bot className={cn(isMobile ? 'size-3.5' : 'size-4')} />
-              </div>
-              <div className="min-w-0">
-                <CardTitle className={cn(isMobile ? 'text-base leading-tight' : 'text-lg')}>
-                  FinovAI
-                </CardTitle>
-                <CardDescription className={cn(isMobile && 'truncate text-xs leading-tight')}>
-                  {hasDraftRows
-                    ? 'Pregunta por estos movimientos.'
-                    : hasTransactions
-                      ? 'Pregunta por tus fugas y patrones.'
-                      : 'Conecta una cuenta para empezar.'}
-                </CardDescription>
-              </div>
+  const renderFinanceChatComposer = () => (
+    <div className="mx-auto flex w-full max-w-[820px] flex-col gap-3">
+      {renderDashboardPromptSuggestions()}
+      <PromptInput
+        value={chatInput}
+        onValueChange={setChatInput}
+        onSubmit={submitDashboardChatInput}
+        isLoading={Boolean(pendingChatAnswer)}
+        disabled={Boolean(pendingChatAnswer)}
+        className="min-w-0 rounded-[1.65rem] border-border/80 bg-card px-2 py-2 shadow-[0_8px_28px_rgba(16,24,20,0.08)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.28)]"
+      >
+        <PromptInputTextarea
+          className="max-h-40 min-h-11 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground sm:text-base"
+          placeholder="Mensaje a FinovAI"
+          disabled={Boolean(pendingChatAnswer)}
+        />
+        <PromptInputActions className="items-center justify-end gap-2 pt-1">
+          <Button
+            type="button"
+            size="icon"
+            className="size-9 rounded-full bg-foreground text-background hover:bg-foreground/85"
+            disabled={!chatInput.trim() || Boolean(pendingChatAnswer)}
+            aria-label="Enviar mensaje"
+            onClick={submitDashboardChatInput}
+          >
+            {pendingChatAnswer ? <Loader2 className="size-4 animate-spin" /> : <SendHorizontal className="size-4" />}
+          </Button>
+        </PromptInputActions>
+      </PromptInput>
+      <p className="text-center text-xs leading-relaxed text-muted-foreground">
+        FinovAI puede equivocarse. No reemplaza asesoría financiera, fiscal o de inversión profesional.
+      </p>
+    </div>
+  )
+
+  const renderFinanceCockpitHome = () => {
+    const contextLabel = hasDraftRows
+      ? `${selectedRows.length}/${draftRows.length} filas seleccionadas`
+      : hasTransactions
+        ? `${chatTransactions.length} movimientos`
+        : hasConnectedInstitution
+          ? 'Cuenta conectada'
+          : 'Sin cuenta conectada'
+    const contextDetail = hasTransactions || hasDraftRows
+      ? `${formatMonth(chatSummary.month)} · ${chatSummary.topSpendingCategory} · ${chatDataCoverageLabel}`
+      : hasConnectedInstitution
+        ? 'Syncfy está conectado. Cuando entren movimientos, el chat los usará como contexto.'
+        : 'Conecta una cuenta para que el chat lea transacciones reales.'
+
+    return (
+      <div className="flex h-[calc(100vh-1.5rem)] min-h-[680px] min-w-0 flex-col bg-background sm:h-[calc(100vh-2.5rem)] lg:h-[calc(100vh-3.5rem)]">
+        <header className="shrink-0 border-b border-border/70 px-4 py-4 sm:px-6">
+          <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold tracking-normal sm:text-2xl">Chat financiero</h1>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+                {contextDetail}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <Badge variant={hasTransactions || hasDraftRows ? 'secondary' : 'outline'}>
+                {contextLabel}
+              </Badge>
+              {hasTransactions || hasDraftRows ? (
+                <Badge variant={chatSummary.dataCoverage.preliminary ? 'outline' : 'secondary'}>
+                  {chatDataCoverageQualifier}
+                </Badge>
+              ) : null}
+              <Badge variant="outline">{chatCurrency}</Badge>
             </div>
           </div>
-        </CardHeader>
+        </header>
 
-        <CardContent className={cn('flex min-h-0 min-w-0 flex-1 flex-col', isMobile ? 'gap-3 px-4 py-3' : 'gap-3 px-4 py-4')}>
-          <ChatContainerRoot
-            className={cn(
-              'relative min-w-0 flex-1',
-              isMobile
-                ? 'min-h-0 rounded-none bg-transparent p-0 shadow-none'
-                : 'min-h-56 overflow-x-hidden rounded-2xl bg-background/35 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
-            )}
-            aria-live="polite"
-          >
-            <ChatContainerContent className={cn('gap-3', isMobile ? 'pb-2' : 'p-3')}>
-              {!isMobile ? (
-                <SystemMessage
-                  fill
-                  variant={hasDraftRows ? 'warning' : 'action'}
-                  icon={<Bot className="size-4" />}
-                  cta={!hasTransactions && !hasDraftRows ? { label: 'Conectar cuenta', onClick: () => setActivePage('syncfy') } : undefined}
-                >
-                  {chatSystemMessage}
-                </SystemMessage>
-              ) : null}
-              {chatMessages.map((message) => renderDashboardChatMessage(message, isMobile))}
-              {pendingChatAnswer ? renderPendingChatMessage(isMobile) : null}
-              <ChatContainerScrollAnchor />
-            </ChatContainerContent>
-            {!isMobile ? (
-              <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-                <ScrollButton className="pointer-events-auto border-border/70 bg-card/95 shadow-lg" />
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6" aria-live="polite">
+          <div className="mx-auto flex w-full max-w-[820px] flex-col gap-5">
+            {chatMessages.length > 0 ? (
+              chatMessages.map((message) => renderDashboardChatMessage(message))
+            ) : (
+              <div className="flex min-h-[46vh] flex-col items-center justify-center text-center">
+                <div className="flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Bot className="size-5" />
+                </div>
+                <h2 className="mt-4 text-2xl font-medium tracking-normal">Pregunta sobre tus finanzas</h2>
+                <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+                  Puedo revisar fugas, recurrentes, días atípicos, categorías y ahorro invertible.
+                </p>
               </div>
-            ) : null}
-          </ChatContainerRoot>
-
-          {renderDashboardPromptSuggestions(isMobile)}
-
-          <PromptInput
-            value={chatInput}
-            onValueChange={setChatInput}
-            onSubmit={submitDashboardChatInput}
-            isLoading={Boolean(pendingChatAnswer)}
-            disabled={Boolean(pendingChatAnswer)}
-            className={cn(
-              'min-w-0 rounded-2xl border-border/70 bg-background/55 p-2 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]',
-              isMobile && 'rounded-xl bg-secondary/25 p-1'
             )}
-          >
-            <PromptInputTextarea
-              className={cn(
-                'min-h-10 px-2 py-2 text-sm text-foreground placeholder:text-muted-foreground',
-                isMobile && 'min-h-9'
-              )}
-              placeholder={chatPromptPlaceholder}
-              disabled={Boolean(pendingChatAnswer)}
-            />
-            <PromptInputActions className="justify-between gap-2 pt-1">
-              <div className="flex min-w-0 items-center gap-1">
-                <PromptInputAction tooltip="Conectar cuenta">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="size-8 rounded-full"
-                    onClick={() => setActivePage('syncfy')}
-                    disabled={Boolean(pendingChatAnswer)}
-                    aria-label="Conectar cuenta"
-                  >
-                    <Landmark className="size-4" />
-                  </Button>
-                </PromptInputAction>
-                {!isMobile ? (
-                  <span className="truncate px-1 text-[0.7rem] text-muted-foreground">
-                    Enter envía · Shift+Enter baja línea
-                  </span>
-                ) : null}
-              </div>
-              <Button
-                type="button"
-                size="icon"
-                className={cn('size-9 shrink-0 bg-[#00D4AA] text-[#04111f] hover:bg-[#72f4db]')}
-                disabled={!chatInput.trim() || Boolean(pendingChatAnswer)}
-                aria-label="Enviar pregunta"
-                onClick={submitDashboardChatInput}
-              >
-                {pendingChatAnswer ? <Loader2 className="size-4 animate-spin" /> : <SendHorizontal className="size-4" />}
-              </Button>
-            </PromptInputActions>
-          </PromptInput>
-        </CardContent>
+            {pendingChatAnswer ? renderPendingChatMessage() : null}
+            <div ref={chatMessagesEndRef} />
+          </div>
+        </div>
+
+        <footer className="shrink-0 border-t border-border/70 bg-background/95 px-4 py-3 backdrop-blur sm:px-6">
+          {renderFinanceChatComposer()}
+        </footer>
       </div>
-    </Card>
-  )
+    )
+  }
 
   if (activeEmail && !data) {
     return (
-      <main className="finovai-dashboard dark min-h-screen bg-background text-foreground">
+      <main className={cn('finovai-dashboard min-h-screen text-foreground', dashboardTheme === 'dark' && 'dark')}>
         <section className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-5 py-4">
           <header className="flex items-center justify-between gap-4 py-3">
             <div className="min-w-0 flex-1">
@@ -1819,7 +3062,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
 
   if (activeEmail && data) {
     return (
-      <main className="finovai-dashboard dark min-h-screen bg-background text-foreground">
+      <main className={cn('finovai-dashboard min-h-screen text-foreground', dashboardTheme === 'dark' && 'dark')}>
         <Input
           id="cartola-upload"
           accept=".pdf,.csv,.tsv,.txt,application/pdf,text/csv,text/tab-separated-values"
@@ -1832,371 +3075,48 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
           }}
         />
 
-        <div className="grid min-h-screen w-full lg:grid-cols-[240px_minmax(0,1fr)_minmax(360px,400px)] lg:items-start">
-          <aside className="flex min-w-0 flex-col gap-4 border-b border-border/70 p-3 sm:p-4 lg:sticky lg:top-0 lg:h-screen lg:gap-5 lg:border-b-0 lg:border-r">
-            <div className="flex min-w-0 items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                  <Sparkles className="size-4" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">FinovAI</p>
-                  <p className="text-xs leading-snug text-muted-foreground [overflow-wrap:anywhere]">{activeEmail}</p>
-                </div>
-              </div>
-              <Button variant="outline" size="sm" className="shrink-0 lg:hidden" onClick={onLogout}>
-                <LogOut data-icon="inline-start" />
-                Salir
-              </Button>
-            </div>
+        <div className="min-h-screen p-3 sm:p-5 lg:p-7">
+          <div className={FINANCE_APP_SHELL_CLASS}>
+            {renderDashboardRail()}
 
-            <nav className="-mx-1 flex min-w-0 gap-2 overflow-x-auto px-1 pb-1 lg:mx-0 lg:grid lg:gap-1.5 lg:overflow-visible lg:px-0 lg:pb-0" aria-label="Dashboard">
-              {DASHBOARD_PAGES.map((page) => {
-                const Icon = page.icon
-
-                return (
-                  <Button
-                    key={page.id}
-                    type="button"
-                    variant={activePage === page.id ? 'secondary' : 'ghost'}
-                    className="shrink-0 justify-start lg:w-full"
-                    onClick={() => setActivePage(page.id)}
-                  >
-                    <Icon data-icon="inline-start" />
-                    {page.label}
-                  </Button>
-                )
-              })}
-            </nav>
-
-            <Button variant="outline" size="sm" className="mt-auto hidden justify-start lg:flex" onClick={onLogout}>
-              <LogOut data-icon="inline-start" />
-              Cerrar sesión
-            </Button>
-          </aside>
-
-          <section className="min-w-0 px-4 py-5 sm:px-6 lg:min-h-screen lg:px-7 lg:pb-10">
-            <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <h1 className="text-2xl font-semibold tracking-tight">{pageMeta.title}</h1>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                  {pageMeta.description}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" onClick={() => setActivePage('syncfy')}>
-                  <Landmark data-icon="inline-start" />
-                  Conectar cuenta
-                </Button>
-              </div>
-            </header>
-
-            <div className="flex min-w-0 flex-col gap-4">
-              {activePage === 'inicio' ? (
-                <>
-                  <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-                    <Card className="min-w-0 rounded-lg py-5">
-                      <CardContent className="min-w-0 px-5">
-                        <p className="text-sm text-muted-foreground">Gastos</p>
-                        <p className={METRIC_VALUE_CLASS}>
-                          {formatCardCurrency(chatSummary.monthlySpending, chatCurrency)}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">{formatMonth(chatSummary.month)}</p>
-                      </CardContent>
-                    </Card>
-                    <Card className="min-w-0 rounded-lg py-5">
-                      <CardContent className="min-w-0 px-5">
-                        <p className="text-sm text-muted-foreground">Ingresos</p>
-                        <p className={METRIC_VALUE_CLASS}>
-                          {formatCardCurrency(chatSummary.monthlyIncome, chatCurrency)}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">{dataModeLabel}</p>
-                      </CardContent>
-                    </Card>
-                    <Card className="min-w-0 rounded-lg py-5">
-                      <CardContent className="min-w-0 px-5">
-                        <p className="text-sm text-muted-foreground">Balance</p>
-                        <p
-                          className={cn(
-                            METRIC_VALUE_CLASS,
-                            chatSummary.netBalance >= 0 ? 'text-[#00D4AA]' : 'text-rose-300'
-                          )}
-                        >
-                          {formatCardCurrency(chatSummary.netBalance, chatCurrency)}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">Ingresos menos gastos</p>
-                      </CardContent>
-                    </Card>
-                    <Card className="min-w-0 rounded-lg py-5">
-                      <CardContent className="min-w-0 px-5">
-                        <p className="text-sm text-muted-foreground">Mayor fuga</p>
-                        <p className="mt-2 min-w-0 text-[1.35rem] font-semibold leading-tight [overflow-wrap:anywhere]">{chatSummary.topSpendingCategory}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {formatCardCurrency(chatSummary.topSpendingCategoryAmount, chatCurrency)}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  <Card className="rounded-lg">
-                    <CardHeader className="gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <CardTitle>Vista dinámica</CardTitle>
-                        <CardDescription>
-                          Explora flujo, categorías y movimientos desde tus transacciones conectadas.
-                        </CardDescription>
-                      </div>
-                      <div className="grid w-full grid-cols-3 gap-1 rounded-lg bg-secondary/30 p-1 sm:flex sm:w-auto sm:flex-wrap sm:bg-transparent sm:p-0 lg:justify-end">
-                        {[
-                          ['flujo', 'Flujo'],
-                          ['categorias', 'Categorías'],
-                          ['movimientos', 'Movimientos'],
-                        ].map(([view, label]) => (
-                          <Button
-                            key={view}
-                            type="button"
-                            size="sm"
-                            className="min-w-0 px-2 text-xs sm:text-sm"
-                            variant={activeChartView === view ? 'secondary' : 'ghost'}
-                            onClick={() => setActiveChartView(view as DashboardChartView)}
-                          >
-                            {label}
-                          </Button>
-                        ))}
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {hasChartData ? (
-                        activeChartView === 'flujo' ? (
-                          <ChartContainer config={CASHFLOW_CHART_CONFIG} className="h-[260px] w-full aspect-auto">
-                            <AreaChart data={cashflowChartData} margin={{ left: 6, right: 6, top: 10, bottom: 0 }}>
-                              <defs>
-                                <linearGradient id="incomeGradient" x1="0" x2="0" y1="0" y2="1">
-                                  <stop offset="5%" stopColor="var(--color-income)" stopOpacity={0.28} />
-                                  <stop offset="95%" stopColor="var(--color-income)" stopOpacity={0.02} />
-                                </linearGradient>
-                                <linearGradient id="spendingGradient" x1="0" x2="0" y1="0" y2="1">
-                                  <stop offset="5%" stopColor="var(--color-spending)" stopOpacity={0.3} />
-                                  <stop offset="95%" stopColor="var(--color-spending)" stopOpacity={0.03} />
-                                </linearGradient>
-                              </defs>
-                              <CartesianGrid vertical={false} />
-                              <XAxis dataKey="label" axisLine={false} tickLine={false} tickMargin={10} minTickGap={24} />
-                              <YAxis hide domain={[0, 'dataMax']} />
-                              <ChartTooltip
-                                cursor={false}
-                                content={(
-                                  <ChartTooltipContent
-                                    formatter={(value, name) => (
-                                      <>
-                                        <span className="text-muted-foreground">
-                                          {name === 'income' ? 'Ingresos' : 'Gastos'}
-                                        </span>
-                                        <span className="ml-auto font-mono font-medium tabular-nums text-foreground">
-                                          {formatCardCurrency(Number(value), chatCurrency)}
-                                        </span>
-                                      </>
-                                    )}
-                                  />
-                                )}
-                              />
-                              <Area
-                                dataKey="spending"
-                                type="natural"
-                                fill="url(#spendingGradient)"
-                                stroke="var(--color-spending)"
-                                strokeWidth={2}
-                                stackId="flow"
-                              />
-                              <Area
-                                dataKey="income"
-                                type="natural"
-                                fill="url(#incomeGradient)"
-                                stroke="var(--color-income)"
-                                strokeWidth={2}
-                                stackId="flow"
-                              />
-                            </AreaChart>
-                          </ChartContainer>
-                        ) : activeChartView === 'categorias' ? (
-                          <div className="grid gap-4 xl:grid-cols-[minmax(240px,0.8fr)_1fr]">
-                            <ChartContainer config={SINGLE_VALUE_CHART_CONFIG} className="h-[260px] w-full aspect-auto">
-                              <PieChart>
-                                <ChartTooltip
-                                  cursor={false}
-                                  content={(
-                                    <ChartTooltipContent
-                                      hideLabel
-                                      formatter={(value, name) => (
-                                        <>
-                                          <span className="text-muted-foreground">{String(name)}</span>
-                                          <span className="ml-auto font-mono font-medium tabular-nums text-foreground">
-                                            {formatCardCurrency(Number(value), chatCurrency)}
-                                          </span>
-                                        </>
-                                      )}
-                                    />
-                                  )}
-                                />
-                                <Pie
-                                  data={categoryChartData}
-                                  dataKey="amount"
-                                  nameKey="category"
-                                  innerRadius={58}
-                                  outerRadius={92}
-                                  paddingAngle={3}
-                                >
-                                  {categoryChartData.map((item) => (
-                                    <Cell key={item.category} fill={item.fill} />
-                                  ))}
-                                </Pie>
-                              </PieChart>
-                            </ChartContainer>
-                            <div className="grid content-center gap-2">
-                              {categoryChartData.map((item) => (
-                                <div key={item.category} className="flex items-center justify-between gap-3 rounded-lg bg-secondary/20 p-3">
-                                  <div className="flex min-w-0 items-center gap-2">
-                                    <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: item.fill }} />
-                                    <span className="min-w-0 text-sm font-medium leading-tight [overflow-wrap:anywhere]">{item.category}</span>
-                                  </div>
-                                  <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
-                                    {item.share}%
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ) : (
-                          <ChartContainer config={SINGLE_VALUE_CHART_CONFIG} className="h-[280px] w-full aspect-auto">
-                            <BarChart data={topExpenseChartData} layout="vertical" margin={{ left: 8, right: 18, top: 6, bottom: 6 }}>
-                              <CartesianGrid horizontal={false} />
-                              <XAxis type="number" hide />
-                              <YAxis
-                                dataKey="label"
-                                type="category"
-                                axisLine={false}
-                                tickLine={false}
-                                tickMargin={10}
-                                width={132}
-                              />
-                              <ChartTooltip
-                                cursor={false}
-                                content={(
-                                  <ChartTooltipContent
-                                    hideLabel
-                                    formatter={(value, name, item) => (
-                                      <>
-                                        <span className="text-muted-foreground">
-                                          {String(item?.payload?.description || name)}
-                                        </span>
-                                        <span className="ml-auto font-mono font-medium tabular-nums text-foreground">
-                                          {formatCardCurrency(Number(value), chatCurrency)}
-                                        </span>
-                                      </>
-                                    )}
-                                  />
-                                )}
-                              />
-                              <Bar dataKey="amount" radius={6}>
-                                {topExpenseChartData.map((item) => (
-                                  <Cell key={item.description} fill={item.fill} />
-                                ))}
-                              </Bar>
-                            </BarChart>
-                          </ChartContainer>
-                        )
-                      ) : (
-                        <div className="rounded-lg border border-dashed border-border p-5 text-sm text-muted-foreground">
-                          Conecta una cuenta con Syncfy para activar gráficos con datos reales.
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {showExampleAnalysis ? (
-                    <Card className="rounded-lg border-[#2B7AE8]/20 bg-card/95">
-                      <CardHeader>
-                        <CardTitle>Empieza con Syncfy</CardTitle>
-                        <CardDescription>
-                          Conecta una cuenta para que FinovAI encuentre fugas, patrones y ahorro que puedas convertir en inversión.
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="flex flex-col gap-3 sm:flex-row">
+            <section className={cn('relative min-h-0 min-w-0 bg-background', activePage === 'inicio' ? 'overflow-hidden' : 'overflow-y-auto')}>
+              <div className={cn('min-w-0 px-4 py-5 sm:px-6 lg:px-8 lg:pb-10', activePage === 'inicio' && 'px-0 py-0 sm:px-0 md:px-0 lg:pb-0')}>
+                {activePage !== 'inicio' ? (
+                  <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <h1 className="text-2xl font-semibold tracking-normal">{pageMeta.title}</h1>
+                      <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                        {pageMeta.description}
+                      </p>
+                    </div>
+                    {showConnectNudge ? (
+                      <div className="flex flex-wrap gap-2">
                         <Button type="button" onClick={() => setActivePage('syncfy')}>
                           <Landmark data-icon="inline-start" />
                           Conectar cuenta
                         </Button>
-                      </CardContent>
-                    </Card>
-                  ) : null}
+                      </div>
+                    ) : null}
+                  </header>
+                ) : null}
 
-                  {hasDraftRows ? (
-                    <Card className="rounded-lg border-amber-500/20">
-                      <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <CardTitle>Movimientos en revisión</CardTitle>
-                          <CardDescription>
-                            El chat ya puede analizar las filas seleccionadas como preliminar.
-                          </CardDescription>
-                        </div>
-                        <Badge variant="outline">{selectedRows.length}/{draftRows.length} seleccionadas</Badge>
-                      </CardHeader>
-                      <CardContent className="flex flex-col gap-3 sm:flex-row">
-                        <Button type="button" onClick={() => setActivePage('cartola')}>
-                          <FileSearch data-icon="inline-start" />
-                          Revisar movimientos
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={handleConfirmCartola}
-                          disabled={isConfirming || selectedRows.length === 0}
-                        >
-                          {isConfirming ? <Loader2 className="size-4 animate-spin" /> : <Check data-icon="inline-start" />}
-                          Confirmar seleccionadas
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ) : null}
-
-                  {hasTransactions ? (
-                    <Card className="rounded-lg">
-                      <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <CardTitle>Lectura rápida</CardTitle>
-                          <CardDescription>
-                            Lo principal de tus movimientos confirmados.
-                          </CardDescription>
-                        </div>
-                        <Badge variant="secondary">{summary.transactionCount} movimientos</Badge>
-                      </CardHeader>
-                      <CardContent className="grid gap-3 lg:grid-cols-2">
-                        <div className="rounded-lg bg-secondary/20 p-4">
-                          <p className="text-sm font-medium">Dónde se fue más</p>
-                          <p className="mt-2 text-lg font-semibold leading-tight [overflow-wrap:anywhere]">{summary.topSpendingCategory}</p>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            {formatCardCurrency(summary.topSpendingCategoryAmount, latestCurrency)}
-                          </p>
-                        </div>
-                        <div className="rounded-lg bg-secondary/20 p-4">
-                          <p className="text-sm font-medium">Ahorro posible</p>
-                          <p className={cn(PANEL_VALUE_CLASS, 'text-[#00D4AA]')}>
-                            {formatCardCurrency(summary.estimatedSavingsOpportunity, latestCurrency)}
-                          </p>
-                          <p className="mt-1 text-sm text-muted-foreground">Estimado desde gastos flexibles.</p>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ) : null}
-                </>
+              <div className="flex min-w-0 flex-col gap-4">
+                {activePage === 'inicio' ? (
+                  renderFinanceCockpitHome()
               ) : null}
 
               {activePage === 'syncfy' ? (
                 <SyncfyConnect
                   email={activeEmail}
+                  initialCredentials={syncfyCredentials}
+                  isLoadingCredentials={isLoadingCredentials}
                   onStatus={setStatus}
+                  onCredentialsChange={setSyncfyCredentials}
                   onSynced={(response) => {
-                    const nextData = response as DashboardResponse
+                    const nextData = response as DashboardResponse & { credentials?: SyncfyCredential[] }
+                    if (Array.isArray(nextData.credentials)) {
+                      setSyncfyCredentials(nextData.credentials)
+                    }
                     if (Array.isArray(nextData.transactions)) {
                       setData(nextData)
                     }
@@ -2205,7 +3125,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
               ) : null}
 
               {activePage === 'cartola' ? (
-              <Card id="cartola-panel" className="rounded-lg border-[#2B7AE8]/20 bg-card/95">
+              <Card id="cartola-panel" className={FINANCE_ARTIFACT_CARD_CLASS}>
                 <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <CardTitle>Importación de respaldo</CardTitle>
@@ -2235,7 +3155,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                     <span className="text-sm font-semibold">Elegir archivo</span>
                   </Label>
 
-                  <div className="rounded-lg bg-secondary/20 p-4 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]">
+                  <div className={FINANCE_ARTIFACT_TILE_CLASS}>
                     <p className="text-sm font-medium">Flujo de revisión</p>
                     <div className="mt-4 grid gap-3 text-sm text-muted-foreground">
                       <div className="flex items-start gap-3">
@@ -2248,7 +3168,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                       </div>
                       <div className="flex items-start gap-3">
                         <Badge variant="secondary">3</Badge>
-                        <span>Confirmas solo las filas que quieres guardar.</span>
+                        <span>Confirma solo las filas que quieres guardar.</span>
                       </div>
                     </div>
                   </div>
@@ -2257,7 +3177,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
               ) : null}
 
               {activePage === 'cartola' && hasDraftRows ? (
-                <Card id="review-panel" className="rounded-lg">
+                <Card id="review-panel" className={FINANCE_ARTIFACT_CARD_CLASS}>
                   <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex items-start gap-3">
                       <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary">
@@ -2346,7 +3266,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                               </TableCell>
                               <TableCell>
                                 <Badge
-                                  className={cn(row.confidence < 0.75 && 'border-amber-500/30 text-amber-300')}
+                                  className={cn(row.confidence < 0.75 && 'border-amber-500/30 text-amber-700 dark:text-amber-300')}
                                   variant={row.confidence < 0.75 ? 'outline' : 'secondary'}
                                 >
                                   {Math.round(row.confidence * 100)}%
@@ -2372,7 +3292,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
               ) : null}
 
               {activePage === 'movimientos' && manualDrafts.length > 0 ? (
-                <Card id="manual-entry" className="rounded-lg">
+                <Card id="manual-entry" className={FINANCE_ARTIFACT_CARD_CLASS}>
                   <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <CardTitle>Ajuste de respaldo</CardTitle>
@@ -2386,7 +3306,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                   </CardHeader>
                   <CardContent className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
                     <form className="flex flex-col gap-3" onSubmit={handleManualSubmit}>
-                      <div className="grid grid-cols-2 gap-2 rounded-lg bg-secondary/20 p-1">
+                      <div className={cn(FINANCE_ARTIFACT_INSET_CLASS, 'grid grid-cols-2 gap-2 p-1')}>
                         <Button
                           type="button"
                           size="sm"
@@ -2485,7 +3405,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                       </Button>
                     </form>
 
-                    <div className="rounded-lg bg-secondary/20 p-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]">
+                    <div className={FINANCE_ARTIFACT_INSET_CLASS}>
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium">Lista por guardar</p>
                         <Button
@@ -2502,13 +3422,13 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                       {manualDrafts.length > 0 ? (
                         <div className="mt-3 max-h-80 space-y-2 overflow-auto">
                           {manualDrafts.map((draft, index) => (
-                            <div key={draft.id} className="flex flex-col gap-2 rounded-md bg-card/80 p-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)] sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                            <div key={draft.id} className={cn(FINANCE_ARTIFACT_INSET_CLASS, 'flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3')}>
                               <div className="min-w-0">
                                 <p className="text-sm font-medium leading-tight [overflow-wrap:anywhere]">{draft.description || draft.category}</p>
                                 <p className="text-xs text-muted-foreground">{draft.date} · {draft.category}</p>
                               </div>
                               <div className="flex items-center gap-2 sm:justify-end">
-                                <span className={cn('text-sm font-semibold tabular-nums [overflow-wrap:anywhere]', draft.type === 'income' ? 'text-[#00D4AA]' : 'text-foreground')}>
+                                <span className={cn('text-sm font-semibold tabular-nums [overflow-wrap:anywhere]', draft.type === 'income' ? 'text-primary' : 'text-foreground')}>
                                   {draft.type === 'income' ? '+' : '-'}{draft.amount}
                                 </span>
                                 <Button
@@ -2525,7 +3445,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                           ))}
                         </div>
                       ) : (
-                        <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+                        <div className="mt-3 rounded-2xl border border-dashed border-border/70 p-4 text-sm text-muted-foreground">
                           Agrega uno o más movimientos. Luego guárdalos todos.
                         </div>
                       )}
@@ -2535,36 +3455,41 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
               ) : null}
 
               {activePage === 'movimientos' && hasTransactions ? (
-                <Card id="transactions-panel" className="rounded-lg">
+                <Card id="transactions-panel" className={FINANCE_ARTIFACT_CARD_CLASS}>
                   <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <CardTitle>Movimientos guardados</CardTitle>
                       <CardDescription>
-                        Datos confirmados que FinovAI usa como fuente final.
+                        Datos confirmados que FinovAI usa como fuente final. {savedDataCoverageLabel}.
                       </CardDescription>
                     </div>
-                    <Badge variant="secondary">{summary.transactionCount} movimientos</Badge>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="secondary">{summary.transactionCount} movimientos</Badge>
+                      <Badge variant={summary.dataCoverage.preliminary ? 'outline' : 'secondary'}>
+                        {savedDataCoverageQualifier}
+                      </Badge>
+                    </div>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-5">
                     <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                      <div className="rounded-lg bg-secondary/20 p-3">
+                      <div className={FINANCE_ARTIFACT_INSET_CLASS}>
                         <p className="text-sm text-muted-foreground">Gastos</p>
                         <p className={PANEL_VALUE_CLASS}>
                           {formatCardCurrency(summary.monthlySpending, latestCurrency)}
                         </p>
                       </div>
-                      <div className="rounded-lg bg-secondary/20 p-3">
+                      <div className={FINANCE_ARTIFACT_INSET_CLASS}>
                         <p className="text-sm text-muted-foreground">Balance</p>
                         <p
                           className={cn(
                             PANEL_VALUE_CLASS,
-                            summary.netBalance >= 0 ? 'text-[#00D4AA]' : 'text-rose-300'
+                            effectiveNetBalance === null || effectiveNetBalance >= 0 ? 'text-primary' : 'text-rose-700 dark:text-rose-300'
                           )}
                         >
-                          {formatCardCurrency(summary.netBalance, latestCurrency)}
+                          {effectiveNetBalance === null ? 'Falta ingreso' : formatCardCurrency(effectiveNetBalance, latestCurrency)}
                         </p>
                       </div>
-                      <div className="rounded-lg bg-secondary/20 p-3">
+                      <div className={FINANCE_ARTIFACT_INSET_CLASS}>
                         <p className="text-sm text-muted-foreground">Mayor categoría</p>
                         <p className="mt-1 text-lg font-semibold leading-tight [overflow-wrap:anywhere]">{summary.topSpendingCategory}</p>
                       </div>
@@ -2580,6 +3505,19 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                             <p className="text-sm font-medium text-current/80">{insight.title}</p>
                             <p className="mt-2 text-lg font-semibold text-foreground">{insight.value}</p>
                             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{insight.body}</p>
+                            {insight.id === 'unusual-day' ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="mt-3"
+                                disabled={Boolean(pendingChatAnswer)}
+                                onClick={() => analyzeWithFinovAI(`Analiza el día atípico ${insight.value}: ${insight.body}`)}
+                              >
+                                <Bot data-icon="inline-start" />
+                                Analizar con FinovAI
+                              </Button>
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -2610,11 +3548,20 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                                   {formatTransactionSource(transaction.source)}
                                 </p>
                               </TableCell>
-                              <TableCell>{transaction.category}</TableCell>
+                              <TableCell className="align-top">
+                                <CategorySearchSelect
+                                  value={transaction.category}
+                                  type={transaction.type}
+                                  disabled={updatingCategoryId === transaction.id}
+                                  onSelect={(category) => {
+                                    void handleTransactionCategoryChange(transaction, category)
+                                  }}
+                                />
+                              </TableCell>
                               <TableCell
                                 className={cn(
                                   'text-right font-medium tabular-nums',
-                                  transaction.type === 'income' ? 'text-[#00D4AA]' : 'text-foreground'
+                                  transaction.type === 'income' ? 'text-primary' : 'text-foreground'
                                 )}
                               >
                                 {transaction.type === 'income' ? '+' : '-'}
@@ -2630,70 +3577,119 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
               ) : null}
 
               {activePage === 'movimientos' && !hasTransactions ? (
-                <Card className="rounded-lg border-dashed">
+                <Card className={cn(FINANCE_ARTIFACT_CARD_CLASS, 'border-dashed')}>
                   <CardHeader>
                     <CardTitle>Sin transacciones conectadas</CardTitle>
                     <CardDescription>
-                      Conecta una cuenta con Syncfy para llenar este historial con movimientos reales.
+                      {hasConnectedInstitution
+                        ? 'La institución ya está conectada. Syncfy todavía no entrega movimientos para este historial.'
+                        : 'Conecta una cuenta con Syncfy para llenar este historial con movimientos reales.'}
                     </CardDescription>
                   </CardHeader>
-                  <CardContent>
-                    <Button type="button" onClick={() => setActivePage('syncfy')}>
-                      <Landmark data-icon="inline-start" />
-                      Conectar cuenta
-                    </Button>
-                  </CardContent>
+                  {!hasConnectedInstitution ? (
+                    <CardContent>
+                      <Button type="button" onClick={() => setActivePage('syncfy')}>
+                        <Landmark data-icon="inline-start" />
+                        Conectar cuenta
+                      </Button>
+                    </CardContent>
+                  ) : null}
                 </Card>
               ) : null}
 
               {activePage === 'categorias' ? (
-                <Card className="rounded-lg">
-                  <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <CardTitle>Gasto por categoría</CardTitle>
-                      <CardDescription>
-                        {hasDraftRows ? 'Vista preliminar de movimientos seleccionados.' : 'Vista desde movimientos confirmados.'}
-                      </CardDescription>
+                <Card className={FINANCE_ARTIFACT_CARD_CLASS}>
+                  <CardHeader className="gap-4">
+                    <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                      <div>
+                        <CardTitle>Presupuesto vs realidad</CardTitle>
+                        <CardDescription>
+                          {hasDraftRows
+                            ? 'Vista preliminar de movimientos seleccionados.'
+                            : `Comparativo de ${categoryPeriodLabel}.`}
+                        </CardDescription>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {([
+                          ['current', 'Este mes'],
+                          ['previous', 'Mes anterior'],
+                          ['all', 'Todo'],
+                        ] as Array<[CategoryPeriodFilter, string]>).map(([value, label]) => (
+                          <Button
+                            key={value}
+                            type="button"
+                            size="sm"
+                            variant={categoryPeriodFilter === value ? 'default' : 'outline'}
+                            disabled={value === 'previous' && !baseCategoryAnalysis.previousPeriod}
+                            onClick={() => setCategoryPeriodFilter(value)}
+                          >
+                            {label}
+                          </Button>
+                        ))}
+                      </div>
                     </div>
-                    <Badge variant={categoryBreakdown.length > 0 ? 'secondary' : 'outline'}>{dataModeLabel}</Badge>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="grid gap-4">
                     {categoryBreakdown.length > 0 ? (
                       <div className="grid gap-4">
-                        <div className="grid gap-4 xl:grid-cols-[minmax(260px,0.75fr)_1fr]">
-                          <ChartContainer config={SINGLE_VALUE_CHART_CONFIG} className="h-[280px] w-full aspect-auto">
-                            <PieChart>
-                              <ChartTooltip
-                                cursor={false}
-                                content={(
-                                  <ChartTooltipContent
-                                    hideLabel
-                                    formatter={(value, name) => (
-                                      <>
-                                        <span className="text-muted-foreground">{String(name)}</span>
-                                        <span className="ml-auto font-mono font-medium tabular-nums text-foreground">
-                                          {formatCardCurrency(Number(value), chatCurrency)}
-                                        </span>
-                                      </>
-                                    )}
-                                  />
-                                )}
-                              />
-                              <Pie
-                                data={categoryChartData}
-                                dataKey="amount"
-                                nameKey="category"
-                                innerRadius={64}
-                                outerRadius={104}
-                                paddingAngle={3}
-                              >
-                                {categoryChartData.map((item) => (
-                                  <Cell key={item.category} fill={item.fill} />
-                                ))}
-                              </Pie>
-                            </PieChart>
-                          </ChartContainer>
-                          <ChartContainer config={SINGLE_VALUE_CHART_CONFIG} className="h-[280px] w-full aspect-auto">
+                        <div className={cn(FINANCE_ARTIFACT_INSET_CLASS, 'grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center')}>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold leading-tight">{categoryPageAdvice}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {categoryPeriodFilter === 'all'
+                                ? 'Los presupuestos se evalúan por mes; esta vista solo resume todo el historial.'
+                                : selectedCategoryAnalysis.previousPeriod
+                                  ? `Comparado contra ${formatMonth(selectedCategoryAnalysis.previousPeriod)}.`
+                                  : 'Aún falta un mes anterior para comparar tendencia.'}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="w-fit"
+                            disabled={Boolean(pendingChatAnswer)}
+                            onClick={() => analyzeWithFinovAI(`Analiza mis gastos por categoría de ${categoryPeriodLabel}. ${categoryPageAdvice}`)}
+                          >
+                            <Bot data-icon="inline-start" />
+                            Analizar con FinovAI
+                          </Button>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-3">
+                          <div className={FINANCE_ARTIFACT_TILE_CLASS}>
+                            <p className="text-xs font-medium text-muted-foreground">Gasto</p>
+                            <p className={PANEL_VALUE_CLASS}>{formatCardCurrency(categoryBreakdownTotal, chatCurrency)}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{categoryPeriodLabel}</p>
+                          </div>
+                          <div className={FINANCE_ARTIFACT_TILE_CLASS}>
+                            <p className="text-xs font-medium text-muted-foreground">Presupuesto</p>
+                            <p className={PANEL_VALUE_CLASS}>{categoryPeriodFilter === 'all' ? 'Mensual' : categoryBudgetLabel}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {selectedCategoryAnalysis.budgetSource === 'user'
+                                ? 'Definido por el usuario'
+                                : selectedCategoryAnalysis.budgetSource === 'income_rule'
+                                  ? 'Sugerido desde ingreso'
+                                  : 'Pendiente en perfil'}
+                            </p>
+                          </div>
+                          <div className={FINANCE_ARTIFACT_TILE_CLASS}>
+                            <p className="text-xs font-medium text-muted-foreground">Estado</p>
+                            <p className={cn(PANEL_VALUE_CLASS, categoryOverBudgetAmount > 0 ? 'text-rose-500' : 'text-primary')}>
+                              {categoryPeriodFilter === 'all'
+                                ? dataModeLabel
+                                : selectedCategoryAnalysis.budgetTotal
+                                  ? categoryOverBudgetAmount > 0
+                                    ? `${formatCardCurrency(categoryOverBudgetAmount, chatCurrency)} sobre`
+                                    : 'Dentro'
+                                  : 'Configurar'}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">Presupuesto mensual</p>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.85fr)]">
+                          <ChartContainer config={SINGLE_VALUE_CHART_CONFIG} className="h-[320px] w-full aspect-auto">
                             <BarChart data={categoryChartData} layout="vertical" margin={{ left: 8, right: 18, top: 8, bottom: 8 }}>
                               <CartesianGrid horizontal={false} />
                               <XAxis type="number" hide />
@@ -2730,34 +3726,99 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                               </Bar>
                             </BarChart>
                           </ChartContainer>
+                          <div className="grid gap-3">
+                            {categoryPageRows.map((item) => {
+                              const Icon = getCategoryIcon(item.category)
+                              const comparison = selectedCategoryAnalysis.categories.find((category) => category.category === item.category)
+                              const status = categoryPeriodFilter === 'all' ? 'unset' : comparison?.budgetStatus || 'unset'
+
+                              return (
+                                <div key={item.category} className={FINANCE_ARTIFACT_TILE_CLASS}>
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                                    <div className="flex min-w-0 items-center gap-3">
+                                      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-background" style={{ color: item.fill }}>
+                                        <Icon className="size-4" />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <p className="min-w-0 text-sm font-medium leading-tight [overflow-wrap:anywhere]">{item.category}</p>
+                                        {comparison && categoryPeriodFilter !== 'all' ? (
+                                          <p className="mt-1 text-xs text-muted-foreground">
+                                            {comparison.deltaFromPrevious >= 0 ? '+' : ''}{formatCardCurrency(comparison.deltaFromPrevious, chatCurrency)} vs mes anterior
+                                          </p>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                    <div className="text-left sm:text-right">
+                                      <p className="text-sm font-semibold tabular-nums [overflow-wrap:anywhere]">
+                                        {formatCardCurrency(item.amount, chatCurrency)}
+                                      </p>
+                                      <Badge className={cn('mt-1', getBudgetStatusClass(status))} variant="outline">
+                                        {getBudgetStatusLabel(status)}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-background/60">
+                                    <div
+                                      className="h-full rounded-full"
+                                      style={{ width: `${Math.max(6, item.share)}%`, backgroundColor: item.fill }}
+                                    />
+                                  </div>
+                                  <p className="mt-2 text-xs text-muted-foreground">
+                                    {categoryPeriodFilter === 'all'
+                                      ? `${item.share}% del gasto total`
+                                      : comparison?.advice || `${item.share}% del gasto mensual`}
+                                  </p>
+                                </div>
+                              )
+                            })}
+                          </div>
                         </div>
 
-                        <div className="grid gap-3">
-                          {categoryChartData.map((item) => (
-                            <div key={item.category} className="rounded-lg bg-secondary/20 p-4">
-                              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: item.fill }} />
-                                  <p className="min-w-0 text-sm font-medium leading-tight [overflow-wrap:anywhere]">{item.category}</p>
-                                </div>
-                                <p className="text-sm font-semibold tabular-nums [overflow-wrap:anywhere] sm:text-right">
-                                  {formatCardCurrency(item.amount, chatCurrency)}
-                                </p>
+                        {selectedCategoryAnalysis.monthRows.length > 0 ? (
+                          <div className={FINANCE_ARTIFACT_TILE_CLASS}>
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-medium">Meses</p>
+                                <p className="text-xs text-muted-foreground">Gasto, categoría principal y diferencia contra el mes anterior.</p>
                               </div>
-                              <div className="mt-3 h-2 overflow-hidden rounded-full bg-background/60">
-                                <div
-                                  className="h-full rounded-full bg-primary"
-                                  style={{ width: `${Math.max(6, item.share)}%` }}
-                                />
-                              </div>
-                              <p className="mt-2 text-xs text-muted-foreground">{item.share}% del gasto del mes</p>
+                              <SlidersHorizontal className="size-4 text-muted-foreground" />
                             </div>
-                          ))}
-                        </div>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Mes</TableHead>
+                                  <TableHead>Gasto</TableHead>
+                                  <TableHead>Mayor categoría</TableHead>
+                                  <TableHead>Vs anterior</TableHead>
+                                  <TableHead>Presupuesto</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {selectedCategoryAnalysis.monthRows.slice(0, 6).map((row) => (
+                                  <TableRow key={row.month}>
+                                    <TableCell className="font-medium">{formatMonth(row.month)}</TableCell>
+                                    <TableCell className="tabular-nums">{formatCardCurrency(row.spendingTotal, chatCurrency)}</TableCell>
+                                    <TableCell>{row.topCategory}</TableCell>
+                                    <TableCell className={cn('tabular-nums', row.deltaFromPrevious && row.deltaFromPrevious > 0 ? 'text-rose-500' : 'text-primary')}>
+                                      {row.deltaFromPrevious === null ? 'Sin base' : `${row.deltaFromPrevious >= 0 ? '+' : ''}${formatCardCurrency(row.deltaFromPrevious, chatCurrency)}`}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge className={getBudgetStatusClass(row.status)} variant="outline">
+                                        {row.budgetTotal ? formatCardCurrency(row.budgetTotal, chatCurrency) : 'Pendiente'}
+                                      </Badge>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        ) : null}
                       </div>
                     ) : (
-                      <div className="rounded-lg border border-dashed border-border p-5 text-sm text-muted-foreground">
-                        Aún no hay gastos para agrupar. Conecta una cuenta para traer transacciones.
+                      <div className="rounded-2xl border border-dashed border-border/70 p-5 text-sm text-muted-foreground">
+                        {hasConnectedInstitution
+                          ? 'Aún no hay gastos para agrupar. Syncfy todavía no entrega movimientos.'
+                          : 'Aún no hay gastos para agrupar. Conecta una cuenta para traer transacciones.'}
                       </div>
                     )}
                   </CardContent>
@@ -2766,31 +3827,38 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
 
               {activePage === 'analisis' ? (
                 <div className="grid gap-4">
-                  <Card className="rounded-lg">
+                  <Card className={FINANCE_ARTIFACT_CARD_CLASS}>
                     <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <CardTitle>Resumen del mes</CardTitle>
                         <CardDescription>
-                          {formatMonth(chatSummary.month)} · {dataModeLabel}
+                          {formatMonth(chatSummary.month)} · {dataModeLabel} · {chatDataCoverageLabel}
                         </CardDescription>
                       </div>
-                      <Badge variant={chatTransactions.length > 0 ? 'secondary' : 'outline'}>
-                        {chatTransactions.length} movimientos
-                      </Badge>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant={chatTransactions.length > 0 ? 'secondary' : 'outline'}>
+                          {chatTransactions.length} movimientos
+                        </Badge>
+                        {chatTransactions.length > 0 ? (
+                          <Badge variant={chatSummary.dataCoverage.preliminary ? 'outline' : 'secondary'}>
+                            {chatDataCoverageQualifier}
+                          </Badge>
+                        ) : null}
+                      </div>
                     </CardHeader>
                     <CardContent className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                      <div className="rounded-lg bg-secondary/20 p-4">
+                      <div className={FINANCE_ARTIFACT_TILE_CLASS}>
                         <p className="text-sm text-muted-foreground">Gasto total</p>
                         <p className={PANEL_VALUE_CLASS}>
                           {formatCardCurrency(chatSummary.monthlySpending, chatCurrency)}
                         </p>
                       </div>
-                      <div className="rounded-lg bg-secondary/20 p-4">
+                      <div className={FINANCE_ARTIFACT_TILE_CLASS}>
                         <p className="text-sm text-muted-foreground">Mayor categoría</p>
                         <p className="mt-2 text-lg font-semibold leading-tight [overflow-wrap:anywhere]">{chatSummary.topSpendingCategory}</p>
                       </div>
-                      <div className="rounded-lg bg-[#00D4AA]/10 p-4 text-[#9ff3e5]">
-                        <p className="text-sm text-[#00D4AA]">Ahorro posible</p>
+                      <div className="rounded-2xl bg-primary/10 p-4 text-foreground shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]">
+                        <p className="text-sm text-primary">Ahorro posible</p>
                         <p className={PANEL_VALUE_CLASS}>
                           {formatCardCurrency(chatSummary.estimatedSavingsOpportunity, chatCurrency)}
                         </p>
@@ -2798,8 +3866,10 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                     </CardContent>
                   </Card>
 
+                  {renderActionPlanPanel()}
+
                   {hasChartData ? (
-                    <Card className="rounded-lg">
+                    <Card className={FINANCE_ARTIFACT_CARD_CLASS}>
                       <CardHeader>
                         <CardTitle>Flujo del mes</CardTitle>
                         <CardDescription>Ingresos y gastos por día.</CardDescription>
@@ -2850,14 +3920,14 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                   ) : null}
 
                   <div className="grid gap-4 xl:grid-cols-2">
-                    <Card className="rounded-lg">
+                    <Card className={FINANCE_ARTIFACT_CARD_CLASS}>
                       <CardHeader>
                         <CardTitle>Día raro</CardTitle>
                         <CardDescription>El día con mayor salida detectada.</CardDescription>
                       </CardHeader>
                       <CardContent>
                         {chatSummary.unusualHighSpendDay ? (
-                          <div className="rounded-lg bg-secondary/20 p-4">
+                          <div className={FINANCE_ARTIFACT_TILE_CLASS}>
                             <p className="text-lg font-semibold">{formatDate(chatSummary.unusualHighSpendDay.date)}</p>
                             <p className="mt-1 text-sm text-muted-foreground">
                               {formatCardCurrency(chatSummary.unusualHighSpendDay.amount, chatCurrency)} en gastos.
@@ -2869,7 +3939,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                       </CardContent>
                     </Card>
 
-                    <Card className="rounded-lg">
+                    <Card className={FINANCE_ARTIFACT_CARD_CLASS}>
                       <CardHeader>
                         <CardTitle>Recurrentes</CardTitle>
                         <CardDescription>Cargos parecidos que se repiten.</CardDescription>
@@ -2877,7 +3947,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                       <CardContent className="grid gap-2">
                         {chatSummary.recurringExpenses.length > 0 ? (
                           chatSummary.recurringExpenses.slice(0, 3).map((expense) => (
-                            <div key={expense.key} className="flex flex-col gap-1 rounded-lg bg-secondary/20 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                            <div key={expense.key} className={cn(FINANCE_ARTIFACT_INSET_CLASS, 'flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3')}>
                               <p className="min-w-0 text-sm font-medium leading-tight [overflow-wrap:anywhere]">{expense.description}</p>
                               <p className="text-sm tabular-nums text-muted-foreground [overflow-wrap:anywhere] sm:text-right">
                                 {expense.count}x · {formatCardCurrency(expense.amount, chatCurrency)}
@@ -2891,7 +3961,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                     </Card>
                   </div>
 
-                  <Card className="rounded-lg">
+                  <Card className={FINANCE_ARTIFACT_CARD_CLASS}>
                     <CardHeader>
                       <CardTitle>Movimientos grandes</CardTitle>
                       <CardDescription>Los mayores gastos del mes.</CardDescription>
@@ -2899,7 +3969,7 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                     <CardContent className="grid gap-2">
                       {topAnalysisTransactions.length > 0 ? (
                         topAnalysisTransactions.map((transaction) => (
-                          <div key={`${transaction.date}-${transaction.description}-${transaction.amount}`} className="flex flex-col gap-2 rounded-lg bg-secondary/20 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                          <div key={`${transaction.date}-${transaction.description}-${transaction.amount}`} className={cn(FINANCE_ARTIFACT_INSET_CLASS, 'flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3')}>
                             <div className="min-w-0">
                               <p className="text-sm font-medium leading-tight [overflow-wrap:anywhere]">{transaction.description}</p>
                               <p className="text-xs text-muted-foreground">{formatDate(transaction.date)} · {transaction.category}</p>
@@ -2910,7 +3980,11 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
                           </div>
                         ))
                       ) : (
-                        <p className="text-sm text-muted-foreground">Conecta una cuenta para generar análisis.</p>
+                        <p className="text-sm text-muted-foreground">
+                          {hasConnectedInstitution
+                            ? 'Syncfy todavía no entrega movimientos para generar análisis.'
+                            : 'Conecta una cuenta para generar análisis.'}
+                        </p>
                       )}
                     </CardContent>
                   </Card>
@@ -2918,174 +3992,357 @@ export default function Dashboard({ email, onBackHome, onLogout }: DashboardProp
               ) : null}
 
               {activePage === 'ajustes' ? (
-                <Card className="rounded-lg">
+                <Card className={FINANCE_ARTIFACT_CARD_CLASS}>
                   <CardHeader>
                     <CardTitle>Perfil financiero</CardTitle>
                     <CardDescription>
                       Preferencias de cuenta, acceso compartido y controles de datos.
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="grid gap-3">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-lg bg-secondary/20 p-4">
-                        <p className="text-sm text-muted-foreground">Email</p>
+                  <CardContent className="grid gap-4">
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className={FINANCE_ARTIFACT_TILE_CLASS}>
+                        <p className="text-sm text-muted-foreground">Correo</p>
                         <p className="mt-1 break-all text-sm font-medium">{activeEmail}</p>
                       </div>
-                      <div className="rounded-lg bg-secondary/20 p-4">
+                      <div className={FINANCE_ARTIFACT_TILE_CLASS}>
                         <p className="text-sm text-muted-foreground">Moneda</p>
                         <p className="mt-1 text-sm font-medium">{chatCurrency}</p>
                       </div>
+                      <div className={FINANCE_ARTIFACT_TILE_CLASS}>
+                        <p className="text-sm text-muted-foreground">Cuenta compartida</p>
+                        <p className="mt-1 text-sm font-medium">
+                          {householdInvites.length > 0 ? `${householdInvites.length} invitación${householdInvites.length === 1 ? '' : 'es'}` : 'Sin invitaciones'}
+                        </p>
+                      </div>
                     </div>
-                    <form className="rounded-lg bg-secondary/20 p-4" onSubmit={handleInviteSpouse}>
-                      <div className="flex items-start gap-3">
-                        <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                          <UserPlus className="size-4" />
+
+                    <form className={cn(FINANCE_ARTIFACT_TILE_CLASS, 'overflow-hidden p-0')} onSubmit={handleProfileSubmit}>
+                      <div className="border-b border-border/70 p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                              <WalletCards className="size-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium">Ingreso y presupuesto</p>
+                              <p className="mt-1 text-sm text-muted-foreground">
+                                Define tu marco mensual y topes por categoría.
+                              </p>
+                            </div>
+                          </div>
+                          <Badge className={cn(savedMonthlyBudget > 0 ? 'border-primary/25 bg-primary/10 text-primary' : 'border-border/70 bg-secondary text-muted-foreground')} variant="outline">
+                            {savedMonthlyBudget > 0 ? 'Presupuesto activo' : 'Pendiente'}
+                          </Badge>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium">Invitar pareja</p>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            Vincula a tu pareja por email para preparar el acceso compartido.
+                      </div>
+
+                      <div className="grid gap-3 p-4 md:grid-cols-3">
+                        <div className="rounded-2xl bg-background/60 p-3 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]">
+                          <p className="text-xs font-medium text-muted-foreground">Ingreso mensual</p>
+                          <p className="mt-2 text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">
+                            {chatProfile.monthlyIncome ? formatCardCurrency(chatProfile.monthlyIncome, chatCurrency) : 'Sin dato'}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl bg-background/60 p-3 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]">
+                          <p className="text-xs font-medium text-muted-foreground">Presupuesto mensual</p>
+                          <p className="mt-2 text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">
+                            {savedMonthlyBudget > 0 ? formatCardCurrency(savedMonthlyBudget, chatCurrency) : 'Sin tope'}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl bg-background/60 p-3 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]">
+                          <p className="text-xs font-medium text-muted-foreground">Margen del mes</p>
+                          <p className={cn('mt-2 text-lg font-semibold tabular-nums [overflow-wrap:anywhere]', budgetRunwayAmount !== null && budgetRunwayAmount < 0 ? 'text-rose-700 dark:text-rose-300' : 'text-primary')}>
+                            {budgetRunwayAmount === null ? 'Sin base' : formatCardCurrency(budgetRunwayAmount, chatCurrency)}
                           </p>
                         </div>
                       </div>
 
-                      <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                        <div className="flex min-w-0 flex-col gap-2">
-                          <Label htmlFor="spouse-email">Email de tu pareja</Label>
-                          <Input
-                            id="spouse-email"
-                            type="email"
-                            value={spouseEmail}
-                            onChange={(event) => setSpouseEmail(event.target.value)}
-                            placeholder="pareja@email.com"
-                            autoComplete="email"
-                          />
+                      <div className="grid gap-4 border-t border-border/70 p-4 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)]">
+                        <div className="grid gap-3 content-start">
+                          <div className="flex min-w-0 flex-col gap-2">
+                            <Label htmlFor="monthly-income">Ingreso mensual</Label>
+                            <Input
+                              id="monthly-income"
+                              inputMode="decimal"
+                              value={profileForm.monthlyIncome}
+                              onChange={(event) => setProfileForm((current) => ({ ...current, monthlyIncome: event.target.value }))}
+                              placeholder="52000"
+                            />
+                          </div>
+                          <div className="flex min-w-0 flex-col gap-2">
+                            <Label htmlFor="monthly-budget">Presupuesto mensual</Label>
+                            <Input
+                              id="monthly-budget"
+                              inputMode="decimal"
+                              value={profileForm.monthlyBudget}
+                              onChange={(event) => setProfileForm((current) => ({ ...current, monthlyBudget: event.target.value }))}
+                              placeholder="39000"
+                            />
+                          </div>
+                          <div className="rounded-2xl bg-background/60 p-3 text-sm text-muted-foreground shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]">
+                            <p className="font-medium text-foreground">Categorías cubiertas</p>
+                            <p className="mt-1">
+                              {savedCategoryBudgetEntries.length > 0
+                                ? `${savedCategoryBudgetEntries.length} topes por ${formatCardCurrency(savedCategoryBudgetTotal, chatCurrency)}${budgetCoveragePercent !== null ? ` (${budgetCoveragePercent}%)` : ''}.`
+                                : 'Aún no hay topes por categoría.'}
+                            </p>
+                          </div>
                         </div>
-                        <Button type="submit" className="self-end" disabled={isInvitingSpouse || !spouseEmail.trim()}>
-                          {isInvitingSpouse ? <Loader2 className="size-4 animate-spin" /> : <Mail data-icon="inline-start" />}
-                          Invitar
-                        </Button>
+
+                        <div className="grid gap-3">
+                          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                            <div>
+                              <p className="text-sm font-medium">Topes por categoría</p>
+                              <p className="text-xs text-muted-foreground">Úsalos para detectar sobrepresupuesto en Categorías.</p>
+                            </div>
+                            <p className="text-xs font-medium text-muted-foreground">
+                              {savedCategoryBudgetTotal > 0 ? formatCardCurrency(savedCategoryBudgetTotal, chatCurrency) : 'Sin topes'}
+                            </p>
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                            {EXPENSE_CATEGORIES.map((category) => (
+                              <div key={category} className="flex min-w-0 flex-col gap-1.5 rounded-2xl bg-background/60 p-2 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]">
+                                <Label htmlFor={`budget-${category}`} className="truncate text-xs text-muted-foreground">
+                                  {category}
+                                </Label>
+                                <Input
+                                  id={`budget-${category}`}
+                                  inputMode="decimal"
+                                  value={categoryBudgetInputs[category] || ''}
+                                  onChange={(event) => setCategoryBudgetInputs((current) => ({
+                                    ...current,
+                                    [category]: event.target.value,
+                                  }))}
+                                  placeholder="0"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
 
-                      {householdInvites.length > 0 ? (
-                        <div className="mt-4 grid gap-2">
-                          {householdInvites.map((invite) => (
-                            <div key={invite.id} className="flex flex-col gap-2 rounded-lg bg-card/70 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                              <p className="min-w-0 break-all text-sm font-medium">{invite.inviteeEmail}</p>
-                              <Badge variant="outline">
-                                {invite.status === 'pending' ? 'Pendiente' : invite.status}
-                              </Badge>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 p-4">
+                        <p className="text-xs text-muted-foreground">
+                          {savedMonthlyBudget > 0
+                            ? `Tope actual: ${formatCardCurrency(savedMonthlyBudget, chatCurrency)}`
+                            : 'Guarda ingreso y presupuesto para activar comparativas.'}
+                        </p>
+                        <Button type="submit" disabled={isSavingProfile}>
+                          {isSavingProfile ? <Loader2 className="size-4 animate-spin" /> : <Check data-icon="inline-start" />}
+                          Guardar presupuesto
+                        </Button>
+                      </div>
                     </form>
-                    <div className="rounded-lg bg-secondary/20 p-4">
-                      <p className="text-sm font-medium">Fuente de datos</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Syncfy es la fuente principal para leer transacciones de bancos, SAT, Bitso, American Express y fuentes compatibles.
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-                      Exportar datos y borrar cuenta quedan como próximos controles de privacidad.
-                    </div>
+
+                    <form className={FINANCE_ARTIFACT_TILE_CLASS} onSubmit={handleInviteSpouse}>
+                      <div className="grid gap-4 lg:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)] lg:items-start">
+                        <div className="flex items-start gap-3">
+                          <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                            <UserPlus className="size-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium">Invitar pareja</p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              Enviaremos un correo a la dirección indicada y dejaremos la invitación en estado pendiente.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3">
+                          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                            <div className="flex min-w-0 flex-col gap-2">
+                              <Label htmlFor="spouse-email">Correo de tu pareja</Label>
+                              <Input
+                                id="spouse-email"
+                                type="email"
+                                value={spouseEmail}
+                                onChange={(event) => setSpouseEmail(event.target.value)}
+                                placeholder="pareja@email.com"
+                                autoComplete="email"
+                              />
+                            </div>
+                            <Button type="submit" className="self-end" disabled={isInvitingSpouse || !spouseEmail.trim()}>
+                              {isInvitingSpouse ? <Loader2 className="size-4 animate-spin" /> : <Mail data-icon="inline-start" />}
+                              Enviar invitación
+                            </Button>
+                          </div>
+
+                          {householdInvites.length > 0 ? (
+                            <div className="grid gap-2">
+                              {householdInvites.map((invite) => (
+                                <div key={invite.id} className={cn(FINANCE_ARTIFACT_INSET_CLASS, 'grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center')}>
+                                  <div className="min-w-0">
+                                    <p className="min-w-0 break-all text-sm font-medium">{invite.inviteeEmail}</p>
+                                    <p className="mt-1 text-xs text-muted-foreground">{formatDate(invite.created_at.slice(0, 10))}</p>
+                                  </div>
+                                  <Badge className="w-fit" variant="outline">
+                                    {invite.status === 'pending' ? 'Pendiente' : invite.status}
+                                  </Badge>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="rounded-2xl border border-dashed border-border/70 p-3 text-sm text-muted-foreground">
+                              Todavía no hay invitaciones enviadas.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </form>
                   </CardContent>
                 </Card>
               ) : null}
             </div>
+            </div>
           </section>
 
-          <aside className="hidden min-w-0 border-l border-border/70 bg-background/80 p-4 lg:sticky lg:top-0 lg:block lg:h-screen lg:self-start">
-            {renderDashboardChat()}
-          </aside>
+          </div>
         </div>
-
-        <Button
-          type="button"
-          size="icon"
-          className="fixed bottom-5 right-5 z-40 size-14 rounded-full bg-primary text-primary-foreground shadow-[0_18px_50px_rgba(0,212,170,0.28)] lg:hidden"
-          onClick={() => setIsMobileChatOpen(true)}
-          aria-label="Abrir chat FinovAI"
-        >
-          <Bot className="size-5" />
-        </Button>
-
-        <Dialog open={isMobileChatOpen} onOpenChange={setIsMobileChatOpen}>
-          <DialogContent
-            className="finovai-dashboard dark bottom-0 left-0 right-0 top-auto flex h-[min(76dvh,640px)] w-full max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-b-none rounded-t-2xl border-x-0 border-b-0 border-[#2B7AE8]/20 bg-background p-0 text-foreground shadow-2xl sm:bottom-4 sm:left-1/2 sm:right-auto sm:h-[min(78dvh,680px)] sm:w-[min(620px,calc(100vw-3rem))] sm:max-w-[min(620px,calc(100vw-3rem))] sm:translate-x-[-50%] sm:rounded-xl sm:border"
-            showCloseButton
-          >
-            <DialogTitle className="sr-only">Chat FinovAI</DialogTitle>
-            <DialogDescription className="sr-only">
-              Chat para analizar transacciones, patrones de gasto y oportunidades de ahorro.
-            </DialogDescription>
-            {renderDashboardChat(true)}
-          </DialogContent>
-        </Dialog>
       </main>
     )
   }
 
   return (
-    <main className="finovai-dashboard dark min-h-screen bg-background text-foreground">
-      <section className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-5 py-4">
-        <header className="flex items-center justify-between gap-4 py-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Sparkles className="size-4" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold">FinovAI</p>
-              <p className="text-xs leading-snug text-muted-foreground">Copiloto financiero</p>
-            </div>
-          </div>
-          <Button variant="outline" size="sm" className="shrink-0" onClick={onBackHome}>
-            <ArrowLeft data-icon="inline-start" />
-            Volver
-          </Button>
-        </header>
+    <main className={cn('finovai-dashboard min-h-screen text-foreground', dashboardTheme === 'dark' && 'dark')}>
+      <div className="min-h-screen p-3 sm:p-5 lg:p-7">
+        <div className={FINANCE_APP_SHELL_CLASS}>
+          <aside className="flex min-w-0 items-center justify-between gap-3 border-b border-border/70 bg-background px-3 py-2 md:h-full md:flex-col md:border-b-0 md:border-r md:px-2 md:py-4">
+            <button
+              type="button"
+              className="flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition-colors hover:bg-secondary"
+              aria-label="FinovAI"
+              title="FinovAI"
+              onClick={onBackHome}
+            >
+              <FinovAILogoMark className="size-6 rounded-full" />
+            </button>
 
-        <div className="flex flex-1 items-center justify-center py-10">
-          <Card className="w-full rounded-lg border-[#2B7AE8]/20 bg-card/95">
-            <CardHeader>
-              <CardTitle>Entrar a FinovAI</CardTitle>
-              <CardDescription>
-                Usa tu email para conectar una cuenta con Syncfy y activar el análisis de fugas, patrones y ahorro invertible.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form className="flex flex-col gap-3 sm:flex-row" onSubmit={handleIdentify}>
-                <Input
-                  type="email"
-                  value={emailInput}
-                  onChange={(event) => {
-                    setEmailInput(event.target.value)
-                    setPendingLoginEmail('')
-                    setLoginCode('')
-                  }}
-                  placeholder="tu@email.com"
-                />
-                {pendingLoginEmail ? (
-                  <Input
-                    inputMode="numeric"
-                    value={loginCode}
-                    onChange={(event) => setLoginCode(event.target.value)}
-                    placeholder="Código"
-                    autoComplete="one-time-code"
-                  />
-                ) : null}
-                <Button type="submit" disabled={isLoading}>
-                  {isLoading ? <Loader2 className="size-4 animate-spin" /> : null}
-                  {pendingLoginEmail ? 'Verificar' : 'Continuar'}
-                </Button>
-              </form>
-              <p className="mt-3 text-xs leading-relaxed text-muted-foreground" role="status">
-                {status}
-              </p>
-            </CardContent>
-          </Card>
+            <div className="flex items-center gap-1 md:flex-col">
+              <button
+                type="button"
+                aria-label={dashboardTheme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+                title={dashboardTheme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+                className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                onClick={toggleDashboardTheme}
+              >
+                {dashboardTheme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+              </button>
+              <button
+                type="button"
+                aria-label="Volver"
+                title="Volver"
+                className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                onClick={onBackHome}
+              >
+                <ArrowLeft className="size-4" />
+              </button>
+            </div>
+          </aside>
+
+          <section className="relative min-w-0 bg-background">
+            <div className="mx-auto flex min-h-full w-full max-w-[1080px] flex-col justify-center gap-8 px-4 py-8 sm:px-6 lg:py-12">
+              <header className="flex flex-col gap-3">
+                <Badge variant="secondary" className="w-fit">México y LATAM</Badge>
+                <div>
+                  <h1 className="text-3xl font-medium tracking-normal sm:text-4xl">Finanzas</h1>
+                  <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                    Entra para conectar bancos, SAT, Bitso, American Express y fuentes compatibles con Syncfy.
+                  </p>
+                </div>
+              </header>
+
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,380px)]">
+                <Card className={FINANCE_ARTIFACT_CARD_CLASS}>
+                  <CardHeader>
+                    <CardTitle>Entrar a FinovAI</CardTitle>
+                    <CardDescription>
+                      Usa tu correo para activar el análisis de fugas, patrones y ahorro invertible.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <form
+                      className={cn(
+                        'grid gap-3',
+                        pendingLoginEmail
+                          ? 'sm:grid-cols-[minmax(0,1fr)_minmax(120px,0.42fr)_auto]'
+                          : 'sm:grid-cols-[minmax(0,1fr)_auto]'
+                      )}
+                      onSubmit={handleIdentify}
+                    >
+                      <div className="flex min-w-0 flex-col gap-2">
+                        <Label htmlFor="dashboard-auth-email">Correo</Label>
+                        <Input
+                          id="dashboard-auth-email"
+                          type="email"
+                          value={emailInput}
+                          onChange={(event) => {
+                            setEmailInput(event.target.value)
+                            setPendingLoginEmail('')
+                            setLoginCode('')
+                          }}
+                          placeholder="tu@email.com"
+                          autoComplete="email"
+                        />
+                      </div>
+                      {pendingLoginEmail ? (
+                        <div className="flex min-w-0 flex-col gap-2">
+                          <Label htmlFor="dashboard-auth-code">Código</Label>
+                          <Input
+                            id="dashboard-auth-code"
+                            inputMode="numeric"
+                            value={loginCode}
+                            onChange={(event) => setLoginCode(event.target.value)}
+                            placeholder="000000"
+                            autoComplete="one-time-code"
+                          />
+                        </div>
+                      ) : null}
+                      <Button type="submit" className="self-end rounded-full px-5" disabled={isLoading}>
+                        {isLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+                        {pendingLoginEmail ? 'Verificar' : 'Continuar'}
+                      </Button>
+                    </form>
+                    <p className={cn(FINANCE_ARTIFACT_INSET_CLASS, 'mt-4 text-sm leading-relaxed text-muted-foreground')} role="status">
+                      {status}
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className={FINANCE_ARTIFACT_CARD_CLASS}>
+                  <CardHeader>
+                    <CardTitle>Fuentes compatibles</CardTitle>
+                    <CardDescription>
+                      Lectura financiera para cuentas personales y de pareja.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-2">
+                    {[
+                      { label: 'Bancos', body: 'Movimientos y saldos por Syncfy.', icon: Landmark },
+                      { label: 'SAT', body: 'Señales fiscales para contexto.', icon: FileSearch },
+                      { label: 'Bitso', body: 'Actividad cripto conectada.', icon: WalletCards },
+                    ].map((item) => {
+                      const Icon = item.icon
+
+                      return (
+                        <div key={item.label} className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-2xl bg-secondary/45 p-3 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]">
+                          <div className="flex size-8 items-center justify-center rounded-full bg-background text-primary">
+                            <Icon className="size-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium">{item.label}</p>
+                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.body}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </section>
         </div>
-      </section>
+      </div>
     </main>
   )
 }

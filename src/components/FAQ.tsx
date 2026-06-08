@@ -15,7 +15,7 @@ const FAQS = [
   },
   {
     question: '¿FinovAI me dice en qué invertir?',
-    answer: 'Primero te ayudamos a ordenar tu casa financiera. Cuando tengas margen real, nuestro asesor IA te orienta según tu perfil.',
+    answer: 'Primero te ayudamos a ordenar tu casa financiera. Cuando tengas margen real, nuestro asesor con IA te orienta según tu perfil.',
   },
   {
     question: '¿En qué países está disponible?',

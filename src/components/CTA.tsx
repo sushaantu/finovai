@@ -46,7 +46,7 @@ export default function CTA({ onSignupSuccess }: CTAProps) {
 
             {/* Badge */}
             <span className={`inline-flex items-center px-4 py-2 rounded-full glass text-[11px] uppercase tracking-widest text-[--color-text-dim] font-semibold mb-8 transition-all duration-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`} style={{ transitionDelay: '100ms' }}>
-              Empieza Hoy
+              Empieza hoy
             </span>
 
             {/* Headline */}
@@ -59,7 +59,7 @@ export default function CTA({ onSignupSuccess }: CTAProps) {
 
             {/* Description */}
             <p className={`text-lg text-[--color-text-muted] mb-12 max-w-lg mx-auto mt-6 transition-all duration-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`} style={{ transitionDelay: '400ms' }}>
-              Empieza ordenando tu casa financiera. Nuestro asesor IA te guiará en tu diagnóstico inicial.
+              Empieza ordenando tu casa financiera. Nuestro asesor con IA te guiará en tu diagnóstico inicial.
             </p>
 
             <div className={`mx-auto mt-8 flex justify-center transition-all duration-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`} style={{ transitionDelay: '500ms' }}>
@@ -73,7 +73,7 @@ export default function CTA({ onSignupSuccess }: CTAProps) {
 
             {/* Trust badges */}
             <div className={`flex flex-wrap justify-center gap-2 md:gap-6 mt-10 text-sm text-[--color-text-dim] transition-all duration-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`} style={{ transitionDelay: '700ms' }}>
-              <span className="px-4 py-2 rounded-full bg-white/5 border border-white/5">Con dato, no con vibes</span>
+              <span className="px-4 py-2 rounded-full bg-white/5 border border-white/5">Con datos, no con corazonadas</span>
               <span className="px-4 py-2 rounded-full bg-white/5 border border-white/5">Plan {">"} impulso</span>
               <span className="px-4 py-2 rounded-full bg-white/5 border border-white/5">Menos ruido, más proceso</span>
             </div>

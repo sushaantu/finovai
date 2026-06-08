@@ -49,10 +49,10 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
       {
         title: 'Qué datos usamos',
         body: [
-          'Datos de cuenta como email, estado de sesión y preferencias básicas.',
-          'Datos de acceso passwordless, como códigos de inicio de sesión, links de acceso, hashes de tokens y timestamps de expiración.',
+          'Datos de cuenta como correo, estado de sesión y preferencias básicas.',
+          'Datos de acceso sin contraseña, como códigos de inicio de sesión, enlaces de acceso, hashes de tokens y marcas de tiempo de expiración.',
           'Datos transaccionales obtenidos con tu autorización a través de Syncfy Open Data: comercios, fechas, importes, divisas, saldos y referencias disponibles.',
-          'Datos técnicos necesarios para operar el servicio, diagnosticar errores y dar soporte, incluyendo identificadores de Syncfy, credenciales agregadas, eventos webhook y rid de errores cuando aplique.',
+          'Datos técnicos necesarios para operar el servicio, diagnosticar errores y dar soporte, incluyendo identificadores de Syncfy, credenciales agregadas, eventos de webhook y RID de errores cuando aplique.',
         ],
       },
       {
@@ -66,7 +66,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         title: 'Con quién se comparte',
         body: [
           'Syncfy procesa la conexión con instituciones financieras y fiscales cuando decides vincular una cuenta.',
-          'Cloudflare puede procesar emails transaccionales de acceso, infraestructura, seguridad y entrega de contenido.',
+          'Cloudflare puede procesar correos transaccionales de acceso, infraestructura, seguridad y entrega de contenido.',
           'Podemos compartir información necesaria con proveedores de infraestructura, soporte y análisis que nos ayudan a operar FinovAI.',
           'Si eliges avanzar con una plataforma de inversión aliada, te mostraremos el contexto antes de enviar o capturar datos para ese tercero. FinovAI no ejecuta inversiones dentro de la app.',
         ],
@@ -132,8 +132,8 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         title: 'Modelo de conexión',
         body: [
           'Usamos el widget de Syncfy para crear o actualizar credenciales. FinovAI no debe pedirte credenciales bancarias fuera de ese flujo.',
-          'La API key de Syncfy se usa en backend. El navegador usa sesiones o tokens de alcance limitado para iniciar el flujo de conexión.',
-          'El acceso a cuenta está diseñado como passwordless: enviamos códigos o links por email y no almacenamos contraseñas.',
+          'La clave API de Syncfy se usa en el servidor. El navegador usa sesiones o tokens de alcance limitado para iniciar el flujo de conexión.',
+          'El acceso a la cuenta funciona sin contraseña: enviamos códigos o enlaces por correo y no almacenamos contraseñas.',
         ],
       },
       {
@@ -146,7 +146,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
       {
         title: 'Operación y soporte',
         body: [
-          'Guardamos identificadores técnicos de Syncfy, credenciales sincronizadas, eventos webhook y rid de errores para soporte, auditoría y sincronización.',
+          'Guardamos identificadores técnicos de Syncfy, credenciales sincronizadas, eventos de webhook y RID de errores para soporte, auditoría y sincronización.',
           'Los códigos de acceso expiran y se guardan como hashes para validar la sesión sin conservar el código en texto claro.',
           `Si detectas un problema de seguridad, escribe a ${CONTACT_EMAIL} con una descripción clara, pasos de reproducción y capturas si aplican.`,
         ],
@@ -165,8 +165,8 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
       {
         title: 'Uso actual',
         body: [
-          'Usamos almacenamiento local para recordar datos básicos de sesión, como el email usado para abrir el dashboard.',
-          'También podemos guardar un secreto de sesión del navegador para mantener tu dashboard autenticado. Si borras el almacenamiento local, tendrás que iniciar sesión de nuevo.',
+          'Usamos almacenamiento local para recordar datos básicos de sesión, como el correo usado para abrir el panel.',
+          'También podemos guardar un secreto de sesión del navegador para mantener tu panel autenticado. Si borras el almacenamiento local, tendrás que iniciar sesión de nuevo.',
           'Cloudflare y proveedores integrados pueden usar cookies o almacenamiento técnico para seguridad, entrega de contenido, sesión o prevención de abuso.',
         ],
       },
@@ -179,7 +179,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
       {
         title: 'Control del navegador',
         body: [
-          'Puedes borrar cookies y almacenamiento local desde tu navegador. Al hacerlo, algunas funciones como sesión, dashboard o conexión pueden requerir iniciar de nuevo.',
+          'Puedes borrar cookies y almacenamiento local desde tu navegador. Al hacerlo, algunas funciones como sesión, panel o conexión pueden requerir iniciar de nuevo.',
         ],
       },
     ],
@@ -261,7 +261,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         ],
       },
       {
-        title: 'Datos y open finance',
+        title: 'Datos y finanzas abiertas',
         body: [
           'Syncfy es la base de conexión de FinovAI para bancos, SAT y fuentes compatibles en México.',
           'Sobre esa capa, FinovAI crea análisis de patrones, contexto para el usuario y oportunidades de ahorro accionables.',
@@ -282,7 +282,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
     eyebrow: 'Empresa',
     title: 'Carreras',
     intro:
-      'Estamos construyendo FinovAI alrededor de producto financiero, datos transaccionales, seguridad y partnerships para México y Latinoamérica.',
+      'Estamos construyendo FinovAI alrededor de producto financiero, datos transaccionales, seguridad y alianzas para México y Latinoamérica.',
     sections: [
       {
         title: 'Qué tipo de trabajo hacemos',
@@ -294,8 +294,8 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
       {
         title: 'Perfiles que nos interesan',
         body: [
-          'Producto financiero, diseño de experiencias fintech, ingeniería full-stack, data/AI aplicada a transacciones y partnerships en LATAM.',
-          'Valoramos experiencia en fintech, open finance, datos sensibles, UX de confianza y distribución de productos financieros.',
+          'Producto financiero, diseño de experiencias fintech, ingeniería full-stack, datos e IA aplicada a transacciones y alianzas en LATAM.',
+          'Valoramos experiencia en fintech, finanzas abiertas, datos sensibles, UX de confianza y distribución de productos financieros.',
         ],
       },
     ],
@@ -312,7 +312,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         title: 'Resumen',
         body: [
           'FinovAI ayuda a usuarios en México y Latinoamérica a conectar transacciones vía Syncfy, detectar fugas de dinero y convertir ahorro potencial en rutas hacia inversión.',
-          'La propuesta combina open finance, análisis transaccional y alianzas con plataformas de inversión. FinovAI no es banco, no custodia dinero y no ejecuta inversiones dentro de la app.',
+          'La propuesta combina finanzas abiertas, análisis transaccional y alianzas con plataformas de inversión. FinovAI no es banco, no custodia dinero y no ejecuta inversiones dentro de la app.',
         ],
       },
       {

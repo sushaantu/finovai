@@ -30,13 +30,15 @@ FinovAI is a Spanish-language financial coaching platform built as a full-stack 
 |------------|---------|
 | **Cloudflare Workers** | Serverless compute (edge) |
 | **Cloudflare D1** | SQLite database (edge) |
-| **Cloudflare Workers AI** | LLM inference |
+| **Cloudflare AI Gateway + Anthropic Claude** | LLM inference, provider key routing, observability |
 | **Kapso WhatsApp API** | OTP delivery (2,000 free/month) |
 
 **AI Model:**
-- `@cf/meta/llama-3.1-8b-instruct` (Meta Llama 3.1 8B)
-- Runs on Cloudflare's edge network
-- 500 max tokens per response
+- `claude-opus-4-8` by default
+- Preferred production path: `CLOUDFLARE_AI_GATEWAY_ID` + `CLOUDFLARE_AI_GATEWAY_TOKEN`
+- Uses AI Gateway stored Anthropic provider key/BYOK when Gateway is configured
+- `ANTHROPIC_API_KEY` remains a direct-provider fallback
+- Override with `ANTHROPIC_CHAT_MODEL`
 
 ---
 
@@ -62,7 +64,7 @@ FinovAI is a Spanish-language financial coaching platform built as a full-stack 
 |---------|---------|
 | **Cloudflare Workers** | API + static hosting |
 | **Cloudflare D1** | Database |
-| **Cloudflare Workers AI** | LLM |
+| **Cloudflare AI Gateway** | LLM routing + observability |
 | **Custom Domain** | finov.ai |
 
 ---
@@ -119,8 +121,8 @@ FinovAI is a Spanish-language financial coaching platform built as a full-stack 
 │         │                  │                            │
 │         ▼                  ▼                            │
 │  ┌────────────┐    ┌─────────────┐    ┌────────────┐   │
-│  │  D1 (SQL)  │    │ Workers AI  │    │  Twilio    │   │
-│  │  Database  │    │ Llama 3.1   │    │ WhatsApp   │   │
+│  │  D1 (SQL)  │    │ AI Gateway  │    │  Twilio    │   │
+│  │  Database  │    │ Claude Opus │    │ WhatsApp   │   │
 │  └────────────┘    └─────────────┘    └────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -177,7 +179,7 @@ Vite proxy forwards `/api/*` requests to the worker.
 
 ### Phase 1: Foundation (Completed)
 - [x] Landing page design
-- [x] AI chat integration (Cloudflare Workers AI)
+- [x] AI chat integration (Anthropic Claude Opus)
 - [x] Database schema (D1)
 - [x] Phone + OTP authentication
 - [x] Conversation persistence
@@ -223,17 +225,16 @@ Vite proxy forwards `/api/*` requests to the worker.
 
 ## Model Considerations
 
-**Current:** Cloudflare Workers AI - Llama 3.1 8B
-- Pros: Free, low latency, no API keys
-- Cons: Smaller model, inconsistent Spanish
+**Current:** Anthropic Claude Opus through Cloudflare AI Gateway
+- Pros: Better reasoning, Spanish quality, centralized provider keys, Cloudflare logs/controls
+- Cons: Paid model usage; requires Gateway ID and run token in Worker env
 
-**Future Options:**
+**Fallback Options:**
 | Provider | Model | Pros | Cons |
 |----------|-------|------|------|
-| Cloudflare | Llama 3.3 70B | Larger, smarter | Slower, cost |
-| OpenAI | GPT-4o-mini | Great quality | API cost, latency |
-| Anthropic | Claude 3 Haiku | Fast, good Spanish | API cost |
-| Anthropic | Claude 3.5 Sonnet | Best quality | Higher cost |
+| Anthropic | Claude Sonnet | Lower cost | Weaker than Opus |
+| Anthropic | Claude Haiku | Fast, cheap | Less capable |
+| OpenAI | GPT-5 mini | Good quality | Different provider |
 
 ---
 
@@ -242,7 +243,7 @@ Vite proxy forwards `/api/*` requests to the worker.
 **Current (Free Tier):**
 - Cloudflare Workers: 100k requests/day free
 - Cloudflare D1: 5M rows read/day, 100k writes/day free
-- Workers AI: 10k neurons/day free
+- Cloudflare AI Gateway + Anthropic Claude Opus: paid model usage
 - Kapso WhatsApp: 2,000 messages/month free
 
 **Paid Services (when scaling):**
