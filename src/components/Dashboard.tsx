@@ -3023,23 +3023,12 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
           : hasReconnectRequiredCredential
             ? 'Reconexión requerida'
           : 'Sin cuenta conectada'
-    const contextDetail = hasTransactions || hasDraftRows
-      ? `${formatMonth(chatSummary.month)} · ${chatSummary.topSpendingCategory} · ${chatDataCoverageLabel}`
-      : hasConnectedInstitution
-        ? 'Syncfy está conectado. Cuando entren movimientos, el chat los usará como contexto.'
-        : hasReconnectRequiredCredential
-          ? 'Syncfy necesita una nueva autorización para volver a leer transacciones.'
-        : 'Conecta una cuenta para que el chat lea transacciones reales.'
-
     return (
       <div className="flex h-[calc(100vh-1.5rem)] min-h-[680px] min-w-0 flex-col bg-background sm:h-[calc(100vh-2.5rem)] lg:h-[calc(100vh-3.5rem)]">
         <header className="shrink-0 border-b border-border/70 px-4 py-4 sm:px-6">
           <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <h1 className="text-xl font-semibold tracking-normal sm:text-2xl">Chat financiero</h1>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
-                {contextDetail}
-              </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
               <Badge variant={hasTransactions || hasDraftRows ? 'secondary' : 'outline'}>
