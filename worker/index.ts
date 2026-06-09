@@ -174,6 +174,7 @@ interface NormalizedSyncfyTransaction {
   category: string
   description: string
   merchant: string
+  syncfyCredentialId: string | null
   raw: unknown
 }
 
@@ -1906,6 +1907,59 @@ async function loadSyncfyCredentialsForEmail(env: Env, email: string): Promise<S
   return result.results
 }
 
+async function deleteSyncfyCredentialForEmail(
+  env: Env,
+  email: string,
+  credentialId: string
+): Promise<{
+  credential: SyncfyCredentialRow | null
+  deletedTransactions: number
+  credentials: SyncfyCredentialRow[]
+}> {
+  await ensureSyncfyTables(env)
+  await ensureFinanceTables(env)
+
+  const credential = await env.DB.prepare(
+    `SELECT * FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ?`
+  )
+    .bind(email, credentialId)
+    .first<SyncfyCredentialRow>()
+
+  if (!credential) {
+    return {
+      credential: null,
+      deletedTransactions: 0,
+      credentials: await loadDisplaySyncfyCredentialsForEmail(env, email),
+    }
+  }
+
+  const transactionDelete = await env.DB.prepare(
+    `DELETE FROM transactions
+     WHERE email = ?
+       AND source = 'syncfy'
+       AND (
+         raw_source LIKE ?
+         OR id LIKE ?
+       )`
+  )
+    .bind(email, `%${credentialId}%`, `%${credentialId}%`)
+    .run()
+
+  await env.DB.prepare(
+    `DELETE FROM syncfy_credentials
+     WHERE email = ?
+       AND syncfy_credential_id = ?`
+  )
+    .bind(email, credentialId)
+    .run()
+
+  return {
+    credential,
+    deletedTransactions: Number(transactionDelete.meta?.changes || 0),
+    credentials: await loadDisplaySyncfyCredentialsForEmail(env, email),
+  }
+}
+
 function buildSyncfyCataloguePath(path: string, metadata: SyncfySiteMetadata): string {
   const params = new URLSearchParams()
   if (metadata.syncfySiteId) params.set('id_site', metadata.syncfySiteId)
@@ -2522,6 +2576,10 @@ export function normalizeSyncfyTransaction(raw: unknown, credentialId: string | 
     'syncfy'
   )
   const stableId = externalId || `${credentialId || 'credential'}-${date}-${amountSource}-${description}-${index}`
+  const rawWithCredential = {
+    ...record,
+    _finovaiCredentialId: credentialId,
+  }
 
   return {
     id: `syncfy:${stableId}`.slice(0, 512),
@@ -2532,7 +2590,8 @@ export function normalizeSyncfyTransaction(raw: unknown, credentialId: string | 
     category,
     description: description || 'Movimiento conectado',
     merchant: merchant || 'Conexión bancaria',
-    raw,
+    syncfyCredentialId: credentialId,
+    raw: rawWithCredential,
   }
 }
 
@@ -6577,6 +6636,39 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         message: reset.recreated
           ? 'Conexión anterior limpiada. Puedes elegir institución de nuevo.'
           : 'Conexión local limpiada. Puedes intentar elegir institución de nuevo.',
+      })
+    }
+
+    if (url.pathname === '/api/syncfy/credential' && request.method === 'DELETE') {
+      const body = (await request.json()) as {
+        email?: string
+        credentialId?: string
+      }
+      const normalizedEmail = normalizeSignupEmail(body.email)
+      const credentialId = typeof body.credentialId === 'string' ? body.credentialId.trim() : ''
+      if (!normalizedEmail) {
+        return error('Correo inválido')
+      }
+      if (!credentialId) {
+        return error('Credencial inválida')
+      }
+      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      if (!access.ok) return error(access.message, access.status)
+
+      const deletion = await deleteSyncfyCredentialForEmail(env, normalizedEmail, credentialId)
+      if (!deletion.credential) {
+        return error('No encontramos esa institución conectada.', 404)
+      }
+
+      const dashboard = await getFinanceDashboard(env, normalizedEmail)
+      return json({
+        ...dashboard,
+        success: true,
+        email: normalizedEmail,
+        credentialId,
+        credentials: deletion.credentials.map(syncfyCredentialToApi),
+        deletedTransactions: deletion.deletedTransactions,
+        message: 'Institución eliminada.',
       })
     }
 

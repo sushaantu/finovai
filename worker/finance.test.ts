@@ -85,6 +85,8 @@ interface CartolaImportResponse {
 }
 
 interface SyncfyCredentialsApiResponse {
+  success?: boolean
+  deletedTransactions?: number
   credentials: Array<{
     syncfyCredentialId: string
     siteName: string | null
@@ -302,6 +304,30 @@ class MockD1 {
       return { success: true, meta: { last_row_id: 1 } }
     }
 
+    if (sql.includes('DELETE FROM transactions') && sql.includes("source = 'syncfy'")) {
+      const [email, rawPattern, idPattern] = params
+      const rawNeedle = String(rawPattern).replaceAll('%', '')
+      const idNeedle = String(idPattern).replaceAll('%', '')
+      const before = this.transactions.length
+      this.transactions = this.transactions.filter((item) => {
+        if (item.email !== email || item.source !== 'syncfy') return true
+
+        const rawSource = String(item.raw_source || item.rawSource || '')
+        const id = String(item.id || '')
+        return !rawSource.includes(rawNeedle) && !id.includes(idNeedle)
+      })
+      return { success: true, meta: { changes: before - this.transactions.length } }
+    }
+
+    if (sql.includes('DELETE FROM syncfy_credentials')) {
+      const [email, credentialId] = params
+      const before = this.syncfyCredentials.length
+      this.syncfyCredentials = this.syncfyCredentials.filter(
+        (item) => !(item.email === email && item.syncfy_credential_id === credentialId)
+      )
+      return { success: true, meta: { changes: before - this.syncfyCredentials.length } }
+    }
+
     if (sql.includes('UPDATE syncfy_credentials')) {
       const credentialId = String(params.at(-1))
       const email = String(params.at(-2))
@@ -443,6 +469,13 @@ class MockD1 {
     if (sql.includes('SELECT * FROM leads WHERE email = ?')) {
       const [email] = params
       return (this.leads.get(String(email)) || null) as T | null
+    }
+
+    if (sql.includes('SELECT * FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ?')) {
+      const [email, credentialId] = params
+      return (this.syncfyCredentials.find(
+        (item) => item.email === email && item.syncfy_credential_id === credentialId
+      ) || null) as T | null
     }
 
     if (sql.includes('SELECT client_secret_hash FROM dashboard_sessions WHERE email = ?')) {
@@ -1222,6 +1255,86 @@ test('syncfy credentials endpoint returns cached rows without external catalogue
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('syncfy credential delete removes one connection and its imported transactions', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push(
+    {
+      id: 'credential-row-1',
+      email: 'user@example.com',
+      syncfy_user_id: 'syncfy-user-1',
+      syncfy_credential_id: 'credential-1',
+      syncfy_site_id: 'bank-1',
+      site_name: 'BBVA México',
+      status: 'synced',
+      last_successful_sync_at: '2026-06-02T00:00:00Z',
+      last_pull_at: '2026-06-02T00:00:00Z',
+      last_rid: null,
+      raw_json: null,
+      created_at: '2026-06-02T00:00:00Z',
+      updated_at: '2026-06-02T00:00:00Z',
+    },
+    {
+      id: 'credential-row-2',
+      email: 'user@example.com',
+      syncfy_user_id: 'syncfy-user-1',
+      syncfy_credential_id: 'credential-2',
+      syncfy_site_id: 'bank-2',
+      site_name: 'American Express',
+      status: 'synced',
+      last_successful_sync_at: '2026-06-02T00:00:00Z',
+      last_pull_at: '2026-06-02T00:00:00Z',
+      last_rid: null,
+      raw_json: null,
+      created_at: '2026-06-02T00:00:00Z',
+      updated_at: '2026-06-02T00:00:00Z',
+    }
+  )
+  env.DB.transactions.push(
+    {
+      ...sampleTransaction({
+        id: 'syncfy:credential-1:restaurant',
+        source: 'syncfy',
+        description: 'RESTAURANTE UNO',
+        merchant: 'RESTAURANTE UNO',
+      }),
+      raw_source: JSON.stringify({ _finovaiCredentialId: 'credential-1', description: 'RESTAURANTE UNO' }),
+    },
+    {
+      ...sampleTransaction({
+        id: 'syncfy:credential-2:grocery',
+        source: 'syncfy',
+        description: 'SUPER DOS',
+        merchant: 'SUPER DOS',
+      }),
+      raw_source: JSON.stringify({ _finovaiCredentialId: 'credential-2', description: 'SUPER DOS' }),
+    },
+    sampleTransaction({ id: 'manual:rent', source: 'manual', description: 'Renta' })
+  )
+
+  const response = await worker.fetch(new Request('http://local.test/api/syncfy/credential', {
+    method: 'DELETE',
+    body: JSON.stringify({
+      email: 'user@example.com',
+      credentialId: 'credential-1',
+    }),
+  }), env)
+  const data = await response.json() as SyncfyCredentialsApiResponse & DashboardResponse
+
+  expect(response.status).toBe(200)
+  expect(data.success).toBe(true)
+  expect(data.deletedTransactions).toBe(1)
+  expect(data.credentials.map((credential) => credential.syncfyCredentialId)).toEqual(['credential-2'])
+  expect(env.DB.syncfyCredentials.map((credential) => credential.syncfy_credential_id)).toEqual(['credential-2'])
+  expect(env.DB.transactions.map((transaction) => transaction.id)).toEqual([
+    'syncfy:credential-2:grocery',
+    'manual:rent',
+  ])
+  expect(data.transactions.map((transaction) => transaction.id).sort()).toEqual([
+    'manual:rent',
+    'syncfy:credential-2:grocery',
+  ].sort())
 })
 
 test('syncfy refresh follows saved job status when direct transactions are still empty', async () => {

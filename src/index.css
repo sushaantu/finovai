@@ -529,83 +529,81 @@ body {
 
 .finovai-dashboard {
   --background: #ffffff;
-  --foreground: #161713;
+  --foreground: #0a1628;
   --card: #ffffff;
-  --card-foreground: #161713;
+  --card-foreground: #0a1628;
   --popover: #ffffff;
-  --popover-foreground: #161713;
-  --primary: #287244;
+  --popover-foreground: #0a1628;
+  --primary: #2b7ae8;
   --primary-foreground: #ffffff;
-  --secondary: #f3f5f1;
-  --secondary-foreground: #1f241d;
-  --muted: #f7f8f5;
-  --muted-foreground: #6b6f65;
-  --accent: #eef7ef;
-  --accent-foreground: #1d2a20;
-  --border: #e9ebe4;
-  --input: #e6e9e1;
-  --ring: #287244;
-  --chart-1: #1f5f31;
-  --chart-2: #3f964f;
-  --chart-3: #70c982;
-  --chart-4: #a7dfb3;
-  --chart-5: #8ec6f2;
+  --secondary: #f4f6fa;
+  --secondary-foreground: #0a1628;
+  --muted: #f7f9fc;
+  --muted-foreground: #657289;
+  --accent: #eef6ff;
+  --accent-foreground: #0a1628;
+  --border: rgba(10, 22, 40, 0.08);
+  --input: rgba(10, 22, 40, 0.14);
+  --ring: #2b7ae8;
+  --chart-1: #2b7ae8;
+  --chart-2: #00d4aa;
+  --chart-3: #7c5cfa;
+  --chart-4: #f59e0b;
+  --chart-5: #ef4444;
   --sidebar: #ffffff;
-  --sidebar-foreground: #161713;
-  --sidebar-primary: #287244;
+  --sidebar-foreground: #0a1628;
+  --sidebar-primary: #2b7ae8;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f3f5f1;
-  --sidebar-accent-foreground: #1f241d;
-  --sidebar-border: #e9ebe4;
-  --sidebar-ring: #287244;
-  --color-spending: #6fb579;
-  --color-income: #91c8f3;
-  background:
-    radial-gradient(circle at 0% 100%, rgba(63, 188, 143, 0.55), transparent 35%),
-    radial-gradient(circle at 100% 6%, rgba(242, 244, 205, 0.78), transparent 32%),
-    radial-gradient(circle at 86% 44%, rgba(203, 240, 246, 0.76), transparent 34%),
-    linear-gradient(125deg, #dfffe9 0%, #d9fbf2 42%, #fbfae5 100%);
+  --sidebar-accent: #f4f6fa;
+  --sidebar-accent-foreground: #0a1628;
+  --sidebar-border: rgba(10, 22, 40, 0.08);
+  --sidebar-ring: #2b7ae8;
+  --color-spending: #2b7ae8;
+  --color-income: #00d4aa;
+  background-color: #fafbfc;
+  background-image:
+    linear-gradient(180deg, rgba(43, 122, 232, 0.07) 0%, rgba(250, 251, 252, 0) 38%),
+    linear-gradient(110deg, rgba(0, 212, 170, 0.055) 0%, rgba(244, 246, 250, 0) 62%);
   font-family: var(--font-sans);
 }
 
 .finovai-dashboard.dark {
-  --background: #0b0d0b;
-  --foreground: #f6f7f3;
-  --card: #131613;
-  --card-foreground: #f6f7f3;
-  --popover: #171a16;
-  --popover-foreground: #f6f7f3;
-  --primary: #72d786;
-  --primary-foreground: #06200d;
-  --secondary: #1b201b;
-  --secondary-foreground: #edf1e9;
-  --muted: #171b17;
-  --muted-foreground: #9aa196;
-  --accent: #1d2c20;
-  --accent-foreground: #eaf6eb;
+  --background: #07111f;
+  --foreground: #f7fbff;
+  --card: #0a1628;
+  --card-foreground: #f7fbff;
+  --popover: #0d1a2f;
+  --popover-foreground: #f7fbff;
+  --primary: #79b4ff;
+  --primary-foreground: #07111f;
+  --secondary: #101d31;
+  --secondary-foreground: #f7fbff;
+  --muted: #0d182a;
+  --muted-foreground: #a7b5cc;
+  --accent: #0d2540;
+  --accent-foreground: #eaf4ff;
   --border: rgba(255, 255, 255, 0.11);
   --input: rgba(255, 255, 255, 0.15);
-  --ring: #72d786;
-  --chart-1: #72d786;
-  --chart-2: #47a861;
-  --chart-3: #256b39;
-  --chart-4: #a3e4b0;
-  --chart-5: #89bff1;
-  --sidebar: #0b0d0b;
-  --sidebar-foreground: #f6f7f3;
-  --sidebar-primary: #72d786;
-  --sidebar-primary-foreground: #06200d;
-  --sidebar-accent: #1b201b;
-  --sidebar-accent-foreground: #edf1e9;
+  --ring: #79b4ff;
+  --chart-1: #79b4ff;
+  --chart-2: #00d4aa;
+  --chart-3: #a28bff;
+  --chart-4: #f7b955;
+  --chart-5: #ff7a86;
+  --sidebar: #07111f;
+  --sidebar-foreground: #f7fbff;
+  --sidebar-primary: #79b4ff;
+  --sidebar-primary-foreground: #07111f;
+  --sidebar-accent: #101d31;
+  --sidebar-accent-foreground: #f7fbff;
   --sidebar-border: rgba(255, 255, 255, 0.11);
-  --sidebar-ring: #72d786;
-  --color-spending: #72d786;
-  --color-income: #89bff1;
-  background:
-    radial-gradient(circle at 0% 100%, rgba(43, 141, 101, 0.26), transparent 36%),
-    radial-gradient(circle at 100% 6%, rgba(197, 213, 147, 0.12), transparent 32%),
-    radial-gradient(circle at 86% 44%, rgba(76, 156, 176, 0.16), transparent 34%),
-    linear-gradient(125deg, #07100b 0%, #0c1412 45%, #11120c 100%);
+  --sidebar-ring: #79b4ff;
+  --color-spending: #79b4ff;
+  --color-income: #00d4aa;
+  background-color: #07111f;
+  background-image:
+    linear-gradient(180deg, rgba(43, 122, 232, 0.16) 0%, rgba(7, 17, 31, 0) 44%),
+    linear-gradient(115deg, rgba(0, 212, 170, 0.1) 0%, rgba(7, 17, 31, 0) 58%);
   font-family: var(--font-sans);
 }
 

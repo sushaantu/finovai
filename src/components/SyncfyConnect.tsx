@@ -7,8 +7,10 @@ import {
   CheckCircle2,
   Landmark,
   Loader2,
+  MoreHorizontal,
   RefreshCw,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -20,6 +22,14 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { getDashboardAuthHeaders } from '@/lib/dashboard-session'
 
@@ -81,6 +91,14 @@ interface SyncfyRefreshResponse {
   transactions?: unknown[]
   pendingTransactions?: boolean
   syncfy?: SyncfyImportSummary | null
+}
+
+interface SyncfyCredentialDeleteResponse {
+  success: boolean
+  credentials: SyncfyCredential[]
+  message?: string
+  deletedTransactions?: number
+  transactions?: unknown[]
 }
 
 type WidgetMode = 'create' | 'update'
@@ -237,10 +255,13 @@ export function SyncfyConnect({
   const [message, setMessage] = useState('Ve a Conectar cuenta y sigue los pasos para vincular una institución.')
   const [isLoading, setIsLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [openCredentialMenuId, setOpenCredentialMenuId] = useState<string | null>(null)
+  const [deleteCredential, setDeleteCredential] = useState<SyncfyCredential | null>(null)
+  const [isDeletingCredentialId, setIsDeletingCredentialId] = useState<string | null>(null)
   const [widgetRunId, setWidgetRunId] = useState(0)
 
   const hasCredentials = credentials.length > 0
-  const isBusy = isLoading || isRefreshing
+  const isBusy = isLoading || isRefreshing || Boolean(isDeletingCredentialId)
 
   const applyCredentials = (nextCredentials: SyncfyCredential[]) => {
     setCredentials(nextCredentials)
@@ -430,9 +451,27 @@ export function SyncfyConnect({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.token, widgetRunId])
 
+  useEffect(() => {
+    if (!openCredentialMenuId) return
+
+    const closeMenuOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Element && target.closest('[data-syncfy-credential-menu-root="true"]')) {
+        return
+      }
+      setOpenCredentialMenuId(null)
+    }
+
+    window.addEventListener('pointerdown', closeMenuOnOutsidePointer)
+    return () => {
+      window.removeEventListener('pointerdown', closeMenuOnOutsidePointer)
+    }
+  }, [openCredentialMenuId])
+
   async function createSession(mode: WidgetMode, credentialId: string | null, showLoading = true) {
     if (showLoading) {
       setIsLoading(true)
+      setOpenCredentialMenuId(null)
       clearTransactionRetry()
       setMessage(mode === 'update'
         ? 'Abriendo el formulario para actualizar el acceso.'
@@ -475,6 +514,7 @@ export function SyncfyConnect({
 
   async function refreshTransactions(credentialId?: string, retryAttempt = 0) {
     if (retryAttempt === 0) clearTransactionRetry()
+    setOpenCredentialMenuId(null)
     setIsRefreshing(true)
     setMessage(retryAttempt > 0
       ? `Los movimientos siguen preparándose. Reintentando (${retryAttempt}/6).`
@@ -516,7 +556,44 @@ export function SyncfyConnect({
     }
   }
 
+  async function deleteCredentialConnection() {
+    if (!deleteCredential) return
+
+    const credentialId = deleteCredential.syncfyCredentialId
+    const credentialLabel = getCredentialLabel(deleteCredential)
+    setIsDeletingCredentialId(credentialId)
+    setOpenCredentialMenuId(null)
+    setMessage(`Eliminando ${credentialLabel}.`)
+
+    try {
+      const response = await apiJson<SyncfyCredentialDeleteResponse>('/api/syncfy/credential', {
+        method: 'DELETE',
+        body: JSON.stringify({
+          email,
+          credentialId,
+        }),
+      })
+      applyCredentials(response.credentials)
+      onSynced?.(response)
+      setDeleteCredential(null)
+
+      const deletedCount = typeof response.deletedTransactions === 'number'
+        ? ` Movimientos retirados: ${response.deletedTransactions}.`
+        : ''
+      const nextMessage = `${response.message || 'Institución eliminada.'}${deletedCount}`
+      setMessage(nextMessage)
+      onStatus?.(nextMessage)
+    } catch (error) {
+      const nextMessage = error instanceof Error ? error.message : 'No pudimos eliminar la institución.'
+      setMessage(nextMessage)
+      onStatus?.(nextMessage)
+    } finally {
+      setIsDeletingCredentialId(null)
+    }
+  }
+
   return (
+    <>
     <Card className={FINANCE_CONNECT_CARD_CLASS}>
       <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
@@ -560,49 +637,107 @@ export function SyncfyConnect({
 
         {credentials.length > 0 ? (
           <div className="grid gap-2">
-            {credentials.map((credential) => (
-              <div
-                key={credential.syncfyCredentialId}
-                className={cn(FINANCE_CONNECT_INSET_CLASS, 'flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between')}
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)]">
-                    {getCredentialLogoText(credential)}
+            {credentials.map((credential) => {
+              const menuId = `credential-menu-${credential.syncfyCredentialId}`
+              const needsReconnect = credential.needsReconnect || credential.status === 'needs_reconnect'
+              const primaryActionLabel = needsReconnect ? 'Reconectar' : 'Sincronizar'
+              const primaryActionDisabled = isBusy || (!needsReconnect && !credential.ready)
+
+              return (
+                <div
+                  key={credential.syncfyCredentialId}
+                  className={cn(FINANCE_CONNECT_INSET_CLASS, 'flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between')}
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)]">
+                      {getCredentialLogoText(credential)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{getCredentialLabel(credential)}</p>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">Institución conectada</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {getCredentialStatusText(credential)}
+                      </p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{getCredentialLabel(credential)}</p>
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">Institución conectada</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {getCredentialStatusText(credential)}
-                    </p>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Button
+                      type="button"
+                      variant={needsReconnect ? 'outline' : 'ghost'}
+                      size="sm"
+                      onClick={() => needsReconnect
+                        ? void createSession('update', credential.syncfyCredentialId)
+                        : void refreshTransactions(credential.syncfyCredentialId, 0)}
+                      disabled={primaryActionDisabled}
+                    >
+                      {isRefreshing && !needsReconnect
+                        ? <Loader2 className="size-4 animate-spin" />
+                        : <RefreshCw data-icon="inline-start" />}
+                      {primaryActionLabel}
+                    </Button>
+                    <div className="relative" data-syncfy-credential-menu-root="true">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Más opciones para ${getCredentialLabel(credential)}`}
+                        aria-haspopup="menu"
+                        aria-expanded={openCredentialMenuId === credential.syncfyCredentialId}
+                        aria-controls={menuId}
+                        onPointerDown={(event) => {
+                          event.preventDefault()
+                          setOpenCredentialMenuId((current) => (
+                            current === credential.syncfyCredentialId ? null : credential.syncfyCredentialId
+                          ))
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Enter' && event.key !== ' ') return
+                          event.preventDefault()
+                          setOpenCredentialMenuId((current) => (
+                            current === credential.syncfyCredentialId ? null : credential.syncfyCredentialId
+                          ))
+                        }}
+                        disabled={isBusy}
+                      >
+                        <MoreHorizontal className="size-4" />
+                      </Button>
+                      {openCredentialMenuId === credential.syncfyCredentialId ? (
+                        <div
+                          id={menuId}
+                          role="menu"
+                          className="absolute right-0 top-[calc(100%+0.35rem)] z-20 grid min-w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                        >
+                          <div className="px-3 py-2 text-xs text-muted-foreground">
+                            Estado: {credential.status || 'Pendiente'}
+                          </div>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
+                            onClick={() => void createSession('update', credential.syncfyCredentialId)}
+                          >
+                            <RefreshCw className="size-4" />
+                            Actualizar acceso
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10 focus:bg-destructive/10 focus:outline-none"
+                            onClick={() => {
+                              setOpenCredentialMenuId(null)
+                              setDeleteCredential(credential)
+                            }}
+                          >
+                            <Trash2 className="size-4" />
+                            Eliminar institución
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-                <div className="flex shrink-0 flex-wrap gap-2">
-                  <Badge variant={credential.ready ? 'secondary' : 'outline'}>
-                    {credential.status || 'Pendiente'}
-                  </Badge>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void refreshTransactions(credential.syncfyCredentialId, 0)}
-                    disabled={isBusy || credential.needsReconnect || !credential.ready}
-                  >
-                    {isRefreshing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw data-icon="inline-start" />}
-                    Sincronizar
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void createSession('update', credential.syncfyCredentialId)}
-                    disabled={isBusy}
-                  >
-                    {credential.needsReconnect || credential.status === 'needs_reconnect' ? 'Reconectar' : 'Actualizar acceso'}
-                  </Button>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         ) : null}
 
@@ -651,5 +786,42 @@ export function SyncfyConnect({
         ) : null}
       </CardContent>
     </Card>
+    <Dialog
+      open={Boolean(deleteCredential)}
+      onOpenChange={(open) => {
+        if (!open && !isDeletingCredentialId) {
+          setDeleteCredential(null)
+        }
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Eliminar institución</DialogTitle>
+          <DialogDescription>
+            Se eliminará {deleteCredential ? getCredentialLabel(deleteCredential) : 'esta institución'} de FinovAI y se retirarán los movimientos importados desde esa conexión.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setDeleteCredential(null)}
+            disabled={Boolean(isDeletingCredentialId)}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => void deleteCredentialConnection()}
+            disabled={Boolean(isDeletingCredentialId)}
+          >
+            {isDeletingCredentialId ? <Loader2 className="size-4 animate-spin" /> : <Trash2 data-icon="inline-start" />}
+            Eliminar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }

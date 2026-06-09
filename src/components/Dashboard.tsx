@@ -369,6 +369,7 @@ interface HouseholdResponse {
 
 type AnalysisTransaction = Pick<FinanceTransaction, 'date' | 'type' | 'amount' | 'currency' | 'category' | 'description'>
 
+const INVESTMENT_CATEGORY = 'Inversión'
 const EXPENSE_CATEGORIES = [
   'Comida fuera',
   'Supermercado',
@@ -382,12 +383,12 @@ const EXPENSE_CATEGORIES = [
   'Transferencias',
   'Retiros',
   'Deuda',
-  'Inversión',
+  INVESTMENT_CATEGORY,
   'Impuestos',
   'Otro',
 ]
 
-const INCOME_CATEGORIES = ['Sueldo', 'Freelance', 'Inversión', 'Reembolso', 'Venta', 'Otro ingreso']
+const INCOME_CATEGORIES = ['Sueldo', 'Freelance', INVESTMENT_CATEGORY, 'Reembolso', 'Venta', 'Otro ingreso']
 const DISCRETIONARY_CATEGORIES = new Set(['Comida fuera', 'Suscripciones', 'Ocio', 'Transporte'])
 const DASHBOARD_CHAT_SUGGESTIONS = [
   '¿Dónde está mi fuga principal?',
@@ -482,10 +483,10 @@ const CHART_COLORS = [
   'var(--chart-5)',
   'var(--primary)',
 ]
-const FINANCE_APP_SHELL_CLASS = 'mx-auto grid h-[calc(100vh-1.5rem)] w-full max-w-[1760px] overflow-hidden rounded-[1.85rem] border border-border/70 bg-background shadow-[0_30px_90px_rgba(34,73,58,0.14)] sm:h-[calc(100vh-2.5rem)] md:grid-cols-[236px_minmax(0,1fr)] lg:h-[calc(100vh-3.5rem)] dark:shadow-[0_30px_90px_rgba(0,0,0,0.38)]'
+const FINANCE_APP_SHELL_CLASS = 'mx-auto grid h-[calc(100vh-1.5rem)] w-full max-w-[1760px] overflow-hidden rounded-[1.85rem] border border-border/70 bg-background shadow-[0_30px_90px_rgba(10,22,40,0.14)] sm:h-[calc(100vh-2.5rem)] md:grid-cols-[236px_minmax(0,1fr)] lg:h-[calc(100vh-3.5rem)] dark:shadow-[0_30px_90px_rgba(0,0,0,0.44)]'
 const FINANCE_ARTIFACT_CARD_CLASS = 'min-w-0 rounded-[1.45rem] border-border/70 bg-card py-5 shadow-[0_16px_45px_rgba(20,33,27,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.26)]'
-const FINANCE_ARTIFACT_INSET_CLASS = 'rounded-2xl bg-secondary/45 p-3 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]'
-const FINANCE_ARTIFACT_TILE_CLASS = 'rounded-2xl bg-secondary/45 p-4 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]'
+const FINANCE_ARTIFACT_INSET_CLASS = 'min-w-0 rounded-2xl bg-secondary/45 p-3 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]'
+const FINANCE_ARTIFACT_TILE_CLASS = 'min-w-0 rounded-2xl bg-secondary/45 p-4 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]'
 const FINANCE_SCROLLBAR_CLASS = 'finovai-scrollbar [scrollbar-width:thin] [scrollbar-color:var(--border)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-corner]:bg-transparent [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/40'
 const CASHFLOW_CHART_CONFIG = {
   spending: {
@@ -759,6 +760,12 @@ function getDashboardPreviewEnabled() {
   if (typeof window === 'undefined') return false
   if (!import.meta.env.DEV) return false
   return new URLSearchParams(window.location.search).get('preview') === 'dashboard'
+}
+
+function getDashboardLoadingPreviewEnabled() {
+  if (typeof window === 'undefined') return false
+  if (!import.meta.env.DEV) return false
+  return new URLSearchParams(window.location.search).get('preview') === 'loading'
 }
 
 function normalizeDashboardPath(path: string | null | undefined): string {
@@ -1373,7 +1380,7 @@ function createPreviewDashboardResponse(email: string): DashboardResponse {
     createPreviewTransaction('preview-12', '2026-06-11', 'Transporte', 'Didi', 360),
     createPreviewTransaction('preview-13', '2026-06-12', 'Comida fuera', 'Starbucks', 195),
     createPreviewTransaction('preview-14', '2026-06-13', 'Impuestos', 'SAT pago provisional', 3800),
-    createPreviewTransaction('preview-15', '2026-06-14', 'Inversión', 'Bitso compra recurrente', 2500, 'income'),
+    createPreviewTransaction('preview-15', '2026-06-14', INVESTMENT_CATEGORY, 'Bitso compra recurrente', 2500),
   ].map((transaction) => ({ ...transaction, email }))
 
   const summary = buildLocalSummary(transactions)
@@ -1388,6 +1395,7 @@ function createPreviewDashboardResponse(email: string): DashboardResponse {
       'Comida fuera': 1800,
       Suscripciones: 900,
       Transporte: 1800,
+      [INVESTMENT_CATEGORY]: 3000,
       Impuestos: 3500,
     },
   }
@@ -1809,12 +1817,13 @@ function buildDashboardChatReasoning(
 
 export default function Dashboard({ email, initialNotice, initialPath, onBackHome, onLogout }: DashboardProps) {
   const previewEnabled = getDashboardPreviewEnabled()
-  const previewEmail = previewEnabled ? 'preview@finov.ai' : null
+  const loadingPreviewEnabled = getDashboardLoadingPreviewEnabled()
+  const previewEmail = previewEnabled || loadingPreviewEnabled ? 'preview@finov.ai' : null
   const [activeEmail, setActiveEmail] = useState<string | null>(() => getStoredEmail(email) || previewEmail)
   const [emailInput, setEmailInput] = useState(() => getStoredEmail(email) || previewEmail || '')
   const [pendingLoginEmail, setPendingLoginEmail] = useState('')
   const [loginCode, setLoginCode] = useState('')
-  const [data, setData] = useState<DashboardResponse | null>(() => previewEmail ? createPreviewDashboardResponse(previewEmail) : null)
+  const [data, setData] = useState<DashboardResponse | null>(() => previewEnabled && previewEmail ? createPreviewDashboardResponse(previewEmail) : null)
   const [manualForm, setManualForm] = useState<ManualForm>(() => createManualForm())
   const [manualDrafts, setManualDrafts] = useState<ManualDraft[]>([])
   const [draftRows, setDraftRows] = useState<CartolaDraftRow[]>([])
@@ -1831,7 +1840,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [activePage, setActivePageState] = useState<DashboardPage>(() => getDashboardPageFromPath(initialPath))
   const [dashboardTheme, setDashboardTheme] = useState<DashboardTheme>(() => getStoredDashboardTheme())
   const [syncfyCredentials, setSyncfyCredentials] = useState<SyncfyCredential[]>(() => previewEnabled ? createPreviewSyncfyCredentials() : [])
-  const [isLoadingCredentials, setIsLoadingCredentials] = useState(() => Boolean(getStoredEmail(email)) && !previewEnabled)
+  const [isLoadingCredentials, setIsLoadingCredentials] = useState(() => Boolean(getStoredEmail(email)) && !previewEnabled && !loadingPreviewEnabled)
   const [spouseEmail, setSpouseEmail] = useState('')
   const [householdInvites, setHouseholdInvites] = useState<HouseholdInvite[]>([])
   const [isInvitingSpouse, setIsInvitingSpouse] = useState(false)
@@ -1862,8 +1871,8 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     setActivePageState(nextPage)
     if (typeof window === 'undefined') return
 
-    const nextPath = previewEnabled && import.meta.env.DEV
-      ? `${DASHBOARD_PAGE_PATHS[nextPage]}?preview=dashboard`
+    const nextPath = (previewEnabled || loadingPreviewEnabled) && import.meta.env.DEV
+      ? `${DASHBOARD_PAGE_PATHS[nextPage]}?preview=${previewEnabled ? 'dashboard' : 'loading'}`
       : DASHBOARD_PAGE_PATHS[nextPage]
     if (window.location.pathname !== nextPath) {
       window.history.pushState({}, '', nextPath)
@@ -1893,6 +1902,11 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
 
   useEffect(() => {
     let cancelled = false
+    if (loadingPreviewEnabled) {
+      setIsLoading(false)
+      setStatus('Vista local de carga para revisar el panel financiero.')
+      return
+    }
     if (previewEnabled) {
       const nextEmail = activeEmail || previewEmail || 'preview@finov.ai'
       setData(createPreviewDashboardResponse(nextEmail))
@@ -1927,10 +1941,15 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     return () => {
       cancelled = true
     }
-  }, [activeEmail, hasConnectedInstitution, hasReconnectRequiredCredential, previewEmail, previewEnabled])
+  }, [activeEmail, hasConnectedInstitution, hasReconnectRequiredCredential, loadingPreviewEnabled, previewEmail, previewEnabled])
 
   useEffect(() => {
     let cancelled = false
+    if (loadingPreviewEnabled) {
+      setSyncfyCredentials([])
+      setIsLoadingCredentials(false)
+      return
+    }
     if (previewEnabled) {
       setSyncfyCredentials(createPreviewSyncfyCredentials())
       setIsLoadingCredentials(false)
@@ -1957,10 +1976,14 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     return () => {
       cancelled = true
     }
-  }, [activeEmail, previewEnabled])
+  }, [activeEmail, loadingPreviewEnabled, previewEnabled])
 
   useEffect(() => {
     let cancelled = false
+    if (loadingPreviewEnabled) {
+      setHouseholdInvites([])
+      return
+    }
     if (previewEnabled) {
       setHouseholdInvites([])
       return
@@ -1981,7 +2004,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     return () => {
       cancelled = true
     }
-  }, [activeEmail, previewEnabled])
+  }, [activeEmail, loadingPreviewEnabled, previewEnabled])
 
   const transactions = data?.transactions || EMPTY_TRANSACTIONS
   const rawSummary = data?.summary || EMPTY_SUMMARY
@@ -2083,6 +2106,23 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const categoryPageAdvice = categoryPeriodFilter === 'all'
     ? 'Vista histórica. Cambia a este mes para comparar contra presupuesto y mes anterior.'
     : selectedCategoryAnalysis.summaryAdvice
+  const investmentCategoryAmount = roundUiMoney(
+    categoryBreakdown.find((item) => item.category === INVESTMENT_CATEGORY)?.total || 0
+  )
+  const investmentCategoryBudget = categoryPeriodFilter === 'all'
+    ? null
+    : selectedCategoryAnalysis.categories.find((item) => item.category === INVESTMENT_CATEGORY)?.budget ||
+      chatProfile.categoryBudgets[INVESTMENT_CATEGORY] ||
+      null
+  const investmentCategoryShare = categoryBreakdownTotal > 0
+    ? Math.round((investmentCategoryAmount / categoryBreakdownTotal) * 100)
+    : 0
+  const investmentCategoryStatus = categoryPeriodFilter === 'all'
+    ? 'unset'
+    : getBudgetStatus(investmentCategoryAmount, investmentCategoryBudget)
+  const investmentCategoryPrompt = investmentCategoryAmount > 0
+    ? `Analiza mi categoría Inversión de ${categoryPeriodLabel}: ${formatCardCurrency(investmentCategoryAmount, chatCurrency)}. ¿Cómo la separo del gasto corriente y qué siguiente paso recomienda FinovAI?`
+    : '¿Cómo uso la categoría Inversión para separar aportaciones de gasto normal y preparar una ruta de inversión?'
   const categoryBudgetLabel = selectedCategoryAnalysis.budgetTotal
     ? formatCardCurrency(selectedCategoryAnalysis.budgetTotal, chatCurrency)
     : 'Sin presupuesto'
@@ -3326,25 +3366,126 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   if (activeEmail && !data) {
     return (
       <main className={cn('finovai-dashboard min-h-screen text-foreground', dashboardTheme === 'dark' && 'dark')}>
-        <section className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-5 py-4">
-          <header className="flex items-center justify-between gap-4 py-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold">FinovAI</p>
-              <p className="text-xs leading-snug text-muted-foreground [overflow-wrap:anywhere]">{activeEmail}</p>
-            </div>
-            <Button variant="ghost" size="sm" className="shrink-0" onClick={onLogout}>
-              <LogOut data-icon="inline-start" />
-              Salir
-            </Button>
-          </header>
+        <div className="min-h-screen p-3 sm:p-5 lg:p-7">
+          <div className={FINANCE_APP_SHELL_CLASS} aria-busy="true">
+            {renderDashboardRail()}
 
-          <div className="flex flex-1 items-center justify-center">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              Preparando tu análisis
-            </div>
+            <section className={cn('relative min-h-0 min-w-0 overflow-y-auto bg-background', FINANCE_SCROLLBAR_CLASS)}>
+              <div className="grid min-h-full gap-6 px-4 py-5 sm:px-6 lg:grid-rows-[auto_minmax(0,1fr)] lg:px-8 lg:py-7">
+                <header className="flex flex-col gap-3 border-b border-border/70 pb-5 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <Badge className="mb-3 w-fit border-primary/20 bg-primary/10 text-primary" variant="outline">
+                      <Loader2 className="size-3.5 animate-spin" />
+                      Cargando datos
+                    </Badge>
+                    <h1 className="text-2xl font-semibold tracking-normal text-balance">Preparando tu análisis</h1>
+                    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                      Estamos trayendo movimientos, categorías y señales de ahorro para esta cuenta.
+                    </p>
+                  </div>
+                  <div className="min-w-0 rounded-2xl bg-secondary/55 p-3 text-sm shadow-[inset_0_0_0_1px_rgba(10,22,40,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)] sm:min-w-[260px]">
+                    <p className="text-xs font-medium text-muted-foreground">Cuenta</p>
+                    <p className="mt-1 font-medium leading-tight [overflow-wrap:anywhere]">{activeEmail}</p>
+                  </div>
+                </header>
+
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
+                  <Card className={FINANCE_ARTIFACT_CARD_CLASS}>
+                    <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <CardTitle>Diagnóstico financiero</CardTitle>
+                        <CardDescription>FinovAI está organizando la primera lectura del mes.</CardDescription>
+                      </div>
+                      <Badge variant="secondary">En proceso</Badge>
+                    </CardHeader>
+                    <CardContent className="grid gap-4">
+                      <div className="grid gap-3 md:grid-cols-3">
+                        {[
+                          ['Gasto', 'Movimientos'],
+                          ['Categorías', 'Clasificación'],
+                          ['Ahorro', 'Oportunidad'],
+                        ].map(([label, body]) => (
+                          <div key={label} className={FINANCE_ARTIFACT_TILE_CLASS}>
+                            <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                            <div className="mt-3 h-6 w-24 animate-pulse rounded-md bg-primary/14" />
+                            <p className="mt-3 text-xs text-muted-foreground">{body}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className={cn(FINANCE_ARTIFACT_INSET_CLASS, 'grid gap-3')}>
+                        {[
+                          ['Cuenta localizada', 'Listo'],
+                          ['Movimientos autorizados', 'Cargando'],
+                          ['Resumen financiero', 'Pendiente'],
+                        ].map(([label, value], index) => (
+                          <div key={label} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+                            <div className={cn('flex size-7 items-center justify-center rounded-full text-xs font-semibold', index === 0 ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground')}>
+                              {index === 0 ? <Check className="size-3.5" /> : index + 1}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium">{label}</p>
+                              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-background">
+                                <div className={cn('h-full rounded-full', index === 0 ? 'w-full bg-primary' : index === 1 ? 'w-2/3 animate-pulse bg-primary/60' : 'w-1/3 bg-border')} />
+                              </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <div className="grid gap-4 content-start">
+                    <Card className={FINANCE_ARTIFACT_CARD_CLASS}>
+                      <CardHeader>
+                        <CardTitle>Fuentes</CardTitle>
+                        <CardDescription>Señales que alimentan el dashboard.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="grid gap-2">
+                        {[
+                          { label: 'Bancos', icon: Landmark },
+                          { label: 'Categorías', icon: ChartPie },
+                          { label: 'Movimientos', icon: ReceiptText },
+                        ].map((item) => {
+                          const Icon = item.icon
+
+                          return (
+                            <div key={item.label} className="flex min-w-0 items-center gap-3 rounded-2xl bg-secondary/45 p-3">
+                              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-background text-primary">
+                                <Icon className="size-4" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium">{item.label}</p>
+                                <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-background">
+                                  <div className="h-full w-2/3 animate-pulse rounded-full bg-primary/55" />
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </CardContent>
+                    </Card>
+
+                    <div className={cn(FINANCE_ARTIFACT_TILE_CLASS, 'border border-primary/15 bg-primary/5')}>
+                      <div className="flex items-center gap-3">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                          <Bot className="size-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">FinovAI</p>
+                          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                            El chat aparecerá cuando termine la lectura inicial.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
-        </section>
+        </div>
       </main>
     )
   }
@@ -3882,8 +4023,8 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
               {activePage === 'categorias' ? (
                 <Card className={FINANCE_ARTIFACT_CARD_CLASS}>
                   <CardHeader className="gap-4">
-                    <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                      <div>
+                    <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="min-w-0">
                         <CardTitle>Presupuesto vs realidad</CardTitle>
                         <CardDescription>
                           {hasDraftRows
@@ -3891,7 +4032,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                             : `Comparativo de ${categoryPeriodLabel}.`}
                         </CardDescription>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex min-w-0 flex-wrap gap-2">
                         {([
                           ['current', 'Este mes'],
                           ['previous', 'Mes anterior'],
@@ -3904,6 +4045,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                             variant={categoryPeriodFilter === value ? 'default' : 'outline'}
                             disabled={value === 'previous' && !baseCategoryAnalysis.previousPeriod}
                             onClick={() => setCategoryPeriodFilter(value)}
+                            className="min-w-0"
                           >
                             {label}
                           </Button>
@@ -3911,10 +4053,10 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                       </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="grid gap-4">
+                  <CardContent className="grid min-w-0 gap-4">
                     {categoryBreakdown.length > 0 ? (
-                      <div className="grid gap-4">
-                        <div className={cn(FINANCE_ARTIFACT_INSET_CLASS, 'grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center')}>
+                      <div className="grid min-w-0 gap-4">
+                        <div className={cn(FINANCE_ARTIFACT_INSET_CLASS, 'grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center')}>
                           <div className="min-w-0">
                             <p className="text-sm font-semibold leading-tight">{categoryPageAdvice}</p>
                             <p className="mt-1 text-xs text-muted-foreground">
@@ -3929,7 +4071,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="w-fit"
+                            className="w-full justify-center sm:w-fit"
                             disabled={Boolean(pendingChatAnswer)}
                             onClick={() => analyzeWithFinovAI(`Analiza mis gastos por categoría de ${categoryPeriodLabel}. ${categoryPageAdvice}`)}
                           >
@@ -3938,7 +4080,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                           </Button>
                         </div>
 
-                        <div className="grid gap-3 md:grid-cols-3">
+                        <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                           <div className={FINANCE_ARTIFACT_TILE_CLASS}>
                             <p className="text-xs font-medium text-muted-foreground">Gasto</p>
                             <p className={PANEL_VALUE_CLASS}>{formatCardCurrency(categoryBreakdownTotal, chatCurrency)}</p>
@@ -3970,8 +4112,12 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                           </div>
                         </div>
 
-                        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.85fr)]">
-                          <ChartContainer config={SINGLE_VALUE_CHART_CONFIG} className="h-[320px] w-full aspect-auto">
+                        <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.72fr)]">
+                          <ChartContainer
+                            config={SINGLE_VALUE_CHART_CONFIG}
+                            className="h-[300px] w-full min-w-0 max-w-full aspect-auto"
+                            initialDimension={{ width: 260, height: 220 }}
+                          >
                             <BarChart data={categoryChartData} layout="vertical" margin={{ left: 8, right: 18, top: 8, bottom: 8 }}>
                               <CartesianGrid horizontal={false} />
                               <XAxis type="number" hide />
@@ -3981,7 +4127,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                                 axisLine={false}
                                 tickLine={false}
                                 tickMargin={10}
-                                width={118}
+                                width={104}
                               />
                               <ChartTooltip
                                 cursor={false}
@@ -4008,7 +4154,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                               </Bar>
                             </BarChart>
                           </ChartContainer>
-                          <div className="grid gap-3">
+                          <div className="grid min-w-0 gap-3">
                             {categoryPageRows.map((item) => {
                               const Icon = getCategoryIcon(item.category)
                               const comparison = selectedCategoryAnalysis.categories.find((category) => category.category === item.category)
@@ -4030,7 +4176,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                                         ) : null}
                                       </div>
                                     </div>
-                                    <div className="text-left sm:text-right">
+                                    <div className="min-w-0 text-left sm:text-right">
                                       <p className="text-sm font-semibold tabular-nums [overflow-wrap:anywhere]">
                                         {formatCardCurrency(item.amount, chatCurrency)}
                                       </p>
@@ -4057,42 +4203,69 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                         </div>
 
                         {selectedCategoryAnalysis.monthRows.length > 0 ? (
-                          <div className={FINANCE_ARTIFACT_TILE_CLASS}>
-                            <div className="mb-3 flex items-center justify-between gap-3">
-                              <div>
+                          <div className={cn(FINANCE_ARTIFACT_TILE_CLASS, 'overflow-hidden')}>
+                            <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+                              <div className="min-w-0">
                                 <p className="text-sm font-medium">Meses</p>
                                 <p className="text-xs text-muted-foreground">Gasto, categoría principal y diferencia contra el mes anterior.</p>
                               </div>
                               <SlidersHorizontal className="size-4 text-muted-foreground" />
                             </div>
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Mes</TableHead>
-                                  <TableHead>Gasto</TableHead>
-                                  <TableHead>Mayor categoría</TableHead>
-                                  <TableHead>Vs anterior</TableHead>
-                                  <TableHead>Presupuesto</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {selectedCategoryAnalysis.monthRows.slice(0, 6).map((row) => (
-                                  <TableRow key={row.month}>
-                                    <TableCell className="font-medium">{formatMonth(row.month)}</TableCell>
-                                    <TableCell className="tabular-nums">{formatCardCurrency(row.spendingTotal, chatCurrency)}</TableCell>
-                                    <TableCell>{row.topCategory}</TableCell>
-                                    <TableCell className={cn('tabular-nums', row.deltaFromPrevious && row.deltaFromPrevious > 0 ? 'text-rose-500' : 'text-primary')}>
+                            <div className="grid gap-2 xl:hidden">
+                              {selectedCategoryAnalysis.monthRows.slice(0, 6).map((row) => (
+                                <div key={row.month} className="min-w-0 rounded-xl bg-background/55 p-3">
+                                  <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-semibold leading-tight">{formatMonth(row.month)}</p>
+                                      <p className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                                        Mayor categoría: {row.topCategory}
+                                      </p>
+                                    </div>
+                                    <p className="text-sm font-semibold tabular-nums [overflow-wrap:anywhere] sm:text-right">
+                                      {formatCardCurrency(row.spendingTotal, chatCurrency)}
+                                    </p>
+                                  </div>
+                                  <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                    <span className={cn('tabular-nums', row.deltaFromPrevious && row.deltaFromPrevious > 0 ? 'text-rose-500' : 'text-primary')}>
                                       {row.deltaFromPrevious === null ? 'Sin base' : `${row.deltaFromPrevious >= 0 ? '+' : ''}${formatCardCurrency(row.deltaFromPrevious, chatCurrency)}`}
-                                    </TableCell>
-                                    <TableCell>
-                                      <Badge className={getBudgetStatusClass(row.status)} variant="outline">
-                                        {row.budgetTotal ? formatCardCurrency(row.budgetTotal, chatCurrency) : 'Pendiente'}
-                                      </Badge>
-                                    </TableCell>
+                                    </span>
+                                    <Badge className={getBudgetStatusClass(row.status)} variant="outline">
+                                      {row.budgetTotal ? formatCardCurrency(row.budgetTotal, chatCurrency) : 'Pendiente'}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            <div className={cn('hidden overflow-x-auto xl:block', FINANCE_SCROLLBAR_CLASS)}>
+                              <Table className="min-w-[640px]">
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Mes</TableHead>
+                                    <TableHead>Gasto</TableHead>
+                                    <TableHead>Mayor categoría</TableHead>
+                                    <TableHead>Vs anterior</TableHead>
+                                    <TableHead>Presupuesto</TableHead>
                                   </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
+                                </TableHeader>
+                                <TableBody>
+                                  {selectedCategoryAnalysis.monthRows.slice(0, 6).map((row) => (
+                                    <TableRow key={row.month}>
+                                      <TableCell className="font-medium">{formatMonth(row.month)}</TableCell>
+                                      <TableCell className="tabular-nums">{formatCardCurrency(row.spendingTotal, chatCurrency)}</TableCell>
+                                      <TableCell>{row.topCategory}</TableCell>
+                                      <TableCell className={cn('tabular-nums', row.deltaFromPrevious && row.deltaFromPrevious > 0 ? 'text-rose-500' : 'text-primary')}>
+                                        {row.deltaFromPrevious === null ? 'Sin base' : `${row.deltaFromPrevious >= 0 ? '+' : ''}${formatCardCurrency(row.deltaFromPrevious, chatCurrency)}`}
+                                      </TableCell>
+                                      <TableCell>
+                                        <Badge className={getBudgetStatusClass(row.status)} variant="outline">
+                                          {row.budgetTotal ? formatCardCurrency(row.budgetTotal, chatCurrency) : 'Pendiente'}
+                                        </Badge>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -4105,6 +4278,65 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                           : 'Aún no hay gastos para agrupar. Conecta una cuenta para traer transacciones.'}
                       </div>
                     )}
+
+                    <div className={cn(FINANCE_ARTIFACT_TILE_CLASS, 'border border-primary/15 bg-primary/5')}>
+                      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,380px)] xl:items-center">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                            <PiggyBank className="size-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-semibold leading-tight">Inversión</p>
+                              <Badge className={investmentCategoryAmount > 0 ? 'border-primary/25 bg-primary/10 text-primary' : 'border-border/70 bg-secondary text-muted-foreground'} variant="outline">
+                                {investmentCategoryAmount > 0 ? 'Con movimientos' : 'Categoría disponible'}
+                              </Badge>
+                            </div>
+                            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                              Separa aportaciones, Bitso, CETES, GBM o fondos para no mezclarlos con gasto corriente.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid min-w-0 gap-2 sm:grid-cols-3">
+                          <div className="min-w-0 rounded-lg bg-background/55 p-3">
+                            <p className="text-xs font-medium text-muted-foreground">Registrado</p>
+                            <p className="mt-1 text-sm font-semibold tabular-nums [overflow-wrap:anywhere]">
+                              {formatCardCurrency(investmentCategoryAmount, chatCurrency)}
+                            </p>
+                          </div>
+                          <div className="min-w-0 rounded-lg bg-background/55 p-3">
+                            <p className="text-xs font-medium text-muted-foreground">Peso</p>
+                            <p className="mt-1 text-sm font-semibold tabular-nums">
+                              {investmentCategoryShare > 0 ? `${investmentCategoryShare}%` : 'Sin uso'}
+                            </p>
+                          </div>
+                          <div className="min-w-0 rounded-lg bg-background/55 p-3">
+                            <p className="text-xs font-medium text-muted-foreground">Tope</p>
+                            <p className="mt-1 text-sm font-semibold tabular-nums [overflow-wrap:anywhere]">
+                              {investmentCategoryBudget ? formatCardCurrency(investmentCategoryBudget, chatCurrency) : 'Opcional'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-col gap-3 border-t border-border/70 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-xs text-muted-foreground">
+                          Estado: {getBudgetStatusLabel(investmentCategoryStatus)}.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full justify-center sm:w-fit"
+                          disabled={Boolean(pendingChatAnswer)}
+                          onClick={() => analyzeWithFinovAI(investmentCategoryPrompt)}
+                        >
+                          <Bot data-icon="inline-start" />
+                          Analizar inversión
+                        </Button>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               ) : null}
