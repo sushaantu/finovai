@@ -1557,6 +1557,40 @@ function buildDashboardChatOpening(
   return 'Ya tengo movimientos conectados. Pregúntame dónde se fuga tu dinero, qué patrón se repite o cuánto podrías ahorrar e invertir.'
 }
 
+function getDashboardEffectiveMonthlyIncome(summary: FinanceSummary, profile?: FinancialProfile | null) {
+  return getProfileIncome(profile || EMPTY_PROFILE, summary.monthlyIncome)
+}
+
+function getDashboardDebtGate(transactions: AnalysisTransaction[], summary: FinanceSummary, effectiveMonthlyIncome = summary.monthlyIncome) {
+  const debtTransactions = transactions.filter((transaction) => (
+    transaction.type === 'expense' &&
+    transaction.category === 'Deuda' &&
+    transaction.date.startsWith(summary.month)
+  ))
+  const monthlyDebtPayments = roundUiMoney(debtTransactions.reduce((sum, transaction) => sum + transaction.amount, 0))
+  const debtShareOfIncome = effectiveMonthlyIncome > 0
+    ? Math.round((monthlyDebtPayments / effectiveMonthlyIncome) * 100)
+    : null
+  const debtShareOfSpending = summary.monthlySpending > 0
+    ? Math.round((monthlyDebtPayments / summary.monthlySpending) * 100)
+    : null
+  const expensiveDebtSignals = debtTransactions.filter((transaction) => (
+    /(american express|amex|tarjeta|tdc|interes|comision|disposicion|pago minimo|cat)/i.test(transaction.description)
+  ))
+  const active = monthlyDebtPayments > 0 && (
+    summary.topSpendingCategory === 'Deuda' ||
+    (debtShareOfIncome !== null && debtShareOfIncome >= 30) ||
+    (debtShareOfSpending !== null && debtShareOfSpending >= 25) ||
+    expensiveDebtSignals.length > 0
+  )
+
+  return {
+    active,
+    monthlyDebtPayments,
+    debtShareOfIncome,
+  }
+}
+
 function buildDashboardChatAnswer(
   question: string,
   transactions: AnalysisTransaction[],
@@ -1564,7 +1598,8 @@ function buildDashboardChatAnswer(
   currency: string,
   isDraftAnalysis = false,
   hasConnectedInstitution = false,
-  hasReconnectRequiredCredential = false
+  hasReconnectRequiredCredential = false,
+  profile?: FinancialProfile | null
 ) {
   if (transactions.length === 0) {
     if (hasConnectedInstitution) {
@@ -1584,6 +1619,12 @@ function buildDashboardChatAnswer(
   const topCategory = breakdown[0]
   const topTransactions = getTopTransactions(transactions, summary.month)
   const prefix = isDraftAnalysis ? 'Preliminar: ' : ''
+  const effectiveMonthlyIncome = getDashboardEffectiveMonthlyIncome(summary, profile)
+  const monthlyMargin = effectiveMonthlyIncome > 0 ? roundUiMoney(effectiveMonthlyIncome - summary.monthlySpending) : null
+  const spendingShareOfIncome = effectiveMonthlyIncome > 0 ? Math.round((summary.monthlySpending / effectiveMonthlyIncome) * 100) : null
+  const starterSavingsTarget = effectiveMonthlyIncome > 0 ? roundUiMoney(effectiveMonthlyIncome * 0.05) : null
+  const strongSavingsTarget = effectiveMonthlyIncome > 0 ? roundUiMoney(effectiveMonthlyIncome * 0.2) : null
+  const debtGate = getDashboardDebtGate(transactions, summary, effectiveMonthlyIncome)
 
   if (isCategoryQuestion(normalized) && topCategory) {
     const totalSpending = getBreakdownTotal(breakdown)
@@ -1596,9 +1637,27 @@ function buildDashboardChatAnswer(
   }
 
   if (/(ahorr|reduc|bajar|optim|invert|invers|futur)/.test(normalized)) {
+    if (debtGate.active && /(invert|invers|futur)/.test(normalized)) {
+      const incomeShare = debtGate.debtShareOfIncome !== null ? ` (${debtGate.debtShareOfIncome}% del ingreso)` : ''
+
+      return `${prefix}Etapa actual: liquidación de deuda. En ${formatMonth(summary.month)}, Deuda suma ${formatCurrency(debtGate.monthlyDebtPayments, currency)}${incomeShare}. Prioriza bajar intereses y pagos de tarjeta antes de pasar a inversión.`
+    }
+
+    if (effectiveMonthlyIncome <= 0) {
+      return `${prefix}Falta tu ingreso mensual. Ve a Ajustes y guárdalo para calcular ahorro como porcentaje real de lo que ganas.`
+    }
+
+    const opportunityShare = Math.round((summary.estimatedSavingsOpportunity / effectiveMonthlyIncome) * 100)
+    const marginText = monthlyMargin !== null
+      ? `Tu margen actual es ${formatCurrency(monthlyMargin, currency)} (${Math.round((monthlyMargin / effectiveMonthlyIncome) * 100)}%).`
+      : ''
+    const investmentText = /(invert|invers|futur)/.test(normalized)
+      ? ' Si lo inviertes, úsalo solo como referencia ilustrativa.\n\nInformación general, no asesoría personalizada.'
+      : ''
+
     return summary.estimatedSavingsOpportunity > 0
-      ? `${prefix}Veo una oportunidad inicial de ahorro de ${formatCurrency(summary.estimatedSavingsOpportunity, currency)}. La estimación sale de reducir una parte de gastos flexibles y revisar cargos recurrentes. Ese margen podría convertirse en aportación hacia una plataforma de inversión aliada.`
-      : `${prefix}Aún no veo una oportunidad clara de ahorro. Necesito más movimientos o categorías más precisas para estimarlo.`
+      ? `${prefix}Con ingreso base de ${formatCurrency(effectiveMonthlyIncome, currency)}, gastaste ${spendingShareOfIncome}% este mes. ${marginText} Ahorro inicial realista: ${formatCurrency(summary.estimatedSavingsOpportunity, currency)} (${opportunityShare}% del ingreso); rango guía ${formatCurrency(starterSavingsTarget || 0, currency)}-${formatCurrency(strongSavingsTarget || 0, currency)} según deuda y gastos.${investmentText}`
+      : `${prefix}Con ingreso base de ${formatCurrency(effectiveMonthlyIncome, currency)}, todavía no veo una fuga clara. Usa como guía 5%-20% del ingreso: ${formatCurrency(starterSavingsTarget || 0, currency)}-${formatCurrency(strongSavingsTarget || 0, currency)}.`
   }
 
   if (/(recurrent|suscrip|mensual|repite|repet)/.test(normalized)) {
@@ -1619,7 +1678,11 @@ function buildDashboardChatAnswer(
   }
 
   if (/(balance|saldo|ingreso|neto|mes)/.test(normalized)) {
-    return `${prefix}En ${formatMonth(summary.month)} tienes ingresos por ${formatCurrency(summary.monthlyIncome, currency)}, gastos por ${formatCurrency(summary.monthlySpending, currency)} y balance neto de ${formatCurrency(summary.netBalance, currency)}.`
+    const incomeLabel = effectiveMonthlyIncome > 0 ? formatCurrency(effectiveMonthlyIncome, currency) : formatCurrency(summary.monthlyIncome, currency)
+    const netBalance = effectiveMonthlyIncome > 0 ? effectiveMonthlyIncome - summary.monthlySpending : summary.netBalance
+    const shareText = spendingShareOfIncome !== null ? ` (${spendingShareOfIncome}% del ingreso)` : ''
+
+    return `${prefix}En ${formatMonth(summary.month)} tienes ingreso base de ${incomeLabel}, gastos por ${formatCurrency(summary.monthlySpending, currency)}${shareText} y balance neto de ${formatCurrency(netBalance, currency)}.`
   }
 
   if (topTransactions.length > 0) {
@@ -1678,9 +1741,14 @@ function getDashboardChatChartType(
   const hasMonthSpending = summary.monthlySpending > 0
   const requestedChartCategory = getDashboardChatChartCategory(question)
   const asksForChart = isExplicitChartQuestion(normalized)
+  const debtGate = getDashboardDebtGate(transactions, summary)
 
   if (asksForChart && requestedChartCategory && transactions.some((transaction) => transaction.type === 'expense' && transaction.category === requestedChartCategory)) {
     return 'category-trend'
+  }
+
+  if (debtGate.active && /(deuda|tarjeta|credito|invert|invers|futur)/.test(normalized)) {
+    return undefined
   }
 
   if (asksForChart && /(linea|evolucion|tendencia|historico|serie|mes|mensual)/.test(normalized) && hasMonthSpending) {
@@ -1691,7 +1759,7 @@ function getDashboardChatChartType(
     return 'categories'
   }
 
-  if (/(ahorr|reduc|bajar|optim|invert|invers|futur)/.test(normalized) && summary.estimatedSavingsOpportunity > 0) {
+  if (/(ahorr|reduc|bajar|optim|invert|invers|futur)/.test(normalized) && summary.estimatedSavingsOpportunity > 0 && !debtGate.active) {
     return 'savings'
   }
 
@@ -2451,7 +2519,8 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
             chatCurrency,
             isDraftChat,
             hasConnectedInstitution,
-            hasReconnectRequiredCredential
+            hasReconnectRequiredCredential,
+            chatProfile
           )
           model = isDraftChat ? 'análisis local preliminar' : undefined
         }
@@ -2464,7 +2533,8 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
             chatCurrency,
             isDraftChat,
             hasConnectedInstitution,
-            hasReconnectRequiredCredential
+            hasReconnectRequiredCredential,
+            chatProfile
           )
           model = 'análisis local'
         }

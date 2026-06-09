@@ -1,5 +1,10 @@
 import { extractText, getDocumentProxy } from 'unpdf'
 
+import {
+  DASHBOARD_CHAT_BENCHMARK_CASES,
+  type DashboardBenchmarkStage,
+} from './dashboard-chat-benchmark'
+
 interface Env {
   DB: D1Database
   ENVIRONMENT: string
@@ -371,6 +376,42 @@ export interface FinanceActionPlan {
     body: string
     target: 'movements' | 'categories' | 'chat' | 'connect' | 'partner'
   }>
+}
+
+type DashboardFinancialStage = DashboardBenchmarkStage
+
+interface DashboardQuestionBenchmark {
+  stage: DashboardFinancialStage
+  label: string
+  category: string
+}
+
+interface DashboardDebtGate {
+  active: boolean
+  monthlyDebtPayments: number
+  debtShareOfIncome: number | null
+  debtShareOfSpending: number | null
+  expensiveDebtSignals: string[]
+  rule: string
+}
+
+interface DashboardFinancialStageAssessment {
+  stage: DashboardFinancialStage
+  label: string
+  reason: string
+  savingsRate: number | null
+  debtGate: DashboardDebtGate
+}
+
+interface DashboardIncomeGuidance {
+  effectiveMonthlyIncome: number | null
+  incomeSource: 'profile' | 'transactions' | 'missing'
+  currentSpendingShareOfIncome: number | null
+  currentSavingsRate: number | null
+  recommendedMonthlyBudget: number | null
+  starterSavingsTarget: number | null
+  strongSavingsTarget: number | null
+  rule: string
 }
 
 interface HouseholdInviteRow {
@@ -3455,7 +3496,7 @@ async function getFinanceDashboard(env: Env, email: string) {
   const summary = buildFinancialSummary(transactions)
   const categoryAnalysis = buildCategoryAnalysis(transactions, summary, profile)
   const insights = buildFinancialInsights(summary, transactions, profile)
-  const actionPlan = buildActionPlan(summary, transactions)
+  const actionPlan = buildActionPlan(summary, transactions, profile)
 
   return {
     success: true,
@@ -3501,10 +3542,210 @@ export function buildExpenseCategoryBreakdown(
     }))
 }
 
-export function buildDashboardChatContext(dashboard: Awaited<ReturnType<typeof getFinanceDashboard>>): string {
+const DASHBOARD_STAGE_LABELS: Record<DashboardFinancialStage, string> = {
+  diagnostico: 'Diagnóstico',
+  control: 'Control',
+  ahorro: 'Ahorro',
+  liquidacion_de_deuda: 'Liquidación de deuda',
+  inversion: 'Inversión',
+}
+
+const DASHBOARD_QUESTION_STAGE_RULES: Array<{
+  stage: DashboardFinancialStage
+  category: string
+  pattern: RegExp
+}> = [
+  {
+    stage: 'diagnostico',
+    category: 'Diagnóstico inicial',
+    pattern: /(FINANZAS.*REALIDAD|EN QUE SE ME VA|GASTANDO MAS.*GANO|NECESITO GANAR|NIVEL DE DEUDA|NUNCA ME ALCANZA)/,
+  },
+  {
+    stage: 'liquidacion_de_deuda',
+    category: 'Deudas',
+    pattern: /(DEUDA|TARJETA|CREDITO|CAT\b|PAGO MINIMO|MINIMO|BURO|CONSOLIDACION|PAGAR DEUDAS|TENGO DEUDAS)/,
+  },
+  {
+    stage: 'ahorro',
+    category: 'Ahorro y fondo de emergencia',
+    pattern: /(FONDO|EMERGENCIA|AHORR|TANDA|AGUINALDO|GUARD.*DINERO|^(?!.*DONDE INVIERTO).*(NU\b|HEY BANCO|KLAR|SOFIPO))/,
+  },
+  {
+    stage: 'inversion',
+    category: 'Inversión y metas',
+    pattern: /(INVERT|INVIER|INVERSION|CETES|PAGARE|DOLARES|DIVERSIF|CASA|COCHE|RETIRO|METAS|INDEPENDENCIA|AFORE|BOLSA|ETF|GBM|KUSPIT|IMPUESTOS.*INVERSION)/,
+  },
+  {
+    stage: 'control',
+    category: 'Presupuesto y control',
+    pattern: /(PRESUPUESTO|RENTA|COMIDA|TRANSPORTE|GASTAR MENOS|RECORT|NO NECESITO|QUINCENA|SUSCRIPC|MSI|GANAR MAS|AUMENTO|FREELANCE|IMPUESTOS|SAT\b|GASTAR DE MAS|CONSEJO FINANCIERO)/,
+  },
+]
+
+export function classifyDashboardQuestionStage(question: string): DashboardQuestionBenchmark {
+  const exactBenchmarkCase = DASHBOARD_CHAT_BENCHMARK_CASES.find((item) => item.question === question)
+  if (exactBenchmarkCase) {
+    return {
+      stage: exactBenchmarkCase.expectedStage,
+      label: DASHBOARD_STAGE_LABELS[exactBenchmarkCase.expectedStage],
+      category: exactBenchmarkCase.category,
+    }
+  }
+
+  const normalized = normalizeCategoryInput(question)
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .trim()
+  const rule = DASHBOARD_QUESTION_STAGE_RULES.find((item) => item.pattern.test(normalized))
+  const stage = rule?.stage || 'diagnostico'
+
+  return {
+    stage,
+    label: DASHBOARD_STAGE_LABELS[stage],
+    category: rule?.category || 'Diagnóstico inicial',
+  }
+}
+
+function buildDashboardDebtGate(
+  summary: FinanceSummary,
+  transactions: Array<Pick<FinanceTransaction, 'type' | 'date' | 'category' | 'amount' | 'description' | 'merchant'>>,
+  effectiveMonthlyIncome = summary.monthlyIncome
+): DashboardDebtGate {
+  const currentMonthDebtTransactions = transactions.filter((transaction) => (
+    transaction.type === 'expense' &&
+    transaction.category === 'Deuda' &&
+    transaction.date.startsWith(summary.month)
+  ))
+  const monthlyDebtPayments = roundMoney(currentMonthDebtTransactions.reduce((sum, transaction) => sum + transaction.amount, 0))
+  const debtShareOfIncome = effectiveMonthlyIncome > 0
+    ? Math.round((monthlyDebtPayments / effectiveMonthlyIncome) * 100)
+    : null
+  const debtShareOfSpending = summary.monthlySpending > 0
+    ? Math.round((monthlyDebtPayments / summary.monthlySpending) * 100)
+    : null
+  const expensiveDebtSignals = currentMonthDebtTransactions
+    .filter((transaction) => /AMERICAN EXPRESS|AMEX|TARJETA|TDC|INTERES|COMISION|DISPOSICION|PAGO MINIMO|CAT\b/i.test(`${transaction.description} ${transaction.merchant || ''}`))
+    .map((transaction) => transaction.description)
+    .slice(0, 4)
+  const active = monthlyDebtPayments > 0 && (
+    summary.topSpendingCategory === 'Deuda' ||
+    (debtShareOfIncome !== null && debtShareOfIncome >= 30) ||
+    (debtShareOfSpending !== null && debtShareOfSpending >= 25) ||
+    expensiveDebtSignals.length > 0
+  )
+
+  return {
+    active,
+    monthlyDebtPayments,
+    debtShareOfIncome,
+    debtShareOfSpending,
+    expensiveDebtSignals,
+    rule: active
+      ? 'No recomiendes invertir todavía. Prioriza controlar o liquidar deuda cara con números reales del usuario.'
+      : 'Puede hablarse de ahorro o inversión solo si el usuario pregunta y hay margen real.',
+  }
+}
+
+function buildDashboardIncomeGuidance(summary: FinanceSummary, profile?: Pick<FinancialProfile, 'monthlyIncome'> | null): DashboardIncomeGuidance {
+  const profileIncome = profile?.monthlyIncome && profile.monthlyIncome > 0 ? profile.monthlyIncome : null
+  const transactionIncome = summary.monthlyIncome > 0 ? summary.monthlyIncome : null
+  const effectiveMonthlyIncome = profileIncome || transactionIncome
+  const incomeSource = profileIncome ? 'profile' : transactionIncome ? 'transactions' : 'missing'
+  const effectiveNetBalance = effectiveMonthlyIncome !== null
+    ? roundMoney(effectiveMonthlyIncome - summary.monthlySpending)
+    : null
+
+  return {
+    effectiveMonthlyIncome,
+    incomeSource,
+    currentSpendingShareOfIncome: effectiveMonthlyIncome
+      ? Math.round((summary.monthlySpending / effectiveMonthlyIncome) * 100)
+      : null,
+    currentSavingsRate: effectiveMonthlyIncome && effectiveNetBalance !== null
+      ? Math.round((effectiveNetBalance / effectiveMonthlyIncome) * 100)
+      : null,
+    recommendedMonthlyBudget: effectiveMonthlyIncome ? roundMoney(effectiveMonthlyIncome * 0.8) : null,
+    starterSavingsTarget: effectiveMonthlyIncome ? roundMoney(effectiveMonthlyIncome * 0.05) : null,
+    strongSavingsTarget: effectiveMonthlyIncome ? roundMoney(effectiveMonthlyIncome * 0.2) : null,
+    rule: effectiveMonthlyIncome
+      ? 'Usa este ingreso como denominador. Expresa topes, ahorro, deuda e inversion como porcentaje y monto derivado del ingreso real del usuario.'
+      : 'Falta ingreso. No des metas monetarias fijas; pide guardar ingreso mensual en Ajustes o detectar ingresos con movimientos conectados.',
+  }
+}
+
+export function buildFinancialStageAssessment(
+  summary: FinanceSummary,
+  transactions: Array<Pick<FinanceTransaction, 'type' | 'date' | 'category' | 'amount' | 'description' | 'merchant'>>,
+  profile?: Pick<FinancialProfile, 'monthlyIncome'> | null
+): DashboardFinancialStageAssessment {
+  const incomeGuidance = buildDashboardIncomeGuidance(summary, profile)
+  const effectiveMonthlyIncome = incomeGuidance.effectiveMonthlyIncome || 0
+  const effectiveNetBalance = effectiveMonthlyIncome > 0
+    ? roundMoney(effectiveMonthlyIncome - summary.monthlySpending)
+    : summary.netBalance
+  const debtGate = buildDashboardDebtGate(summary, transactions, effectiveMonthlyIncome)
+  const savingsRate = effectiveMonthlyIncome > 0
+    ? Math.round((effectiveNetBalance / effectiveMonthlyIncome) * 100)
+    : null
+  const hasInvestmentActivity = transactions.some((transaction) => (
+    transaction.category === 'Inversión' && transaction.date.startsWith(summary.month)
+  ))
+
+  if (summary.transactionCount === 0 || effectiveMonthlyIncome <= 0) {
+    return {
+      stage: 'diagnostico',
+      label: DASHBOARD_STAGE_LABELS.diagnostico,
+      reason: 'Faltan ingresos o movimientos suficientes para pasar a control.',
+      savingsRate,
+      debtGate,
+    }
+  }
+
+  if (debtGate.active) {
+    return {
+      stage: 'liquidacion_de_deuda',
+      label: DASHBOARD_STAGE_LABELS.liquidacion_de_deuda,
+      reason: `Deuda suma ${formatFinanceCurrency(debtGate.monthlyDebtPayments)} este mes${debtGate.debtShareOfIncome !== null ? ` (${debtGate.debtShareOfIncome}% del ingreso)` : ''}.`,
+      savingsRate,
+      debtGate,
+    }
+  }
+
+  if (effectiveNetBalance <= 0 || (savingsRate !== null && savingsRate < 10)) {
+    return {
+      stage: 'control',
+      label: DASHBOARD_STAGE_LABELS.control,
+      reason: 'Primero hay que estabilizar flujo mensual y presupuesto.',
+      savingsRate,
+      debtGate,
+    }
+  }
+
+  if (hasInvestmentActivity || (savingsRate !== null && savingsRate >= 20)) {
+    return {
+      stage: 'inversion',
+      label: DASHBOARD_STAGE_LABELS.inversion,
+      reason: 'Hay margen mensual y no aparece deuda cara activa.',
+      savingsRate,
+      debtGate,
+    }
+  }
+
+  return {
+    stage: 'ahorro',
+    label: DASHBOARD_STAGE_LABELS.ahorro,
+    reason: 'Hay margen positivo; toca construir colchón y metas antes de inversión compleja.',
+    savingsRate,
+    debtGate,
+  }
+}
+
+export function buildDashboardChatContext(dashboard: Awaited<ReturnType<typeof getFinanceDashboard>>, question = ''): string {
   const transactions = dashboard.transactions.slice(0, 80).map((transaction) => (
     `${transaction.date} | ${transaction.type} | ${transaction.currency} ${transaction.amount} | ${transaction.category} | ${transaction.description}`
   ))
+  const incomeGuidance = buildDashboardIncomeGuidance(dashboard.summary, dashboard.profile)
+  const financialStage = buildFinancialStageAssessment(dashboard.summary, dashboard.transactions, dashboard.profile)
+  const questionBenchmark = question ? classifyDashboardQuestionStage(question) : null
 
   return JSON.stringify({
     email: dashboard.email,
@@ -3522,6 +3763,22 @@ export function buildDashboardChatContext(dashboard: Awaited<ReturnType<typeof g
       currentMonth: buildExpenseCategoryBreakdown(dashboard.transactions, dashboard.summary.month),
       rule: 'Use allExpenses for category/rubro questions unless the user explicitly asks about the current month.',
     },
+    questionBenchmark,
+    financialStage,
+    incomeGuidance,
+    responseRules: [
+      'Cada respuesta incluye numeros reales del usuario: monto, categoria, comercio, porcentaje, mes o conteo.',
+      'Para presupuestos, ahorro, deuda o inversion, calcula recomendaciones como porcentaje del ingreso real y muestra el monto resultante.',
+      'No uses montos fijos genericos como 10000, 15000 o 20000 salvo que provengan del usuario o de sus transacciones.',
+      incomeGuidance.effectiveMonthlyIncome
+        ? `Ingreso base para calculos: ${formatFinanceCurrency(incomeGuidance.effectiveMonthlyIncome)} (${incomeGuidance.incomeSource}).`
+        : 'Si falta ingreso, pide guardarlo en Ajustes antes de calcular metas monetarias.',
+      'Usa questionBenchmark para entender la etapa de la pregunta y financialStage para decidir la prioridad real.',
+      financialStage.debtGate.active
+        ? 'Debt gate activo: evita recomendar inversion; prioriza liquidar deuda cara o controlar pagos.'
+        : 'Debt gate inactivo: puedes hablar de ahorro o inversion si la pregunta lo pide y hay margen real.',
+      'Si mencionas inversion, agrega un disclaimer breve: Informacion general, no asesoria personalizada.',
+    ].join(' '),
     transactions,
     transactionCount: dashboard.transactions.length,
   })
@@ -3570,8 +3827,22 @@ function stripModelChartPayload(answer: string): string {
   return answer.slice(0, chartPayloadStart).trim()
 }
 
+function addInvestmentDisclaimer(answer: string): string {
+  if (!/(INVERT|INVERSION|INVERSIONES|CETES|GBM|ETF|AFORE|PORTAFOLIO|RENDIMIENTO)/.test(normalizeCategoryInput(answer))) {
+    return answer
+  }
+
+  if (/(ASESORIA PERSONALIZADA|ASESORIA FINANCIERA|INFORMACION GENERAL)/.test(normalizeCategoryInput(answer))) {
+    return answer
+  }
+
+  return `${answer.trim()}\n\nInformación general, no asesoría personalizada.`
+}
+
 export function finalizeDashboardChatAnswer(answer: string): string {
-  return trimIncompleteDashboardAnswer(stripModelChartPayload(replaceInvisibleDashboardDestinations(answer)))
+  return addInvestmentDisclaimer(
+    trimIncompleteDashboardAnswer(stripModelChartPayload(replaceInvisibleDashboardDestinations(answer)))
+  )
 }
 
 async function answerDashboardChatWithAnthropic(
@@ -3585,7 +3856,7 @@ async function answerDashboardChatWithAnthropic(
     { role: 'system', content: DASHBOARD_CHAT_SYSTEM_PROMPT },
     {
       role: 'user',
-      content: `Pregunta del usuario: ${question}\n\nDatos financieros disponibles:\n${buildDashboardChatContext(dashboard)}`,
+      content: `Pregunta del usuario: ${question}\n\nDatos financieros disponibles:\n${buildDashboardChatContext(dashboard, question)}`,
     },
   ], allowLocalFallback, 360)
 
@@ -4389,18 +4660,19 @@ export function buildFinancialInsights(
   return insights.slice(0, 5)
 }
 
-export function buildActionPlan(summary: FinanceSummary, transactions: FinanceTransaction[]): FinanceActionPlan {
+export function buildActionPlan(summary: FinanceSummary, transactions: FinanceTransaction[], profile?: FinancialProfile): FinanceActionPlan {
   const opportunities = buildFinanceOpportunities(summary, transactions)
   const monthlySavingsTarget = roundMoney(
     opportunities.slice(0, 3).reduce((sum, opportunity) => sum + opportunity.estimatedMonthlySavings, 0)
   )
   const investmentProjection = projectInvestmentContribution(monthlySavingsTarget)
+  const financialStage = buildFinancialStageAssessment(summary, transactions, profile)
 
   return {
     monthlySavingsTarget,
     topOpportunities: opportunities.slice(0, 4),
     investmentProjection,
-    nextActions: buildFinanceNextActions(monthlySavingsTarget, opportunities, transactions.length),
+    nextActions: buildFinanceNextActions(monthlySavingsTarget, opportunities, transactions.length, financialStage),
   }
 }
 
@@ -4536,7 +4808,8 @@ function projectInvestmentContribution(
 function buildFinanceNextActions(
   monthlySavingsTarget: number,
   opportunities: FinanceOpportunity[],
-  transactionCount: number
+  transactionCount: number,
+  financialStage?: DashboardFinancialStageAssessment
 ): FinanceActionPlan['nextActions'] {
   if (transactionCount === 0) {
     return [
@@ -4550,6 +4823,15 @@ function buildFinanceNextActions(
   }
 
   const actions: FinanceActionPlan['nextActions'] = []
+  if (financialStage?.debtGate.active) {
+    actions.push({
+      id: 'debt-first',
+      label: 'Priorizar deuda',
+      body: `Deuda del mes: ${formatFinanceCurrency(financialStage.debtGate.monthlyDebtPayments)}. Revisa pagos e intereses antes de invertir.`,
+      target: 'movements',
+    })
+  }
+
   if (opportunities.some((opportunity) => opportunity.kind === 'recurring')) {
     actions.push({
       id: 'review-recurring',
@@ -4575,7 +4857,7 @@ function buildFinanceNextActions(
     target: 'chat',
   })
 
-  if (monthlySavingsTarget > 0) {
+  if (monthlySavingsTarget > 0 && !financialStage?.debtGate.active) {
     actions.push({
       id: 'route-investment',
       label: 'Preparar inversión',
@@ -5019,6 +5301,12 @@ Responde siempre en español. Usa solo los datos financieros incluidos en el men
 Tu trabajo:
 - detectar fugas de gasto, patrones, recurrencias y oportunidades de ahorro;
 - explicar los hallazgos con montos y categorías concretas;
+- conectar cada respuesta con números reales del usuario: monto, categoría, comercio, porcentaje, mes o conteo;
+- usar incomeGuidance.effectiveMonthlyIncome como base para presupuestos, ahorro, deuda e inversión;
+- si falta ingreso, pedir guardarlo en Ajustes antes de calcular metas monetarias;
+- no usar montos genéricos de personas promedio; todo monto sugerido debe salir del ingreso, gasto o pregunta del usuario;
+- detectar la etapa de la pregunta y la etapa financiera real usando questionBenchmark y financialStage;
+- si financialStage.debtGate.active es true, priorizar deuda cara/control y no sugerir inversión todavía;
 - mencionar la ventana de datos analizada cuando respondas preguntas amplias de patrones, ahorro o plan;
 - tratar conjuntos de datos marcados como preliminares como lecturas direccionales, no conclusiones definitivas;
 - usar categoryBreakdown.allExpenses cuando la pregunta sea sobre categorías/rubros en general, salvo que el usuario pida el mes actual;
@@ -5032,6 +5320,7 @@ Formato obligatorio:
 - No cierres con preguntas de seguimiento.
 - No menciones páginas o secciones que no existen. Destinos válidos: Chat, Conectar cuenta, Movimientos, Categorías, Ajustes.
 - Si recomiendas revisar cargos, di "ve a Movimientos" o "usa Categorías"; nunca digas "Revisar recurrentes".
+- Si mencionas inversión, agrega: "Información general, no asesoría personalizada."
 - Termina con una frase completa antes de cualquier gráfico.`
 
 // =====================

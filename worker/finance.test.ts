@@ -1,10 +1,17 @@
 import { expect, test } from 'bun:test'
 
+import {
+  DASHBOARD_CHAT_BENCHMARK_CASES,
+  type DashboardBenchmarkStage,
+} from './dashboard-chat-benchmark'
+
 import worker, {
   buildActionPlan,
+  buildCategoryAnalysis,
   buildDashboardChatContext,
   buildFinancialInsights,
   buildFinancialSummary,
+  classifyDashboardQuestionStage,
   finalizeDashboardChatAnswer,
   inferFinanceCategory,
   normalizeFinancialAmount,
@@ -809,6 +816,93 @@ test('dashboard chat context includes all-history category totals when latest mo
   })
 })
 
+test('dashboard question classifier maps FinovAI benchmark questions to stages', () => {
+  for (const { question, expectedStage } of DASHBOARD_CHAT_BENCHMARK_CASES) {
+    const stage: DashboardBenchmarkStage = expectedStage
+    expect(classifyDashboardQuestionStage(question).stage).toBe(stage)
+  }
+})
+
+test('dashboard chat context gates investment when expensive debt is active', () => {
+  const transactions = [
+    sampleTransaction({ date: '2026-05-01', type: 'income', amount: 100000, category: 'Sueldo', description: 'Nomina' }),
+    sampleTransaction({ date: '2026-05-03', type: 'expense', amount: 30000, category: 'Deuda', description: 'AMERICAN EXPRESS 01429', merchant: 'American Express' }),
+    sampleTransaction({ date: '2026-05-04', type: 'expense', amount: 8000, category: 'Deuda', description: 'INTERESES DEL PERIODO', merchant: 'American Express' }),
+    sampleTransaction({ date: '2026-05-08', type: 'expense', amount: 6000, category: 'Comida fuera', description: 'DLO*UBER EATS', merchant: 'Uber Eats' }),
+    sampleTransaction({ date: '2026-05-15', type: 'expense', amount: 6200, category: 'Comida fuera', description: 'DLO*UBER EATS', merchant: 'Uber Eats' }),
+  ]
+  const summary = buildFinancialSummary(transactions)
+  const actionPlan = buildActionPlan(summary, transactions)
+  const context = JSON.parse(buildDashboardChatContext({
+    success: true,
+    email: 'user@example.com',
+    transactions,
+    summary,
+    insights: buildFinancialInsights(summary, transactions),
+    actionPlan,
+  }, 'Puedo invertir si todavia tengo deudas?'))
+
+  expect(context.questionBenchmark).toMatchObject({
+    stage: 'liquidacion_de_deuda',
+    category: 'Deudas',
+  })
+  expect(context.financialStage).toMatchObject({
+    stage: 'liquidacion_de_deuda',
+    debtGate: {
+      active: true,
+      monthlyDebtPayments: 38000,
+      debtShareOfIncome: 38,
+    },
+  })
+  expect(context.responseRules).toContain('incluye numeros reales')
+  expect(actionPlan.nextActions.map((action) => action.id)).toContain('debt-first')
+  expect(actionPlan.nextActions.map((action) => action.id)).not.toContain('route-investment')
+})
+
+test('dashboard chat context scales advice from the user income instead of generic amounts', () => {
+  const transactions = [
+    sampleTransaction({ date: '2026-05-01', type: 'income', amount: 52000, category: 'Sueldo', description: 'Nomina' }),
+    sampleTransaction({ date: '2026-05-03', type: 'expense', amount: 14000, category: 'Renta', description: 'Renta' }),
+    sampleTransaction({ date: '2026-05-05', type: 'expense', amount: 8800, category: 'Comida fuera', description: 'Restaurantes' }),
+    sampleTransaction({ date: '2026-05-08', type: 'expense', amount: 4200, category: 'Transporte', description: 'Uber' }),
+  ]
+  const summary = buildFinancialSummary(transactions)
+  const context = JSON.parse(buildDashboardChatContext({
+    success: true,
+    email: 'user@example.com',
+    profile: {
+      email: 'user@example.com',
+      currency: 'MXN',
+      monthlyIncome: null,
+      monthlyBudget: null,
+      categoryBudgets: {},
+    },
+    transactions,
+    summary,
+    categoryAnalysis: buildCategoryAnalysis(transactions, summary, {
+      email: 'user@example.com',
+      currency: 'MXN',
+      monthlyIncome: null,
+      monthlyBudget: null,
+      categoryBudgets: {},
+    }),
+    insights: buildFinancialInsights(summary, transactions),
+    actionPlan: buildActionPlan(summary, transactions),
+  }, 'Cuanto puedo ahorrar realista al mes?'))
+
+  expect(context.incomeGuidance).toMatchObject({
+    effectiveMonthlyIncome: 52000,
+    incomeSource: 'transactions',
+    currentSpendingShareOfIncome: 52,
+    currentSavingsRate: 48,
+    recommendedMonthlyBudget: 41600,
+    starterSavingsTarget: 2600,
+    strongSavingsTarget: 10400,
+  })
+  expect(context.responseRules).toContain('calcula recomendaciones como porcentaje del ingreso real')
+  expect(context.responseRules).toContain('No uses montos fijos genericos')
+})
+
 test('dashboard chat answer finalizer uses visible destinations and removes trailing fragments', () => {
   expect(
     finalizeDashboardChatAnswer('Ve a Revisar recurrentes y confirma los cargos repetidos.')
@@ -821,6 +915,10 @@ test('dashboard chat answer finalizer uses visible destinations and removes trai
   expect(
     finalizeDashboardChatAnswer('Gastos en restaurantes por mes.\n\nCHART\n```json\n{\"type\":\"line\",\"labels\":[\"2026-05\"],\"datasets\":[]}\n```')
   ).toBe('Gastos en restaurantes por mes.')
+
+  expect(
+    finalizeDashboardChatAnswer('Puedes invertir MXN 2.400 al mes en una ruta conservadora.')
+  ).toContain('Información general')
 })
 
 test('dashboard chat reports missing model configuration instead of local fallback', async () => {
