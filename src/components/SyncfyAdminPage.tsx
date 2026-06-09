@@ -152,7 +152,7 @@ export default function SyncfyAdminPage() {
       }
       setData(payload as SyncfyAdminResponse)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No pudimos cargar soporte Syncfy.')
+      setError(err instanceof Error ? err.message : 'No pudimos cargar soporte de conexión.')
       setData(null)
     } finally {
       setIsLoading(false)
@@ -174,7 +174,7 @@ export default function SyncfyAdminPage() {
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#00D4AA]">Soporte interno</p>
-              <h1 className="text-2xl font-semibold tracking-tight">Mesa de soporte Syncfy</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">Mesa de soporte de conexión</h1>
             </div>
           </div>
           <a href="/" className="inline-flex items-center gap-2 text-sm font-semibold text-white/70 hover:text-white">
@@ -258,7 +258,7 @@ export default function SyncfyAdminPage() {
             <section className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)]">
               <Card className="rounded-lg border-white/10 bg-white/[0.04] text-white">
                 <CardHeader>
-                  <CardTitle>Errores Syncfy</CardTitle>
+                  <CardTitle>Errores de conexión</CardTitle>
                 </CardHeader>
                 <CardContent className="overflow-x-auto">
                   <Table>

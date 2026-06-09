@@ -5,6 +5,7 @@ import worker, {
   buildDashboardChatContext,
   buildFinancialInsights,
   buildFinancialSummary,
+  finalizeDashboardChatAnswer,
   inferFinanceCategory,
   normalizeFinancialAmount,
   normalizeFinancialDate,
@@ -569,8 +570,74 @@ test('inferFinanceCategory recognizes common Mexico cartola merchants', () => {
   expect(inferFinanceCategory('GYMPASS CIUDAD DE MEXIC', 'expense')).toBe('Salud')
   expect(inferFinanceCategory('BILLPOCKET*SIGNORA MARI MIGUEL HIDALG', 'expense')).toBe('Comida fuera')
   expect(inferFinanceCategory('SAMS POLANCO CD MEXICO', 'expense')).toBe('Supermercado')
+  expect(inferFinanceCategory('WAL MART SATELITE', 'expense')).toBe('Supermercado')
+  expect(inferFinanceCategory('INTERESES DEL PERIODO', 'expense')).toBe('Deuda')
+  expect(inferFinanceCategory('COMISION POR DISPOSICION', 'expense')).toBe('Deuda')
+  expect(inferFinanceCategory('DISPOS.EFECTIVO', 'expense')).toBe('Retiros')
+  expect(inferFinanceCategory('RETIRO RETIRO', 'expense')).toBe('Retiros')
+  expect(inferFinanceCategory('BITSO COMPRA BTC', 'expense')).toBe('Inversión')
+  expect(inferFinanceCategory('CETESDIRECTO AHORRO', 'expense')).toBe('Inversión')
+  expect(inferFinanceCategory('CLIP MX', 'expense')).toBe('Compras')
   expect(inferFinanceCategory('GRACIAS POR SU PAGO EN LINEA', 'expense')).toBe('Deuda')
   expect(inferFinanceCategory('FIGMA SAN FRANCISCO', 'expense')).toBe('Suscripciones')
+})
+
+test('syncfy rows without provider categories are reclassified from raw transaction text on read', async () => {
+  const env = createEnv()
+  env.DB.transactions.push(
+    {
+      ...sampleTransaction({
+        id: 'syncfy:walmart',
+        type: 'expense',
+        category: 'Impuestos',
+        description: 'WAL MART SATELITE',
+        merchant: 'WAL MART SATELITE',
+        source: 'syncfy',
+      }),
+      category_locked: 0,
+      raw_source: JSON.stringify({ description: 'WAL MART SATELITE', amount: -2485.5 }),
+    },
+    {
+      ...sampleTransaction({
+        id: 'syncfy:interest',
+        type: 'expense',
+        category: 'Otro',
+        description: 'INTERES',
+        merchant: 'INTERES',
+        source: 'syncfy',
+      }),
+      category_locked: 0,
+      raw_source: JSON.stringify({ description: 'INTERES', amount: 2479.5 }),
+    },
+    {
+      ...sampleTransaction({
+        id: 'syncfy:locked',
+        type: 'expense',
+        category: 'Impuestos',
+        description: 'WAL MART SATELITE',
+        merchant: 'WAL MART SATELITE',
+        source: 'syncfy',
+      }),
+      category_locked: 1,
+      raw_source: JSON.stringify({ description: 'WAL MART SATELITE', amount: -2485.5 }),
+    }
+  )
+
+  const response = await worker.fetch(new Request('http://local.test/api/transactions?email=user@example.com'), env)
+  const dashboard = await response.json() as DashboardResponse
+
+  expect(response.status).toBe(200)
+  expect(dashboard.transactions.find((transaction) => transaction.id === 'syncfy:walmart')).toMatchObject({
+    type: 'expense',
+    category: 'Supermercado',
+  })
+  expect(dashboard.transactions.find((transaction) => transaction.id === 'syncfy:interest')).toMatchObject({
+    type: 'income',
+    category: 'Inversión',
+  })
+  expect(dashboard.transactions.find((transaction) => transaction.id === 'syncfy:locked')).toMatchObject({
+    category: 'Impuestos',
+  })
 })
 
 test('parseCsvCartola maps debit and credit rows into draft movements', () => {
@@ -742,6 +809,20 @@ test('dashboard chat context includes all-history category totals when latest mo
   })
 })
 
+test('dashboard chat answer finalizer uses visible destinations and removes trailing fragments', () => {
+  expect(
+    finalizeDashboardChatAnswer('Ve a Revisar recurrentes y confirma los cargos repetidos.')
+  ).toBe('Ve a Movimientos y confirma los cargos repetidos.')
+
+  expect(
+    finalizeDashboardChatAnswer('1. Corta retiros nuevos.\n2. Revisa comisiones antes de')
+  ).toBe('1. Corta retiros nuevos.')
+
+  expect(
+    finalizeDashboardChatAnswer('Gastos en restaurantes por mes.\n\nCHART\n```json\n{\"type\":\"line\",\"labels\":[\"2026-05\"],\"datasets\":[]}\n```')
+  ).toBe('Gastos en restaurantes por mes.')
+})
+
 test('dashboard chat reports missing model configuration instead of local fallback', async () => {
   const env = createEnv()
   const response = await worker.fetch(new Request('http://local.test/api/dashboard/chat', {
@@ -901,6 +982,7 @@ test('buildActionPlan turns repeated leaks into investment-ready next actions', 
   expect(plan.monthlySavingsTarget).toBeGreaterThan(0)
   expect(plan.investmentProjection.tenYearValue).toBeGreaterThan(plan.monthlySavingsTarget * 12)
   expect(plan.nextActions.map((action) => action.id)).toContain('review-recurring')
+  expect(plan.nextActions.find((action) => action.id === 'review-recurring')?.label).toBe('Ver movimientos')
   expect(plan.nextActions.map((action) => action.id)).toContain('route-investment')
 })
 
@@ -1127,9 +1209,9 @@ test('syncfy refresh follows saved job status when direct transactions are still
     expect(response.status).toBe(200)
     expect(data.syncfy?.imported).toBe(1)
     expect(data.transactions).toHaveLength(1)
-    expect(calls.some((url) => url.includes('/jobs/job-1/status'))).toBe(true)
+    expect(calls.some((url) => url.includes('/jobs/job-1/status') && url.includes('id_user=syncfy-user-1'))).toBe(true)
     expect(calls.find((url) => url.includes('from_job=1'))).not.toContain('id_user=')
-    expect(data.syncfy?.endpoints).toContain('/jobs/job-1/status')
+    expect(data.syncfy?.endpoints).toContain('/jobs/job-1/status?id_user=syncfy-user-1')
   } finally {
     globalThis.fetch = originalFetch
   }

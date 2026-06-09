@@ -38,6 +38,38 @@ head_sampling_rate = 1
 [triggers]
 crons = ["*/5 * * * *"]
 
+[env.preview]
+name = "finovai-preview"
+compatibility_date = "2026-05-28"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = false
+
+[env.preview.assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[env.preview.triggers]
+crons = []
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "finovai-preview-db"
+database_id = "f19c9f9e-ded4-44e7-8de1-04c56cc22114"
+
+[[env.preview.send_email]]
+name = "EMAIL"
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+SYNCFY_ENV = "sandbox"
+EMAIL_AUTH_REQUIRED = "false"
+EMAIL_FROM = "noreply@mail.finov.ai"
+APP_ORIGIN = "https://finovai-preview.my-cloudflare-711.workers.dev"
+CLOUDFLARE_AI_GATEWAY_COMPAT_ENDPOINT = "https://gateway.ai.cloudflare.com/v1/711cb78717605db93e601e6a06e7eeec/default/compat/chat/completions"
+CLOUDFLARE_AI_GATEWAY_COMPAT_MODEL = "anthropic/claude-opus-4-7"
+
 [env.sandbox]
 name = "finovai-sandbox"
 compatibility_date = "2026-05-28"

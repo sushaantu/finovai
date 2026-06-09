@@ -617,6 +617,30 @@ body {
   letter-spacing: 0;
 }
 
+.finovai-dashboard .finovai-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.finovai-dashboard .finovai-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.finovai-dashboard .finovai-scrollbar::-webkit-scrollbar-corner,
+.finovai-dashboard .finovai-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.finovai-dashboard .finovai-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.finovai-dashboard .finovai-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

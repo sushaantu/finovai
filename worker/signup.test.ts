@@ -245,6 +245,35 @@ test('normalizeSyncfyTransaction maps Syncfy transaction into finance shape', ()
   })
 })
 
+test('normalizeSyncfyTransaction infers signed amount direction when provider omits category fields', () => {
+  const deposit = normalizeSyncfyTransaction({
+    id_transaction: 'txn-deposit',
+    dt_transaction: 1772150400,
+    description: 'SPEI RECIBIDO',
+    amount: '2500',
+    currency: 'MXN',
+  }, 'cred-1', 0)
+  const payment = normalizeSyncfyTransaction({
+    id_transaction: 'txn-payment',
+    dt_transaction: 1772150400,
+    description: 'SU ABONO...GRACIAS',
+    amount: '2500',
+    currency: 'MXN',
+    reference: 'cr-positive-SUABONO...GRACIAS-20260227',
+  }, 'cred-1', 1)
+  const withdrawal = normalizeSyncfyTransaction({
+    id_transaction: 'txn-withdrawal',
+    dt_transaction: 1772150400,
+    description: 'DISPOS.EFECTIVO',
+    amount: '-2500',
+    currency: 'MXN',
+  }, 'cred-1', 2)
+
+  expect(deposit).toMatchObject({ type: 'income', category: 'Otro ingreso' })
+  expect(payment).toMatchObject({ type: 'expense', category: 'Deuda' })
+  expect(withdrawal).toMatchObject({ type: 'expense', category: 'Retiros' })
+})
+
 test('summarizeExpenses returns dashboard totals', () => {
   const summary = summarizeExpenses([
     { id: '1', date: '2026-04-01', description: 'Netflix', amount: 200, category: 'Suscripciones', merchant: 'Netflix' },

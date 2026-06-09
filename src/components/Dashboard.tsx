@@ -6,6 +6,8 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Line,
+  LineChart,
   XAxis,
   YAxis,
 } from 'recharts'
@@ -19,7 +21,6 @@ import {
   ChartPie,
   Check,
   CircleDollarSign,
-  Copy,
   FileSearch,
   FileUp,
   Film,
@@ -77,8 +78,6 @@ import {
 } from '@/components/ui/select'
 import {
   Message,
-  MessageAction,
-  MessageActions,
   MessageAvatar,
   MessageContent,
 } from '@/components/ui/message'
@@ -104,6 +103,7 @@ import {
 } from '@/components/ai-elements/reasoning'
 import { MessageResponse } from '@/components/ai-elements/message-response'
 import { Shimmer } from '@/components/ai-elements/shimmer'
+import { FinovaiLogo } from './LandingPage'
 import { SyncfyConnect } from '@/components/SyncfyConnect'
 import { cn } from '@/lib/utils'
 import {
@@ -326,6 +326,7 @@ interface DashboardChatMessage {
   role: 'assistant' | 'user'
   content: string
   chart?: DashboardChatChartType
+  chartCategory?: string
   reasoning?: string
   reasoningDuration?: number
 }
@@ -341,7 +342,7 @@ interface TransactionCategoryResponse extends DashboardResponse {
   transaction: FinanceTransaction
 }
 
-type DashboardChatChartType = 'categories' | 'daily-spend' | 'savings' | 'recurring'
+type DashboardChatChartType = 'categories' | 'daily-spend' | 'savings' | 'recurring' | 'category-trend'
 
 interface PendingChatAnswer {
   question: string
@@ -381,6 +382,7 @@ const EXPENSE_CATEGORIES = [
   'Transferencias',
   'Retiros',
   'Deuda',
+  'Inversión',
   'Impuestos',
   'Otro',
 ]
@@ -391,7 +393,6 @@ const DASHBOARD_CHAT_SUGGESTIONS = [
   '¿Dónde está mi fuga principal?',
   '¿Qué puedo ahorrar esta semana?',
   '¿Qué patrón se repite?',
-  '¿Cuánto podría invertir?',
 ]
 const DASHBOARD_THEME_STORAGE_KEY = 'finovai-dashboard-theme'
 const DASHBOARD_PAGES: Array<{ id: DashboardPage; label: string; icon: LucideIcon }> = [
@@ -411,14 +412,22 @@ const DASHBOARD_PAGE_PATHS: Record<DashboardPage, string> = {
   ajustes: '/settings',
 }
 
-function FinovAILogoMark({ className }: { className?: string }) {
+function DashboardBrandWordmark({ className }: { className?: string }) {
   return (
-    <img
-      src="/favicon.svg"
-      alt=""
+    <span
+      className={cn(
+        "inline-flex min-w-0 items-center gap-2.5 font-['Inter_Tight',sans-serif] text-[17px] font-extrabold leading-none tracking-[-0.02em] text-foreground",
+        className
+      )}
       aria-hidden="true"
-      className={cn('size-9 shrink-0 rounded-md', className)}
-    />
+    >
+      <span className="flex w-10 shrink-0 items-center [&_svg]:h-auto [&_svg]:w-10">
+        <FinovaiLogo />
+      </span>
+      <span className="hidden truncate md:inline">
+        finov<span className="text-[#2B7AE8]">ai</span>
+      </span>
+    </span>
   )
 }
 
@@ -441,7 +450,7 @@ const PAGE_META: Record<DashboardPage, { title: string; description: string }> =
   },
   syncfy: {
     title: 'Conectar cuenta',
-    description: 'Vincula bancos, SAT, Bitso, American Express y fuentes compatibles con Syncfy.',
+    description: 'Vincula bancos, SAT, Bitso, American Express y fuentes compatibles.',
   },
   cartola: {
     title: 'Importación de respaldo',
@@ -477,7 +486,7 @@ const FINANCE_APP_SHELL_CLASS = 'mx-auto grid h-[calc(100vh-1.5rem)] w-full max-
 const FINANCE_ARTIFACT_CARD_CLASS = 'min-w-0 rounded-[1.45rem] border-border/70 bg-card py-5 shadow-[0_16px_45px_rgba(20,33,27,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.26)]'
 const FINANCE_ARTIFACT_INSET_CLASS = 'rounded-2xl bg-secondary/45 p-3 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]'
 const FINANCE_ARTIFACT_TILE_CLASS = 'rounded-2xl bg-secondary/45 p-4 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]'
-const FINANCE_SCROLLBAR_CLASS = '[scrollbar-width:thin] [scrollbar-color:var(--border)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-corner]:bg-transparent [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/40'
+const FINANCE_SCROLLBAR_CLASS = 'finovai-scrollbar [scrollbar-width:thin] [scrollbar-color:var(--border)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-corner]:bg-transparent [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/40'
 const CASHFLOW_CHART_CONFIG = {
   spending: {
     label: 'Gastos',
@@ -610,7 +619,7 @@ function formatDate(value: string) {
 }
 
 function formatTransactionSource(source: TransactionSource) {
-  if (source === 'syncfy') return 'Syncfy'
+  if (source === 'syncfy') return 'Conexión bancaria'
   if (source === 'cartola') return 'Importación de respaldo'
   return 'Ajuste de respaldo'
 }
@@ -623,6 +632,32 @@ function formatMonth(value: string) {
     month: 'long',
     year: 'numeric',
   }).format(date)
+}
+
+function formatShortMonth(value: string) {
+  const date = new Date(`${value}-01T00:00:00`)
+  if (Number.isNaN(date.getTime())) return value
+
+  return new Intl.DateTimeFormat('es-CL', {
+    month: 'short',
+  }).format(date).replace('.', '')
+}
+
+function getMonthRange(firstMonth: string | null, lastMonth: string | null) {
+  if (!firstMonth || !lastMonth) return []
+
+  const first = new Date(`${firstMonth}-01T00:00:00`)
+  const last = new Date(`${lastMonth}-01T00:00:00`)
+  if (Number.isNaN(first.getTime()) || Number.isNaN(last.getTime())) return []
+
+  const months: string[] = []
+  const cursor = new Date(first)
+  while (cursor <= last && months.length < 36) {
+    months.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`)
+    cursor.setMonth(cursor.getMonth() + 1)
+  }
+
+  return months
 }
 
 function buildDataCoverage(transactions: Array<Pick<AnalysisTransaction, 'date'>>): FinanceSummary['dataCoverage'] {
@@ -652,6 +687,39 @@ function formatDataCoverage(coverage: FinanceSummary['dataCoverage']) {
   const transactionLabel = coverage.transactionCount === 1 ? '1 movimiento' : `${coverage.transactionCount} movimientos`
 
   return `${monthLabel} analizados · ${transactionLabel} · ${monthRange}`
+}
+
+function getCategoryTrendChartData(
+  transactions: AnalysisTransaction[],
+  category: string,
+  coverage: FinanceSummary['dataCoverage']
+) {
+  const totals = new Map<string, number>()
+  const months = getMonthRange(coverage.firstMonth, coverage.lastMonth).slice(-7)
+
+  for (const month of months) {
+    totals.set(month, 0)
+  }
+
+  for (const transaction of transactions) {
+    if (transaction.type !== 'expense') continue
+    if (transaction.category !== category) continue
+
+    const month = transaction.date.slice(0, 7)
+    if (!totals.has(month)) continue
+
+    totals.set(month, (totals.get(month) || 0) + transaction.amount)
+  }
+
+  return months.map((month) => {
+    const amount = Math.round((totals.get(month) || 0) * 100) / 100
+
+    return {
+      month,
+      label: formatShortMonth(month),
+      amount,
+    }
+  })
 }
 
 function syncfyCredentialNeedsReconnect(credential: SyncfyCredential) {
@@ -723,11 +791,34 @@ function normalizeQuestion(value: string) {
     .toLowerCase()
 }
 
+const EXPLICIT_CHART_PATTERN = /(grafica|grafico|chart|linea|evolucion|tendencia|historico|serie)/
+const CATEGORY_QUERY_ALIASES: Array<{ category: string; pattern: RegExp }> = [
+  { category: 'Comida fuera', pattern: /(comida fuera|restaur|restor|restaurant|uber eats|rappi|didi food|cafeter|cafe|bar|taquer|don asado|fisher|orale|milan)/ },
+  { category: 'Supermercado', pattern: /(supermercado|super|despensa|walmart|soriana|chedraui|costco|sams|heb|mercado)/ },
+  { category: 'Transporte', pattern: /(transporte|uber|didi|taxi|metro|gasolina|combustible|estacionamiento)/ },
+  { category: 'Suscripciones', pattern: /(suscrip|netflix|spotify|amazon prime|apple|google|membresia)/ },
+  { category: 'Ocio', pattern: /(ocio|cine|cinemex|cinepolis|entretenimiento|dulceria)/ },
+  { category: 'Deuda', pattern: /(deuda|interes|comision|disposicion|credito|tarjeta)/ },
+  { category: 'Inversión', pattern: /(inversion|invertir|invertido|bitso|gbm|cetes|fondo|broker|cripto|crypto|acciones|etf)/ },
+]
+
 const CATEGORY_QUESTION_PATTERN = /(donde|categoria|rubro|gaste|gast[eé]|mas|mayor|principal)/
 const CURRENT_MONTH_QUESTION_PATTERN = /(mes|mensual|este mes|mes actual|actual|ultimo mes|último mes|reciente)/
 
 function isCategoryQuestion(normalizedQuestion: string) {
   return CATEGORY_QUESTION_PATTERN.test(normalizedQuestion)
+}
+
+function isExplicitChartQuestion(normalizedQuestion: string) {
+  return EXPLICIT_CHART_PATTERN.test(normalizedQuestion)
+}
+
+function getDashboardChatChartCategory(question: string): string | undefined {
+  const normalized = normalizeQuestion(question)
+  const alias = CATEGORY_QUERY_ALIASES.find((item) => item.pattern.test(normalized))
+  if (alias) return alias.category
+
+  return EXPENSE_CATEGORIES.find((category) => normalized.includes(normalizeQuestion(category)))
 }
 
 function getCategoryQuestionMonth(normalizedQuestion: string, summary: FinanceSummary) {
@@ -1162,7 +1253,8 @@ function getRecurringChartData(summary: FinanceSummary) {
   return summary.recurringExpenses.slice(0, 4).map((expense, index) => ({
     label: getShortChartLabel(expense.description, 16),
     description: expense.description,
-    amount: expense.amount,
+    amount: Math.round(expense.amount * expense.count * 100) / 100,
+    averageAmount: expense.amount,
     count: expense.count,
     fill: CHART_COLORS[index % CHART_COLORS.length],
   }))
@@ -1452,14 +1544,14 @@ function buildDashboardChatOpening(
 
   if (transactions.length === 0) {
     if (hasConnectedInstitution) {
-      return 'La institución ya está conectada. En cuanto Syncfy entregue movimientos, puedo encontrar fugas, patrones y oportunidades para ahorrar.'
+      return 'La institución ya está conectada. Cuando los movimientos estén listos, puedo encontrar fugas, patrones y oportunidades para ahorrar.'
     }
 
     if (hasReconnectRequiredCredential) {
-      return 'Syncfy pide reconectar la institución. Reconecta la cuenta para volver a leer movimientos reales.'
+      return 'Ve a Conectar cuenta y sigue los pasos para reconectar la institución.'
     }
 
-    return 'Conecta una cuenta con Syncfy. En cuanto entren transacciones, puedo encontrar fugas, patrones y oportunidades para ahorrar.'
+    return 'Ve a Conectar cuenta y sigue los pasos. En cuanto entren transacciones, puedo encontrar fugas, patrones y oportunidades para ahorrar.'
   }
 
   return 'Ya tengo movimientos conectados. Pregúntame dónde se fuga tu dinero, qué patrón se repite o cuánto podrías ahorrar e invertir.'
@@ -1476,14 +1568,14 @@ function buildDashboardChatAnswer(
 ) {
   if (transactions.length === 0) {
     if (hasConnectedInstitution) {
-      return 'La institución ya está conectada, pero todavía no tengo transacciones disponibles. Syncfy puede tardar en entregar movimientos; vuelve a sincronizar desde Conectar cuenta si esto no cambia en unos minutos.'
+      return 'La institución ya está conectada, pero todavía no tengo transacciones disponibles. Ve a Conectar cuenta y sigue los pasos si esto no cambia en unos minutos.'
     }
 
     if (hasReconnectRequiredCredential) {
-      return 'Syncfy necesita que reconectes la institución antes de que pueda leer transacciones nuevas. Ve a Conectar cuenta y usa Reconectar.'
+      return 'Ve a Conectar cuenta y sigue los pasos para reconectar la institución antes de leer transacciones nuevas.'
     }
 
-    return 'Todavía no tengo transacciones para analizar. Conecta una cuenta con Syncfy para que FinovAI lea movimientos reales.'
+    return 'Todavía no tengo transacciones para analizar. Ve a Conectar cuenta y sigue los pasos para traer movimientos reales.'
   }
 
   const normalized = normalizeQuestion(question)
@@ -1541,6 +1633,40 @@ function buildDashboardChatAnswer(
   return `${prefix}Tengo ${transactions.length} movimientos para analizar. Puedo revisar categorías, días atípicos, cargos recurrentes y ahorro estimado.`
 }
 
+function finalizeDashboardChatAnswer(answer: string) {
+  const replaced = answer
+    .replace(/\bVe a Revisar recurrentes\b/gi, 'Ve a Movimientos')
+    .replace(/\bEn Revisar recurrentes\b/gi, 'En Movimientos')
+    .replace(/\bdesde Revisar recurrentes\b/gi, 'desde Movimientos')
+    .replace(/\bRevisar recurrentes\b/g, 'Movimientos')
+    .replace(/\brevisar recurrentes\b/g, 'Movimientos')
+    .trim()
+  const chartPayloadStart = replaced.search(/\n\s*(CHART|```(?:json|chart)?\s*\{)/i)
+  const withoutChartPayload = chartPayloadStart >= 0 && /("datasets"|"type"\s*:|"labels"\s*:)/i.test(replaced.slice(chartPayloadStart))
+    ? replaced.slice(0, chartPayloadStart).trim()
+    : replaced
+
+  if (!withoutChartPayload || /[.!?…)]$/.test(withoutChartPayload)) return withoutChartPayload
+
+  const lines = withoutChartPayload.split('\n')
+  if (lines.length > 1 && !/[.!?…)]$/.test((lines.at(-1) || '').trim())) {
+    return lines.slice(0, -1).join('\n').trim()
+  }
+
+  const lastSentenceEnd = Math.max(
+    withoutChartPayload.lastIndexOf('.'),
+    withoutChartPayload.lastIndexOf('!'),
+    withoutChartPayload.lastIndexOf('?'),
+    withoutChartPayload.lastIndexOf('…')
+  )
+
+  if (lastSentenceEnd >= 0) {
+    return withoutChartPayload.slice(0, lastSentenceEnd + 1).trim()
+  }
+
+  return `${withoutChartPayload.replace(/[,;:\-\s]+$/, '')}.`
+}
+
 function getDashboardChatChartType(
   question: string,
   transactions: AnalysisTransaction[],
@@ -1550,6 +1676,16 @@ function getDashboardChatChartType(
 
   const normalized = normalizeQuestion(question)
   const hasMonthSpending = summary.monthlySpending > 0
+  const requestedChartCategory = getDashboardChatChartCategory(question)
+  const asksForChart = isExplicitChartQuestion(normalized)
+
+  if (asksForChart && requestedChartCategory && transactions.some((transaction) => transaction.type === 'expense' && transaction.category === requestedChartCategory)) {
+    return 'category-trend'
+  }
+
+  if (asksForChart && /(linea|evolucion|tendencia|historico|serie|mes|mensual)/.test(normalized) && hasMonthSpending) {
+    return 'daily-spend'
+  }
 
   if (isCategoryQuestion(normalized) && hasMonthSpending) {
     return 'categories'
@@ -1616,7 +1752,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [draftRows, setDraftRows] = useState<CartolaDraftRow[]>([])
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set())
   const [currentImport, setCurrentImport] = useState<CartolaImportResponse | null>(null)
-  const [status, setStatus] = useState(initialNotice || 'Identifícate con tu correo para conectar una cuenta con Syncfy.')
+  const [status, setStatus] = useState(initialNotice || 'Identifícate con tu correo. Después ve a Conectar cuenta y sigue los pasos.')
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -1635,7 +1771,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [categoryBudgetInputs, setCategoryBudgetInputs] = useState<Record<string, string>>({})
   const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [categoryPeriodFilter, setCategoryPeriodFilter] = useState<CategoryPeriodFilter>('current')
-  const [copiedChatMessageId, setCopiedChatMessageId] = useState<string | null>(null)
   const [updatingCategoryId, setUpdatingCategoryId] = useState<string | null>(null)
   const chatAnswerTimeoutRef = useRef<number | null>(null)
   const chatMessagesEndRef = useRef<HTMLDivElement | null>(null)
@@ -1708,10 +1843,10 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
         setStatus(response.transactions.length > 0
           ? 'Transacciones listas para análisis.'
           : hasConnectedInstitution
-            ? 'Institución conectada. Esperando movimientos de Syncfy.'
+            ? 'Institución conectada. Esperando movimientos.'
             : hasReconnectRequiredCredential
-              ? 'Reconecta tu institución para volver a cargar movimientos de Syncfy.'
-            : 'Conecta una cuenta con Syncfy para analizar tus datos reales.')
+              ? 'Ve a Conectar cuenta y sigue los pasos para reconectar tu institución.'
+            : 'Ve a Conectar cuenta y sigue los pasos para analizar tus datos reales.')
       })
       .catch((error: Error) => {
         if (cancelled) return
@@ -1888,10 +2023,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     : 0
   const chatDataCoverageLabel = formatDataCoverage(chatSummary.dataCoverage)
   const chatDataCoverageQualifier = chatSummary.dataCoverage.preliminary
-    ? 'Lectura preliminar'
-    : 'Historial suficiente'
-  const savedDataCoverageLabel = formatDataCoverage(summary.dataCoverage)
-  const savedDataCoverageQualifier = summary.dataCoverage.preliminary
     ? 'Lectura preliminar'
     : 'Historial suficiente'
 
@@ -2326,10 +2457,22 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
         }
 
         if (chatError) {
-          answer = `No pude usar el modelo real para esta respuesta: ${chatError}\n\nConfigura Cloudflare AI Gateway o Anthropic para que el chat analice pagos, categorías y patrones con el contexto financiero completo.`
+          answer = buildDashboardChatAnswer(
+            question,
+            chatTransactions,
+            chatSummary,
+            chatCurrency,
+            isDraftChat,
+            hasConnectedInstitution,
+            hasReconnectRequiredCredential
+          )
+          model = 'análisis local'
         }
 
-        const chart = chatError ? undefined : getDashboardChatChartType(question, chatTransactions, chatSummary)
+        answer = finalizeDashboardChatAnswer(answer)
+
+        const chart = getDashboardChatChartType(question, chatTransactions, chatSummary)
+        const chartCategory = chart === 'category-trend' ? getDashboardChatChartCategory(question) : undefined
         const reasoningDuration = Math.max(1, Math.ceil((Date.now() - startedAt) / 1000))
 
         setChatMessages((current) => [
@@ -2339,10 +2482,9 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
             role: 'assistant',
             content: answer,
             chart,
+            chartCategory,
             reasoning: model
-              ? `${reasoning}\nModelo: ${model}`
-              : chatError
-                ? `${reasoning}\nModelo no ejecutado: ${chatError}`
+              ? `${reasoning}\nModelo: ${model}${chatError ? `\nModelo remoto no ejecutado: ${chatError}` : ''}`
                 : reasoning,
             reasoningDuration,
           },
@@ -2364,16 +2506,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const analyzeWithFinovAI = (question: string) => {
     setActivePage('inicio')
     window.setTimeout(() => queueDashboardChatAnswer(question), 0)
-  }
-
-  const copyChatMessage = (message: DashboardChatMessage) => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      void navigator.clipboard.writeText(message.content)
-    }
-    setCopiedChatMessageId(message.id)
-    window.setTimeout(() => {
-      setCopiedChatMessageId((current) => (current === message.id ? null : current))
-    }, 1200)
   }
 
   const toggleDashboardTheme = () => {
@@ -2408,13 +2540,12 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
       <div className="flex min-w-0 items-center gap-2 md:flex-col md:items-stretch md:gap-5">
         <button
           type="button"
-          className="flex h-10 min-w-10 shrink-0 items-center justify-center gap-3 rounded-full px-0 text-foreground transition-colors hover:bg-secondary md:w-full md:justify-start md:px-2"
+          className="flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full px-0 text-foreground transition-colors hover:bg-secondary md:w-full md:justify-start md:px-2"
           aria-label="FinovAI"
           title="FinovAI"
           onClick={() => setActivePage('inicio')}
         >
-          <FinovAILogoMark className="size-6 rounded-full" />
-          <span className="hidden truncate text-sm font-semibold md:block">FinovAI</span>
+          <DashboardBrandWordmark />
         </button>
 
         <nav className="-mx-1 flex min-w-0 items-center gap-1 overflow-x-auto px-1 [scrollbar-width:none] md:mx-0 md:flex-col md:items-stretch md:overflow-visible md:px-0 [&::-webkit-scrollbar]:hidden" aria-label="Dashboard">
@@ -2475,20 +2606,20 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
       ? {
           id: 'sync-wait',
           label: 'Ver movimientos',
-          body: 'Revisa si Syncfy ya entregó transacciones.',
+          body: 'Revisa si los movimientos ya están listos.',
           target: 'movements',
         } satisfies FinanceActionPlan['nextActions'][number]
       : hasReconnectRequiredCredential
         ? {
             id: 'reconnect',
             label: 'Reconectar cuenta',
-            body: 'Syncfy necesita una nueva autorización para leer movimientos.',
+            body: 'Ve a Conectar cuenta y sigue los pasos para autorizar la lectura de movimientos.',
             target: 'connect',
           } satisfies FinanceActionPlan['nextActions'][number]
         : {
             id: 'connect',
             label: 'Conectar cuenta',
-            body: 'Trae movimientos reales con Syncfy.',
+            body: 'Ve a Conectar cuenta y sigue los pasos para traer movimientos reales.',
             target: 'connect',
           } satisfies FinanceActionPlan['nextActions'][number]
 
@@ -2515,7 +2646,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
               {actionPlan.monthlySavingsTarget > 0
                 ? `Si se invierte cada mes, en ${projectionYears} años podría ser ${formatCardCurrency(projection.tenYearValue, chatCurrency)} bajo un supuesto anual ilustrativo de ${Math.round(projection.annualReturn * 100)}%.`
                 : hasConnectedInstitution
-                  ? 'Syncfy está conectado, pero todavía falta suficiente señal para estimar una meta real.'
+                  ? 'La institución está conectada, pero todavía falta suficiente señal para estimar una meta real.'
                   : hasReconnectRequiredCredential
                     ? 'Reconecta la institución para estimar una meta con movimientos reales.'
                   : 'Conecta una institución para calcular una meta con movimientos reales.'}
@@ -2572,8 +2703,76 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     )
   }
 
-  const renderChatChart = (chart?: DashboardChatChartType) => {
+  const renderChatChart = (chart?: DashboardChatChartType, chartCategory?: string) => {
     if (!chart) return null
+
+    if (chart === 'category-trend') {
+      const category = chartCategory || chatSummary.topSpendingCategory
+      const data = getCategoryTrendChartData(chatTransactions, category, chatSummary.dataCoverage)
+      if (data.length === 0) return null
+
+      const total = data.reduce((sum, item) => sum + item.amount, 0)
+      const peak = [...data].sort((a, b) => b.amount - a.amount)[0]
+
+      return (
+        <div className="mt-3 rounded-lg bg-background/55 p-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Evolución mensual
+              </p>
+              <p className="mt-1 text-sm font-semibold leading-tight">{category}</p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Total
+              </p>
+              <p className="mt-1 text-sm font-semibold tabular-nums">
+                {formatCardCurrency(total, chatCurrency)}
+              </p>
+            </div>
+          </div>
+          <ChartContainer config={SINGLE_VALUE_CHART_CONFIG} className="mt-3 h-40 w-full aspect-auto">
+            <LineChart data={data} margin={{ left: 4, right: 12, top: 10, bottom: 0 }}>
+              <CartesianGrid vertical={false} />
+              <XAxis dataKey="label" axisLine={false} tickLine={false} tickMargin={8} />
+              <YAxis hide domain={[0, 'dataMax']} />
+              <ChartTooltip
+                cursor={false}
+                position={CHAT_TOOLTIP_POSITION}
+                wrapperStyle={CHAT_TOOLTIP_WRAPPER_STYLE}
+                content={(
+                  <ChartTooltipContent
+                    className={CHAT_TOOLTIP_CLASS}
+                    formatter={(value) => (
+                      <>
+                        <span className="text-muted-foreground">{category}</span>
+                        <span className="ml-auto font-mono font-medium tabular-nums text-foreground">
+                          {formatCardCurrency(Number(value), chatCurrency)}
+                        </span>
+                      </>
+                    )}
+                  />
+                )}
+              />
+              <Line
+                dataKey="amount"
+                type="monotone"
+                stroke="var(--primary)"
+                strokeWidth={2.5}
+                dot={{ r: 3, fill: 'var(--primary)', strokeWidth: 0 }}
+                activeDot={{ r: 4 }}
+              />
+            </LineChart>
+          </ChartContainer>
+          {peak ? (
+            <p className="mt-2 text-xs leading-snug text-muted-foreground">
+              Pico: {formatShortMonth(peak.month)} con {formatCardCurrency(peak.amount, chatCurrency)}.
+            </p>
+          ) : null}
+        </div>
+      )
+    }
 
     if (chart === 'categories') {
       const data = categoryChartData.slice(0, 4)
@@ -2752,43 +2951,60 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     const data = recurringChartData
     if (data.length === 0) return null
 
+    const maxRecurringAmount = Math.max(...data.map((item) => item.amount), 1)
+    const recurringTotal = data.reduce((total, item) => total + item.amount, 0)
+
     return (
       <div className="mt-3 rounded-lg bg-background/55 p-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]">
-        <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Recurrentes
-        </p>
-        <ChartContainer config={SINGLE_VALUE_CHART_CONFIG} className="mt-2 h-28 w-full aspect-auto">
-          <BarChart data={data} layout="vertical" margin={{ left: 8, right: 6, top: 4, bottom: 4 }}>
-            <XAxis type="number" hide />
-            <YAxis dataKey="label" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} tickMargin={4} width={108} />
-            <ChartTooltip
-              cursor={false}
-              position={CHAT_TOOLTIP_POSITION}
-              wrapperStyle={CHAT_TOOLTIP_WRAPPER_STYLE}
-              content={(
-                <ChartTooltipContent
-                  className={CHAT_TOOLTIP_CLASS}
-                  hideLabel
-                  formatter={(value, name, item) => (
-                    <>
-                      <span className="text-muted-foreground">
-                        {String(item?.payload?.description || name)}
-                      </span>
-                      <span className="ml-auto font-mono font-medium tabular-nums text-foreground">
-                        {formatCardCurrency(Number(value), chatCurrency)}
-                      </span>
-                    </>
-                  )}
-                />
-              )}
-            />
-            <Bar dataKey="amount" radius={5}>
-              {data.map((item) => (
-                <Cell key={item.description} fill={item.fill} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ChartContainer>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Patrones recurrentes
+            </p>
+            <p className="mt-1 text-xs leading-snug text-muted-foreground">
+              Impacto estimado = veces detectadas por monto promedio.
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Top {data.length}
+            </p>
+            <p className="mt-1 text-sm font-semibold tabular-nums">
+              {formatCardCurrency(recurringTotal, chatCurrency)}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-3 grid gap-2">
+          {data.map((item, index) => {
+            const width = Math.max(8, Math.round((item.amount / maxRecurringAmount) * 100))
+
+            return (
+              <div key={item.description} className="rounded-md bg-card/80 p-2 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]">
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium leading-tight" title={item.description}>
+                      {index + 1}. {item.description}
+                    </p>
+                    <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                      {item.count} cargos · prom. {formatCardCurrency(item.averageAmount, chatCurrency)}
+                    </p>
+                  </div>
+                  <p className="shrink-0 text-sm font-semibold tabular-nums">
+                    {formatCardCurrency(item.amount, chatCurrency)}
+                  </p>
+                </div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className="h-full rounded-full bg-primary"
+                    style={{ width: `${width}%` }}
+                    aria-hidden="true"
+                  />
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
     )
   }
@@ -2825,41 +3041,46 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   )
 
   const renderDashboardPromptSuggestions = (isMobile = false) => (
-    <div
-      className={cn(
-        'flex min-w-0 max-w-full gap-2',
-        isMobile ? '-mx-1 flex-nowrap overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden' : 'flex-wrap'
-      )}
-    >
-      {!hasTransactions || hasDraftRows ? (
-        !hasConnectedInstitution ? (
-          <PromptSuggestion
-            type="button"
-            variant="secondary"
-            size="sm"
-            className={cn('rounded-full', isMobile && 'shrink-0')}
+    (() => {
+      const showConnectPrompt = (!hasTransactions || hasDraftRows) && !hasConnectedInstitution
+      const questions = DASHBOARD_CHAT_SUGGESTIONS.slice(0, showConnectPrompt ? 2 : 3)
+
+      return (
+        <div
+          className={cn(
+            'flex min-w-0 max-w-full gap-2',
+            isMobile ? '-mx-1 flex-nowrap overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden' : 'flex-wrap'
+          )}
+        >
+          {showConnectPrompt ? (
+            <PromptSuggestion
+              type="button"
+              variant="secondary"
+              size="sm"
+              className={cn('rounded-full', isMobile && 'shrink-0')}
             onClick={() => setActivePage('syncfy')}
             disabled={Boolean(pendingChatAnswer)}
           >
             <Landmark data-icon="inline-start" />
             {hasReconnectRequiredCredential ? 'Reconectar cuenta' : 'Conectar cuenta'}
           </PromptSuggestion>
-        ) : null
-      ) : null}
-      {DASHBOARD_CHAT_SUGGESTIONS.map((question) => (
-        <PromptSuggestion
-          key={question}
-          type="button"
-          variant="outline"
-          size="sm"
-          className={cn('rounded-full', isMobile && 'shrink-0')}
-          disabled={Boolean(pendingChatAnswer)}
-          onClick={() => askDashboardQuestion(question)}
-        >
-          {question}
-        </PromptSuggestion>
-      ))}
-    </div>
+          ) : null}
+          {questions.map((question) => (
+            <PromptSuggestion
+              key={question}
+              type="button"
+              variant="outline"
+              size="sm"
+              className={cn('rounded-full', isMobile && 'shrink-0')}
+              disabled={Boolean(pendingChatAnswer)}
+              onClick={() => askDashboardQuestion(question)}
+            >
+              {question}
+            </PromptSuggestion>
+          ))}
+        </div>
+      )
+    })()
   )
 
   const renderDashboardChatMessage = (message: DashboardChatMessage, isMobile = false) => {
@@ -2921,24 +3142,8 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
             ) : (
               <p>{message.content}</p>
             )}
-            {isAssistant ? renderChatChart(message.chart) : null}
+            {isAssistant ? renderChatChart(message.chart, message.chartCategory) : null}
           </MessageContent>
-          {!isMobile && isAssistant ? (
-            <MessageActions className="px-1 opacity-0 transition-opacity group-hover:opacity-100">
-              <MessageAction tooltip={copiedChatMessageId === message.id ? 'Copiado' : 'Copiar respuesta'}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-7 rounded-full"
-                  onClick={() => copyChatMessage(message)}
-                  aria-label="Copiar respuesta"
-                >
-                  {copiedChatMessageId === message.id ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-                </Button>
-              </MessageAction>
-            </MessageActions>
-          ) : null}
         </div>
         {!isAssistant && !isMobile ? (
           <MessageAvatar
@@ -3007,44 +3212,21 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
           </Button>
         </PromptInputActions>
       </PromptInput>
-      <p className="text-center text-xs leading-relaxed text-muted-foreground">
-        FinovAI puede equivocarse. No reemplaza asesoría financiera, fiscal o de inversión profesional.
-      </p>
     </div>
   )
 
   const renderFinanceCockpitHome = () => {
-    const contextLabel = hasDraftRows
-      ? `${selectedRows.length}/${draftRows.length} filas seleccionadas`
-      : hasTransactions
-        ? `${chatTransactions.length} movimientos`
-        : hasConnectedInstitution
-          ? 'Cuenta conectada'
-          : hasReconnectRequiredCredential
-            ? 'Reconexión requerida'
-          : 'Sin cuenta conectada'
     return (
       <div className="flex h-[calc(100vh-1.5rem)] min-h-[680px] min-w-0 flex-col bg-background sm:h-[calc(100vh-2.5rem)] lg:h-[calc(100vh-3.5rem)]">
         <header className="shrink-0 border-b border-border/70 px-4 py-4 sm:px-6">
-          <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mx-auto flex w-full max-w-[1000px] items-center">
             <div className="min-w-0">
               <h1 className="text-xl font-semibold tracking-normal sm:text-2xl">Chat financiero</h1>
-            </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <Badge variant={hasTransactions || hasDraftRows ? 'secondary' : 'outline'}>
-                {contextLabel}
-              </Badge>
-              {hasTransactions || hasDraftRows ? (
-                <Badge variant={chatSummary.dataCoverage.preliminary ? 'outline' : 'secondary'}>
-                  {chatDataCoverageQualifier}
-                </Badge>
-              ) : null}
-              <Badge variant="outline">{chatCurrency}</Badge>
             </div>
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6" aria-live="polite">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 [scrollbar-width:none] sm:px-6 [&::-webkit-scrollbar]:hidden" aria-live="polite">
           <div className="mx-auto flex w-full max-w-[820px] flex-col gap-5">
             {chatMessages.length > 0 ? (
               chatMessages.map((message) => renderDashboardChatMessage(message))
@@ -3116,7 +3298,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
           <div className={FINANCE_APP_SHELL_CLASS}>
             {renderDashboardRail()}
 
-            <section className={cn('relative min-h-0 min-w-0 bg-background', activePage === 'inicio' ? 'overflow-hidden' : 'overflow-y-auto')}>
+            <section className={cn('relative min-h-0 min-w-0 bg-background [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', activePage === 'inicio' ? 'overflow-hidden' : 'overflow-y-auto')}>
               <div className={cn('min-w-0 px-4 py-5 sm:px-6 lg:px-8 lg:pb-10', activePage === 'inicio' && 'px-0 py-0 sm:px-0 md:px-0 lg:pb-0')}>
                 {activePage !== 'inicio' ? (
                   <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -3231,7 +3413,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                     <Badge variant="secondary">{selectedRows.length}/{draftRows.length} seleccionadas</Badge>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-4">
-                    <div className="max-h-[560px] overflow-auto rounded-lg shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]">
+                    <div className={cn('max-h-[560px] overflow-auto rounded-lg shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]', FINANCE_SCROLLBAR_CLASS)}>
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -3492,19 +3674,10 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
               ) : null}
 
               {activePage === 'movimientos' && hasTransactions ? (
-                <Card id="transactions-panel" className={FINANCE_ARTIFACT_CARD_CLASS}>
+                <Card id="transactions-panel" className={cn(FINANCE_ARTIFACT_CARD_CLASS, '[border-right-width:0]')}>
                   <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <CardTitle>Movimientos guardados</CardTitle>
-                      <CardDescription>
-                        Datos confirmados que FinovAI usa como fuente final. {savedDataCoverageLabel}.
-                      </CardDescription>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant="secondary">{summary.transactionCount} movimientos</Badge>
-                      <Badge variant={summary.dataCoverage.preliminary ? 'outline' : 'secondary'}>
-                        {savedDataCoverageQualifier}
-                      </Badge>
                     </div>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-5">
@@ -3565,7 +3738,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                       <p className="text-sm font-medium">Todas las transacciones</p>
                     </div>
 
-                    <div className="max-h-[560px] overflow-auto rounded-lg shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]">
+                    <div className={cn('max-h-[560px] overflow-auto rounded-lg shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]', FINANCE_SCROLLBAR_CLASS)}>
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -3619,10 +3792,10 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                     <CardTitle>Sin transacciones conectadas</CardTitle>
                     <CardDescription>
                       {hasConnectedInstitution
-                        ? 'La institución ya está conectada. Syncfy todavía no entrega movimientos para este historial.'
+                        ? 'La institución ya está conectada. Todavía no hay movimientos para este historial.'
                         : hasReconnectRequiredCredential
                           ? 'Reconecta la institución para volver a llenar este historial con movimientos reales.'
-                        : 'Conecta una cuenta con Syncfy para llenar este historial con movimientos reales.'}
+                        : 'Ve a Conectar cuenta y sigue los pasos para llenar este historial con movimientos reales.'}
                     </CardDescription>
                   </CardHeader>
                   {!hasConnectedInstitution ? (
@@ -3856,7 +4029,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                     ) : (
                       <div className="rounded-2xl border border-dashed border-border/70 p-5 text-sm text-muted-foreground">
                         {hasConnectedInstitution
-                          ? 'Aún no hay gastos para agrupar. Syncfy todavía no entrega movimientos.'
+                          ? 'Aún no hay gastos para agrupar. Todavía no hay movimientos disponibles.'
                           : hasReconnectRequiredCredential
                             ? 'Aún no hay gastos para agrupar. Reconecta la institución para traer transacciones.'
                           : 'Aún no hay gastos para agrupar. Conecta una cuenta para traer transacciones.'}
@@ -4023,7 +4196,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                       ) : (
                         <p className="text-sm text-muted-foreground">
                           {hasConnectedInstitution
-                            ? 'Syncfy todavía no entrega movimientos para generar análisis.'
+                            ? 'Todavía no hay movimientos disponibles para generar análisis.'
                             : hasReconnectRequiredCredential
                               ? 'Reconecta la institución para generar análisis.'
                             : 'Conecta una cuenta para generar análisis.'}
@@ -4250,15 +4423,15 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     <main className={cn('finovai-dashboard min-h-screen text-foreground', dashboardTheme === 'dark' && 'dark')}>
       <div className="min-h-screen p-3 sm:p-5 lg:p-7">
         <div className={FINANCE_APP_SHELL_CLASS}>
-          <aside className="flex min-w-0 items-center justify-between gap-3 border-b border-border/70 bg-background px-3 py-2 md:h-full md:flex-col md:border-b-0 md:border-r md:px-2 md:py-4">
+          <aside className="flex min-w-0 items-center justify-between gap-3 border-b border-border/70 bg-background px-3 py-2 md:h-full md:flex-col md:items-stretch md:border-b-0 md:border-r md:px-2 md:py-4">
             <button
               type="button"
-              className="flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition-colors hover:bg-secondary"
+              className="flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full px-0 text-foreground transition-colors hover:bg-secondary md:w-full md:justify-start md:px-2"
               aria-label="FinovAI"
               title="FinovAI"
               onClick={onBackHome}
             >
-              <FinovAILogoMark className="size-6 rounded-full" />
+              <DashboardBrandWordmark />
             </button>
 
             <div className="flex items-center gap-1 md:flex-col">
@@ -4290,7 +4463,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                 <div>
                   <h1 className="text-3xl font-medium tracking-normal sm:text-4xl">Finanzas</h1>
                   <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                    Entra para conectar bancos, SAT, Bitso, American Express y fuentes compatibles con Syncfy.
+                    Entra para conectar bancos, SAT, Bitso, American Express y fuentes compatibles.
                   </p>
                 </div>
               </header>
@@ -4361,7 +4534,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                   </CardHeader>
                   <CardContent className="grid gap-2">
                     {[
-                      { label: 'Bancos', body: 'Movimientos y saldos por Syncfy.', icon: Landmark },
+                      { label: 'Bancos', body: 'Movimientos y saldos conectados.', icon: Landmark },
                       { label: 'SAT', body: 'Señales fiscales para contexto.', icon: FileSearch },
                       { label: 'Bitso', body: 'Actividad cripto conectada.', icon: WalletCards },
                     ].map((item) => {

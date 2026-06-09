@@ -72,7 +72,7 @@ export default function Hero({ onSignupSuccess }: HeroProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.3 }}
               >
-                Conecta tu banco con Syncfy. FinovAI te muestra categorías, gastos repetidos,
+                Conecta tu banco. FinovAI te muestra categorías, gastos repetidos,
                 días raros y oportunidades de ahorro que puedes convertir en inversión.
               </motion.p>
 
@@ -118,7 +118,7 @@ export default function Hero({ onSignupSuccess }: HeroProps) {
               >
                 <span className="flex items-center gap-2 text-zinc-500">
                   <Shield className="size-4 text-emerald-500" />
-                  Conexión vía Syncfy
+                  Conexión segura
                 </span>
                 <span className="size-1 rounded-full bg-zinc-700" />
                 <span className="flex items-center gap-2 text-zinc-500">

@@ -125,7 +125,7 @@ function loadSyncfyWidget() {
         resolve(nextWidget)
       } else {
         syncfyWidgetLoader = null
-        reject(new Error('Syncfy widget loaded without exposing SyncfyWidget.'))
+        reject(new Error('Connection widget loaded without exposing the widget constructor.'))
       }
     }
 
@@ -137,7 +137,7 @@ function loadSyncfyWidget() {
       existingScript.addEventListener('load', resolveLoadedWidget, { once: true })
       existingScript.addEventListener('error', () => {
         syncfyWidgetLoader = null
-        reject(new Error('Syncfy widget script failed to load.'))
+        reject(new Error('Connection widget script failed to load.'))
       }, { once: true })
       return
     }
@@ -152,7 +152,7 @@ function loadSyncfyWidget() {
     }, { once: true })
     script.addEventListener('error', () => {
       syncfyWidgetLoader = null
-      reject(new Error('Syncfy widget script failed to load.'))
+      reject(new Error('Connection widget script failed to load.'))
     }, { once: true })
     document.head.appendChild(script)
   })
@@ -196,6 +196,18 @@ function getCredentialLabel(credential: SyncfyCredential) {
   return credential.siteName || credential.syncfyCredentialId
 }
 
+function getCredentialLogoText(credential: SyncfyCredential) {
+  const label = getCredentialLabel(credential)
+  const words = label
+    .replace(/[^A-Za-z0-9ÁÉÍÓÚÜÑáéíóúüñ]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (words.length >= 2) return `${words[0][0]}${words[1][0]}`.toUpperCase()
+  return (words[0] || label).slice(0, 2).toUpperCase()
+}
+
 function getCredentialStatusText(credential: SyncfyCredential) {
   if (credential.needsReconnect || credential.status === 'needs_reconnect') {
     return 'Reconecta el acceso para volver a sincronizar.'
@@ -222,7 +234,7 @@ export function SyncfyConnect({
   const [session, setSession] = useState<SyncfySessionResponse | null>(null)
   const [widgetMode, setWidgetMode] = useState<WidgetMode>('create')
   const [activeCredentialId, setActiveCredentialId] = useState<string | null>(null)
-  const [message, setMessage] = useState('Conecta una institución con Syncfy para que FinovAI lea transacciones reales.')
+  const [message, setMessage] = useState('Ve a Conectar cuenta y sigue los pasos para vincular una institución.')
   const [isLoading, setIsLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [widgetRunId, setWidgetRunId] = useState(0)
@@ -276,8 +288,8 @@ export function SyncfyConnect({
 
       if (nextCredential) {
         setMessage(attemptRefresh
-          ? 'Credencial detectada. Buscando movimientos en Syncfy.'
-          : 'Credencial Syncfy detectada.')
+          ? 'Institución detectada. Buscando movimientos.'
+          : 'Institución detectada.')
         if (attemptRefresh) {
           void refreshTransactions(nextCredential.syncfyCredentialId, 0)
         }
@@ -289,7 +301,7 @@ export function SyncfyConnect({
           void tick()
         }, 3000)
       } else {
-        setMessage('Syncfy todavía no confirma la credencial. Puedes dejar esta página abierta; FinovAI seguirá esperando la confirmación.')
+        setMessage('La conexión todavía no confirma la institución. Puedes dejar esta página abierta; FinovAI seguirá esperando la confirmación.')
       }
     }
 
@@ -330,7 +342,7 @@ export function SyncfyConnect({
       return true
     } catch (error) {
       const apiError = error as Error & { status?: number }
-      const message = apiError.message || 'No pudimos guardar la credencial de Syncfy.'
+      const message = apiError.message || 'No pudimos guardar la institución conectada.'
       setMessage(message)
       onStatus?.(message)
       return apiError.status !== 422
@@ -370,7 +382,7 @@ export function SyncfyConnect({
       widget.on('success', (...args: unknown[]) => {
         clearCredentialPolling()
         setMessage('Institución conectada. Guardando credencial y esperando movimientos.')
-        onStatus?.('Syncfy conectado. Esperando movimientos.')
+        onStatus?.('Institución conectada. Esperando movimientos.')
         void captureWidgetCredential('widget.success', args).then((captured) => {
           if (!captured) pollForCredential(true)
         })
@@ -378,7 +390,7 @@ export function SyncfyConnect({
       widget.on('updated', (...args: unknown[]) => {
         clearCredentialPolling()
         setMessage('Acceso actualizado. Buscando movimientos nuevos.')
-        onStatus?.('Credencial Syncfy actualizada.')
+        onStatus?.('Acceso actualizado.')
         void captureWidgetCredential('widget.updated', args).then((captured) => {
           if (!captured) {
             window.setTimeout(() => {
@@ -389,7 +401,7 @@ export function SyncfyConnect({
       })
       widget.on('error', () => {
         const rid = widget.getLastRid?.()
-        setMessage(rid ? `Syncfy reportó un error. RID: ${rid}` : 'Syncfy reportó un error.')
+        setMessage(rid ? `La conexión reportó un error. RID: ${rid}` : 'La conexión reportó un error.')
       })
       widget.on('closed', () => {
         clearCredentialPolling()
@@ -407,8 +419,8 @@ export function SyncfyConnect({
         }
       }, 0)
     }).catch((error) => {
-      console.error('Syncfy widget load failed', error)
-      setMessage('No pudimos cargar el widget de Syncfy.')
+      console.error('Connection widget load failed', error)
+      setMessage('No pudimos cargar el formulario de conexión.')
     })
 
     return () => {
@@ -423,8 +435,8 @@ export function SyncfyConnect({
       setIsLoading(true)
       clearTransactionRetry()
       setMessage(mode === 'update'
-        ? 'Abriendo Syncfy para actualizar el acceso.'
-        : 'Abriendo Syncfy. Después del éxito, los movimientos pueden tardar unos segundos en llegar.')
+        ? 'Abriendo el formulario para actualizar el acceso.'
+        : 'Abriendo el formulario. Después del éxito, los movimientos pueden tardar unos segundos en llegar.')
       closeWidget()
       setSession(null)
     }
@@ -440,7 +452,7 @@ export function SyncfyConnect({
       })
 
       if (!response.widgetEnabled) {
-        setMessage(response.error || 'Syncfy no está configurado en este entorno.')
+        setMessage(response.error || 'La conexión bancaria no está configurada en este entorno.')
       }
 
       if (showLoading) {
@@ -452,7 +464,7 @@ export function SyncfyConnect({
 
       return response
     } catch (error) {
-      const nextMessage = error instanceof Error ? error.message : 'No pudimos iniciar Syncfy.'
+      const nextMessage = error instanceof Error ? error.message : 'No pudimos iniciar la conexión bancaria.'
       setMessage(nextMessage)
       onStatus?.(nextMessage)
       throw error
@@ -465,8 +477,8 @@ export function SyncfyConnect({
     if (retryAttempt === 0) clearTransactionRetry()
     setIsRefreshing(true)
     setMessage(retryAttempt > 0
-      ? `Syncfy sigue preparando movimientos. Reintentando (${retryAttempt}/6).`
-      : 'Buscando movimientos nuevos en Syncfy.')
+      ? `Los movimientos siguen preparándose. Reintentando (${retryAttempt}/6).`
+      : 'Buscando movimientos nuevos.')
 
     try {
       const response = await apiJson<SyncfyRefreshResponse>('/api/syncfy/refresh', {
@@ -478,7 +490,7 @@ export function SyncfyConnect({
       })
 
       const pendingTransactions = Boolean(response.pendingTransactions)
-      const nextMessage = response.message || 'Movimientos sincronizados desde Syncfy.'
+      const nextMessage = response.message || 'Movimientos sincronizados.'
       if (pendingTransactions && credentialId && retryAttempt < 6) {
         setMessage(`${nextMessage} Reintento automático en unos segundos.`)
         onStatus?.(nextMessage)
@@ -494,8 +506,8 @@ export function SyncfyConnect({
     } catch (error) {
       const data = (error as Error & { data?: { retryAfterSeconds?: number } }).data
       const nextMessage = data?.retryAfterSeconds
-        ? `Syncfy permite otra sincronización en ${formatCooldown(data.retryAfterSeconds)}.`
-        : error instanceof Error ? error.message : 'No pudimos sincronizar Syncfy.'
+        ? `Puedes volver a sincronizar en ${formatCooldown(data.retryAfterSeconds)}.`
+        : error instanceof Error ? error.message : 'No pudimos sincronizar movimientos.'
       setMessage(nextMessage)
       onStatus?.(nextMessage)
       await loadCredentials()
@@ -530,7 +542,7 @@ export function SyncfyConnect({
             <div className="min-w-0">
               <p className="text-sm font-medium">Acceso solo lectura</p>
               <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                FinovAI recibe movimientos para analizarlos; Syncfy maneja el formulario seguro de la institución.
+                FinovAI recibe movimientos para analizarlos; el formulario seguro se completa con la institución.
               </p>
             </div>
           </div>
@@ -553,15 +565,21 @@ export function SyncfyConnect({
                 key={credential.syncfyCredentialId}
                 className={cn(FINANCE_CONNECT_INSET_CLASS, 'flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between')}
               >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{getCredentialLabel(credential)}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {getCredentialStatusText(credential)}
-                  </p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)]">
+                    {getCredentialLogoText(credential)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{getCredentialLabel(credential)}</p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">Institución conectada</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {getCredentialStatusText(credential)}
+                    </p>
+                  </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
                   <Badge variant={credential.ready ? 'secondary' : 'outline'}>
-                    {credential.status || 'Syncfy'}
+                    {credential.status || 'Pendiente'}
                   </Badge>
                   <Button
                     type="button"
@@ -610,7 +628,7 @@ export function SyncfyConnect({
           <div className="grid gap-3">
             <div className={cn(FINANCE_CONNECT_INSET_CLASS, 'flex flex-wrap items-center justify-between gap-2 p-3')}>
               <span className="text-sm text-muted-foreground">
-                Completa el formulario de Syncfy. Al terminar, FinovAI buscará los movimientos automáticamente.
+                Completa el formulario. Al terminar, FinovAI buscará los movimientos automáticamente.
               </span>
               <Button
                 type="button"

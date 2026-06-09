@@ -43,7 +43,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
     eyebrow: 'Legal',
     title: 'Aviso de privacidad',
     intro:
-      'Este aviso resume cómo FinovAI trata datos personales y financieros para operar el diagnóstico de fugas, la conexión vía Syncfy y las proyecciones ilustrativas de inversión.',
+      'Este aviso resume cómo FinovAI trata datos personales y financieros para operar el diagnóstico de fugas, la conexión bancaria autorizada y las proyecciones ilustrativas de inversión.',
     updated: UPDATED_AT,
     sections: [
       {
@@ -51,21 +51,21 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         body: [
           'Datos de cuenta como correo, estado de sesión y preferencias básicas.',
           'Datos de acceso sin contraseña, como códigos de inicio de sesión, enlaces de acceso, hashes de tokens y marcas de tiempo de expiración.',
-          'Datos transaccionales obtenidos con tu autorización a través de Syncfy Open Data: comercios, fechas, importes, divisas, saldos y referencias disponibles.',
-          'Datos técnicos necesarios para operar el servicio, diagnosticar errores y dar soporte, incluyendo identificadores de Syncfy, credenciales agregadas, eventos de webhook y RID de errores cuando aplique.',
+          'Datos transaccionales obtenidos con tu autorización: comercios, fechas, importes, divisas, saldos y referencias disponibles.',
+          'Datos técnicos necesarios para operar el servicio, diagnosticar errores y dar soporte, incluyendo identificadores de conexión, credenciales agregadas, eventos de webhook y RID de errores cuando aplique.',
         ],
       },
       {
         title: 'Para qué los usamos',
         body: [
-          'Para conectar tu banco, billetera digital o información fiscal mediante Syncfy; importar movimientos; detectar patrones de gasto; calcular oportunidades de ahorro; mostrar proyecciones ilustrativas; y preparar recomendaciones o conexiones con plataformas de inversión aliadas.',
+          'Para conectar tu banco, billetera digital o información fiscal; importar movimientos; detectar patrones de gasto; calcular oportunidades de ahorro; mostrar proyecciones ilustrativas; y preparar recomendaciones o conexiones con plataformas de inversión aliadas.',
           'También usamos datos para seguridad, prevención de abuso, soporte técnico, trazabilidad de sincronizaciones y mejora del producto.',
         ],
       },
       {
         title: 'Con quién se comparte',
         body: [
-          'Syncfy procesa la conexión con instituciones financieras y fiscales cuando decides vincular una cuenta.',
+          'El proveedor de conexión procesa la conexión con instituciones financieras y fiscales cuando decides vincular una cuenta.',
           'Cloudflare puede procesar correos transaccionales de acceso, infraestructura, seguridad y entrega de contenido.',
           'Podemos compartir información necesaria con proveedores de infraestructura, soporte y análisis que nos ayudan a operar FinovAI.',
           'Si eliges avanzar con una plataforma de inversión aliada, te mostraremos el contexto antes de enviar o capturar datos para ese tercero. FinovAI no ejecuta inversiones dentro de la app.',
@@ -74,7 +74,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
       {
         title: 'Tus controles',
         body: [
-          'Puedes dejar de compartir datos desconectando tus credenciales desde el banco, Syncfy o FinovAI cuando el control esté disponible.',
+          'Puedes dejar de compartir datos desconectando tus credenciales desde el banco, el proveedor de conexión o FinovAI cuando el control esté disponible.',
           `Para solicitar acceso, corrección, eliminación u oposición sobre tus datos, escríbenos a ${CONTACT_EMAIL}.`,
         ],
       },
@@ -99,7 +99,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
       {
         title: 'Conexión con terceros',
         body: [
-          'La conexión bancaria, fiscal o de billeteras digitales ocurre mediante Syncfy.',
+          'La conexión bancaria, fiscal o de billeteras digitales ocurre mediante proveedores de conexión autorizada.',
           'Las plataformas de inversión aliadas son servicios de terceros. Cualquier apertura de cuenta, inversión, rendimiento, comisión o riesgo se rige por los términos de ese tercero.',
         ],
       },
@@ -131,8 +131,8 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
       {
         title: 'Modelo de conexión',
         body: [
-          'Usamos el widget de Syncfy para crear o actualizar credenciales. FinovAI no debe pedirte credenciales bancarias fuera de ese flujo.',
-          'La clave API de Syncfy se usa en el servidor. El navegador usa sesiones o tokens de alcance limitado para iniciar el flujo de conexión.',
+          'Usamos un formulario seguro para crear o actualizar credenciales. FinovAI no debe pedirte credenciales bancarias fuera de ese flujo.',
+          'Las claves de conexión se usan en el servidor. El navegador usa sesiones o tokens de alcance limitado para iniciar el flujo de conexión.',
           'El acceso a la cuenta funciona sin contraseña: enviamos códigos o enlaces por correo y no almacenamos contraseñas.',
         ],
       },
@@ -140,13 +140,13 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         title: 'Lo que FinovAI no hace',
         body: [
           'No iniciamos pagos, retiros, transferencias ni movimientos de inversión.',
-          'No prometemos que una conexión bancaria esté siempre disponible; depende de Syncfy, de la institución conectada y del consentimiento vigente del usuario.',
+          'No prometemos que una conexión bancaria esté siempre disponible; depende del proveedor de conexión, de la institución conectada y del consentimiento vigente del usuario.',
         ],
       },
       {
         title: 'Operación y soporte',
         body: [
-          'Guardamos identificadores técnicos de Syncfy, credenciales sincronizadas, eventos de webhook y RID de errores para soporte, auditoría y sincronización.',
+          'Guardamos identificadores técnicos de conexión, credenciales sincronizadas, eventos de webhook y RID de errores para soporte, auditoría y sincronización.',
           'Los códigos de acceso expiran y se guardan como hashes para validar la sesión sin conservar el código en texto claro.',
           `Si detectas un problema de seguridad, escribe a ${CONTACT_EMAIL} con una descripción clara, pasos de reproducción y capturas si aplican.`,
         ],
@@ -195,7 +195,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         title: 'Qué problema resolvemos',
         body: [
           'Muchas personas no necesitan otra gráfica de gastos: necesitan ver qué dinero se escapa, cuánto podría crecer y qué siguiente paso tomar.',
-          'FinovAI analiza transacciones autorizadas vía Syncfy para detectar patrones como cafés frecuentes, suscripciones olvidadas, entregas nocturnas o gastos repetidos por día de la semana.',
+          'FinovAI analiza transacciones autorizadas para detectar patrones como cafés frecuentes, suscripciones olvidadas, entregas nocturnas o gastos repetidos por día de la semana.',
         ],
       },
       {
@@ -209,7 +209,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         title: 'Nuestra regla de producto',
         body: [
           'FinovAI trabaja con lectura transaccional. No inicia pagos, retiros, transferencias ni operaciones de inversión desde la app.',
-          'La conexión bancaria ocurre mediante Syncfy, por lo que FinovAI puede enfocarse en análisis, claridad y recomendaciones accionables.',
+          'La conexión bancaria ocurre mediante proveedores autorizados, por lo que FinovAI puede enfocarse en análisis, claridad y recomendaciones accionables.',
         ],
       },
     ],
@@ -225,7 +225,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
       {
         title: 'Bienestar financiero para empleados',
         body: [
-          'Los empleados conectan sus cuentas vía Syncfy y reciben un diagnóstico práctico: dónde se fuga el dinero, qué hábitos se repiten y cuánto podría crecer ese margen si se invierte con disciplina.',
+          'Los empleados conectan sus cuentas y reciben un diagnóstico práctico: dónde se fuga el dinero, qué hábitos se repiten y cuánto podría crecer ese margen si se invierte con disciplina.',
           'Esto convierte un beneficio financiero en una experiencia medible, personalizada y orientada a acción.',
         ],
       },
@@ -263,7 +263,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
       {
         title: 'Datos y finanzas abiertas',
         body: [
-          'Syncfy es la base de conexión de FinovAI para bancos, SAT y fuentes compatibles en México.',
+          'La conexión autorizada es la base de FinovAI para bancos, SAT y fuentes compatibles en México.',
           'Sobre esa capa, FinovAI crea análisis de patrones, contexto para el usuario y oportunidades de ahorro accionables.',
         ],
       },
@@ -288,7 +288,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
         title: 'Qué tipo de trabajo hacemos',
         body: [
           'Diseñamos flujos donde una persona conecta su banco, entiende sus fugas de dinero y ve una ruta realista para convertir ahorro en inversión.',
-          'Eso exige ingeniería full-stack, integración con Syncfy, seguridad de datos financieros, diseño de producto fintech y análisis aplicado a transacciones.',
+          'Eso exige ingeniería full-stack, integraciones financieras, seguridad de datos financieros, diseño de producto fintech y análisis aplicado a transacciones.',
         ],
       },
       {
@@ -311,7 +311,7 @@ const staticPages: Record<StaticPageSlug, StaticPageData> = {
       {
         title: 'Resumen',
         body: [
-          'FinovAI ayuda a usuarios en México y Latinoamérica a conectar transacciones vía Syncfy, detectar fugas de dinero y convertir ahorro potencial en rutas hacia inversión.',
+          'FinovAI ayuda a usuarios en México y Latinoamérica a conectar transacciones autorizadas, detectar fugas de dinero y convertir ahorro potencial en rutas hacia inversión.',
           'La propuesta combina finanzas abiertas, análisis transaccional y alianzas con plataformas de inversión. FinovAI no es banco, no custodia dinero y no ejecuta inversiones dentro de la app.',
         ],
       },

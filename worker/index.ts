@@ -519,6 +519,7 @@ const EXPENSE_CATEGORIES = [
   'Transferencias',
   'Retiros',
   'Deuda',
+  'Inversión',
   'Impuestos',
   'Otro',
 ]
@@ -793,14 +794,15 @@ function getAnthropicRequestConfig(env: Env): { url: string; headers: Record<str
 async function runCompatAIResponse(
   env: Env,
   messages: Message[],
-  requestConfig: { url: string; headers: Record<string, string> }
+  requestConfig: { url: string; headers: Record<string, string> },
+  maxTokens = 700
 ): Promise<string> {
   const response = await fetch(requestConfig.url, {
     method: 'POST',
     headers: requestConfig.headers,
     body: JSON.stringify({
       model: getGatewayCompatChatModel(env),
-      max_tokens: 700,
+      max_tokens: maxTokens,
       messages: buildCompatChatCompletionMessages(messages),
     }),
   })
@@ -820,7 +822,7 @@ async function runCompatAIResponse(
   return answer
 }
 
-async function runAIResponse(env: Env, messages: Message[], allowLocalFallback: boolean): Promise<string> {
+async function runAIResponse(env: Env, messages: Message[], allowLocalFallback: boolean, maxTokens = 700): Promise<string> {
   const compatEndpoint = getCloudflareAIGatewayCompatEndpoint(env)
   if (compatEndpoint) {
     const requestConfig = getGatewayCompatRequestConfig(env)
@@ -828,7 +830,7 @@ async function runAIResponse(env: Env, messages: Message[], allowLocalFallback: 
       if (allowLocalFallback) return LOCAL_AI_FALLBACK
       throw new Error('CLOUDFLARE_AI_GATEWAY_COMPAT_ENDPOINT needs CLOUDFLARE_AI_GATEWAY_TOKEN or ANTHROPIC_API_KEY')
     }
-    return runCompatAIResponse(env, messages, requestConfig)
+    return runCompatAIResponse(env, messages, requestConfig, maxTokens)
   }
 
   const requestConfig = getAnthropicRequestConfig(env)
@@ -843,7 +845,7 @@ async function runAIResponse(env: Env, messages: Message[], allowLocalFallback: 
     headers: requestConfig.headers,
     body: JSON.stringify({
       model: getProductChatModel(env),
-      max_tokens: 700,
+      max_tokens: maxTokens,
       ...(system ? { system } : {}),
       messages: anthropicMessages,
     }),
@@ -1352,7 +1354,7 @@ async function syncfyRequest<T>(env: Env, path: string, init: RequestInit = {}):
   const responseRecord = asRecord(data)
 
   if (!response.ok) {
-    throw new SyncfyRequestError(`Syncfy ${response.status}: ${text || response.statusText}`, {
+    throw new SyncfyRequestError(`Connection ${response.status}: ${text || response.statusText}`, {
       status: response.status,
       rid: extractSyncfyRid(data),
       code: extractSyncfyCode(data),
@@ -1363,7 +1365,7 @@ async function syncfyRequest<T>(env: Env, path: string, init: RequestInit = {}):
   if (responseRecord && 'status' in responseRecord && 'response' in responseRecord) {
     const wrapped = responseRecord as { status: boolean; message?: string | null; response: T }
     if (!wrapped.status) {
-      throw new SyncfyRequestError(wrapped.message || 'Syncfy request failed', {
+      throw new SyncfyRequestError(wrapped.message || 'Connection request failed', {
         status: response.status,
         rid: extractSyncfyRid(data),
         code: extractSyncfyCode(data),
@@ -1812,14 +1814,14 @@ export function isSyncfyTransactionImportComplete(
 
 function getSyncfyTransactionImportMessage(result: SyncfyTransactionImportResult): string {
   if (isSyncfyTransactionImportComplete(result)) {
-    return `${result.imported} movimientos sincronizados desde Syncfy.`
+    return `${result.imported} movimientos sincronizados.`
   }
 
   if (result.fetched > 0 && result.skipped >= result.fetched) {
-    return 'Syncfy devolvió movimientos, pero FinovAI todavía no pudo leer el formato de esa institución. El equipo debe revisar esa respuesta.'
+    return 'La conexión devolvió movimientos, pero FinovAI todavía no pudo leer el formato de esa institución. El equipo debe revisar esa respuesta.'
   }
 
-  return 'La institución quedó conectada. Syncfy todavía está preparando los movimientos; FinovAI reintentará en unos segundos.'
+  return 'La institución quedó conectada. Los movimientos todavía se están preparando; FinovAI reintentará en unos segundos.'
 }
 
 function getSyncfyCredentialCooldownSeconds(credential: SyncfyCredentialRow): number {
@@ -2075,7 +2077,7 @@ async function storeSyncfyWebhookEvent(env: Env, payload: unknown): Promise<Sync
     .first<SyncfyWebhookEventRow>()
 
   if (!event) {
-    throw new Error('Unable to store Syncfy webhook event')
+    throw new Error('Unable to store connection webhook event')
   }
 
   return event
@@ -2120,15 +2122,15 @@ async function storeSyncfyError(
 
 function buildSyncfyUserMessage(error: SyncfyRequestError): string {
   if (error.status === 429) {
-    return 'Syncfy está limitando nuevas sincronizaciones. Intenta de nuevo en unos minutos.'
+    return 'La conexión está limitando nuevas sincronizaciones. Intenta de nuevo en unos minutos.'
   }
 
   if (error.status === 401 || error.status === 403) {
-    return 'No pudimos autenticar la conexión con Syncfy. El equipo debe revisar la configuración.'
+    return 'No pudimos autenticar la conexión bancaria. El equipo debe revisar la configuración.'
   }
 
   if (error.status >= 500) {
-    return 'Syncfy no respondió correctamente. Intenta de nuevo más tarde.'
+    return 'La conexión bancaria no respondió correctamente. Intenta de nuevo más tarde.'
   }
 
   return 'No pudimos completar la conexión con la institución. Revisa los datos o intenta otra vez.'
@@ -2218,7 +2220,7 @@ async function getOrCreateSyncfyUser(env: Env, email: string, name?: string): Pr
     .first<SyncfyUserRow>()
 
   if (!created) {
-    throw new Error('Unable to create Syncfy user')
+    throw new Error('Unable to create connection user')
   }
 
   return created
@@ -2269,7 +2271,7 @@ async function recreateSyncfyUser(
     .first<SyncfyUserRow>()
 
   if (!recreated) {
-    throw new Error('Unable to recreate Syncfy user')
+    throw new Error('Unable to recreate connection user')
   }
 
   return recreated
@@ -2377,8 +2379,8 @@ function expensesResponse(source: 'sample' | 'syncfy', email: string, expenses: 
     expenses,
     message:
       source === 'sample'
-        ? 'Datos de muestra hasta configurar los detalles del endpoint de transacciones de Syncfy.'
-        : 'Transacciones cargadas desde Syncfy.',
+        ? 'Datos de muestra hasta configurar los detalles del endpoint de transacciones.'
+        : 'Transacciones cargadas.',
   }
 }
 
@@ -2457,7 +2459,7 @@ export function normalizeSyncfyTransaction(raw: unknown, credentialId: string | 
   )
   const description = cleanText(
     firstSyncfyString(record, ['description', 'name', 'reference', 'concept', 'memo', 'details']) ||
-    'Movimiento Syncfy'
+    'Movimiento conectado'
   )
   const merchant = cleanText(
     firstSyncfyString(record, ['merchant', 'merchant_name', 'commerce', 'counterparty', 'description']) ||
@@ -2469,14 +2471,10 @@ export function normalizeSyncfyTransaction(raw: unknown, credentialId: string | 
   const amountSource = charge !== null ? charge : deposit !== null ? deposit : rawAmount
   if (!date || amountSource === null || amountSource === 0) return null
 
-  const typeText = normalizeCategoryInput(firstSyncfyString(record, ['type', 'transaction_type', 'movement_type']) || '')
-  const type: FinanceTransactionType =
-    deposit !== null || /CREDIT|DEPOSIT|INCOME|ABONO|INGRESO/.test(typeText)
-      ? 'income'
-      : 'expense'
+  const type = inferSyncfyTransactionType(record, description, charge, deposit, rawAmount)
   const currency = (firstSyncfyString(record, ['currency', 'currency_code', 'id_currency']) || DEFAULT_FINANCE_CURRENCY).toUpperCase().slice(0, 8)
   const category = resolveFinanceCategory(
-    cleanText(firstSyncfyString(record, ['category', 'category_name', 'subcategory'])) || (type === 'income' ? 'Otro ingreso' : 'Otro'),
+    extractSyncfyProviderCategory(record) || (type === 'income' ? 'Otro ingreso' : 'Otro'),
     description,
     merchant,
     type,
@@ -2491,10 +2489,84 @@ export function normalizeSyncfyTransaction(raw: unknown, credentialId: string | 
     amount: Math.abs(roundMoney(amountSource)),
     currency,
     category,
-    description: description || 'Movimiento Syncfy',
-    merchant: merchant || 'Syncfy',
+    description: description || 'Movimiento conectado',
+    merchant: merchant || 'Conexión bancaria',
     raw,
   }
+}
+
+function inferSyncfyTransactionType(
+  record: Record<string, unknown>,
+  description: string,
+  charge: number | null,
+  deposit: number | null,
+  rawAmount: number | null
+): FinanceTransactionType {
+  const typeText = normalizeCategoryInput(firstSyncfyString(record, ['type', 'transaction_type', 'movement_type']) || '')
+  const reference = firstSyncfyString(record, ['reference', 'id_reference', 'external_reference']) || ''
+  const signalText = normalizeCategoryInput(`${description} ${reference}`)
+
+  if (/DEBIT|CARGO|CHARGE|WITHDRAWAL|EXPENSE|RETIRO|ENVIADO/.test(typeText)) return 'expense'
+  if (/CREDIT|DEPOSIT|INCOME|INGRESO|RECIBIDO/.test(typeText)) return 'income'
+
+  if (/(PAGO TDC|PAGO TARJETA|TARJETA DE CREDITO|SU PAGO.*GRACIAS|SU ABONO.*GRACIAS|GRACIAS POR SU PAGO)/.test(signalText)) {
+    return 'expense'
+  }
+
+  if (deposit !== null) return 'income'
+  if (charge !== null) return 'expense'
+
+  if (rawAmount !== null) {
+    if (rawAmount < 0) return 'expense'
+    if (/(DEPOSITO|SPEI RECIBIDO|PAGO INTERBANCARIO|INTERES)/.test(signalText)) return 'income'
+    return 'income'
+  }
+
+  return 'expense'
+}
+
+function resolveSyncfyStoredTransactionType(row: FinanceTransactionRow): FinanceTransactionType {
+  if (row.source !== 'syncfy' || !row.raw_source) return row.type
+
+  const record = asRecord(parseJsonUnknown(row.raw_source))
+  if (!record) return row.type
+
+  const charge = firstSyncfyNumber(record, ['charge', 'debit', 'withdrawal', 'expense'])
+  const deposit = firstSyncfyNumber(record, ['deposit', 'credit', 'income'])
+  const rawAmount = firstSyncfyNumber(record, ['amount', 'amount_original', 'transaction_amount', 'total'])
+
+  return inferSyncfyTransactionType(record, row.description, charge, deposit, rawAmount)
+}
+
+function extractSyncfyProviderCategory(raw: unknown): string | null {
+  const category = cleanText(firstSyncfyString(raw, [
+    'category',
+    'category_name',
+    'categoryName',
+    'transaction_category',
+    'subcategory',
+    'sub_category',
+    'subcategory_name',
+    'subcategoryName',
+  ]) || '')
+
+  return category || null
+}
+
+function resolveSyncfyStoredTransactionCategory(
+  row: FinanceTransactionRow,
+  type: FinanceTransactionType
+): string | null {
+  if (row.source !== 'syncfy' || !row.raw_source) return null
+
+  const raw = parseJsonUnknown(row.raw_source)
+  const providerCategory = extractSyncfyProviderCategory(raw)
+
+  if (providerCategory) {
+    return resolveFinanceCategory(providerCategory, row.description, row.merchant, type, row.source)
+  }
+
+  return inferFinanceCategory(`${row.description} ${row.merchant || ''}`.trim(), type)
 }
 
 async function upsertSyncfyFinanceTransaction(
@@ -2639,10 +2711,11 @@ async function importSyncfyTransactionsFromJobStatuses(
 
   for (const jobStatusPath of jobStatusPaths.slice(0, 10)) {
     const normalizedPath = normalizeSyncfyRequestPath(jobStatusPath)
-    const jobStatus = await syncfyRequest<unknown>(env, normalizedPath, { method: 'GET' })
+    const requestPath = addSyncfyUserParamToEndpoint(normalizedPath, syncfyUserId)
+    const jobStatus = await syncfyRequest<unknown>(env, requestPath, { method: 'GET' })
     result = {
       ...result,
-      endpoints: [...result.endpoints, normalizedPath],
+      endpoints: [...result.endpoints, requestPath],
     }
 
     const transactionEndpoints = getSyncfyWebhookEndpointPaths(jobStatus, 'transactions')
@@ -3142,15 +3215,17 @@ async function upsertHouseholdInvite(env: Env, inviterEmail: string, inviteeEmai
 }
 
 function transactionRowToApi(row: FinanceTransactionRow): FinanceTransaction {
+  const type = resolveSyncfyStoredTransactionType(row)
   const category = row.category_locked
     ? row.category
-    : resolveFinanceCategory(row.category, row.description, row.merchant, row.type, row.source)
+    : resolveSyncfyStoredTransactionCategory(row, type) ||
+      resolveFinanceCategory(row.category, row.description, row.merchant, type, row.source)
 
   return {
     id: row.id,
     email: row.email,
     date: row.date,
-    type: row.type,
+    type,
     amount: Number(row.amount),
     currency: row.currency,
     category,
@@ -3452,6 +3527,53 @@ export function buildDashboardChatContext(dashboard: Awaited<ReturnType<typeof g
   })
 }
 
+function replaceInvisibleDashboardDestinations(answer: string): string {
+  return answer
+    .replace(/\bVe a Revisar recurrentes\b/gi, 'Ve a Movimientos')
+    .replace(/\bEn Revisar recurrentes\b/gi, 'En Movimientos')
+    .replace(/\bdesde Revisar recurrentes\b/gi, 'desde Movimientos')
+    .replace(/\bRevisar recurrentes\b/g, 'Movimientos')
+    .replace(/\brevisar recurrentes\b/g, 'Movimientos')
+}
+
+function trimIncompleteDashboardAnswer(answer: string): string {
+  const trimmed = answer.trim()
+  if (!trimmed) return trimmed
+  if (/[.!?…)]$/.test(trimmed)) return trimmed
+
+  const lines = trimmed.split('\n')
+  if (lines.length > 1 && !/[.!?…)]$/.test((lines.at(-1) || '').trim())) {
+    return lines.slice(0, -1).join('\n').trim()
+  }
+
+  const lastSentenceEnd = Math.max(
+    trimmed.lastIndexOf('.'),
+    trimmed.lastIndexOf('!'),
+    trimmed.lastIndexOf('?'),
+    trimmed.lastIndexOf('…')
+  )
+
+  if (lastSentenceEnd >= 0) {
+    return trimmed.slice(0, lastSentenceEnd + 1).trim()
+  }
+
+  return `${trimmed.replace(/[,;:\-\s]+$/, '')}.`
+}
+
+function stripModelChartPayload(answer: string): string {
+  const chartPayloadStart = answer.search(/\n\s*(CHART|```(?:json|chart)?\s*\{)/i)
+  if (chartPayloadStart < 0) return answer
+
+  const maybePayload = answer.slice(chartPayloadStart)
+  if (!/("datasets"|"type"\s*:|"labels"\s*:)/i.test(maybePayload)) return answer
+
+  return answer.slice(0, chartPayloadStart).trim()
+}
+
+export function finalizeDashboardChatAnswer(answer: string): string {
+  return trimIncompleteDashboardAnswer(stripModelChartPayload(replaceInvisibleDashboardDestinations(answer)))
+}
+
 async function answerDashboardChatWithAnthropic(
   env: Env,
   question: string,
@@ -3465,9 +3587,9 @@ async function answerDashboardChatWithAnthropic(
       role: 'user',
       content: `Pregunta del usuario: ${question}\n\nDatos financieros disponibles:\n${buildDashboardChatContext(dashboard)}`,
     },
-  ], allowLocalFallback)
+  ], allowLocalFallback, 360)
 
-  return { answer, model }
+  return { answer: finalizeDashboardChatAnswer(answer), model }
 }
 
 async function insertFinanceTransaction(
@@ -4077,7 +4199,7 @@ function isGenericFinanceCategory(category: string, type: FinanceTransactionType
   if (!normalized) return true
 
   return type === 'income'
-    ? normalized === 'OTRO INGRESO' || normalized === 'SIN CATEGORIA'
+    ? normalized === 'OTRO INGRESO' || normalized === 'OTRO' || normalized === 'OTROS' || normalized === 'SIN CATEGORIA'
     : normalized === 'OTRO' || normalized === 'OTROS' || normalized === 'SIN CATEGORIA'
 }
 
@@ -4086,6 +4208,7 @@ export function inferFinanceCategory(description: string, type: FinanceTransacti
     const incomeText = normalizeCategoryInput(description)
     if (/(SUELDO|NOMINA|REMUNERACION)/.test(incomeText)) return 'Sueldo'
     if (/(FREELANCE|HONORARIO|PROYECTO)/.test(incomeText)) return 'Freelance'
+    if (/(INTERES|RENDIMIENTO|DIVIDENDO)/.test(incomeText)) return 'Inversión'
     if (/(REEMBOLSO|DEVOLUCION)/.test(incomeText)) return 'Reembolso'
     return 'Otro ingreso'
   }
@@ -4094,17 +4217,18 @@ export function inferFinanceCategory(description: string, type: FinanceTransacti
 
   if (/(UBER EATS|DLO\*?UBER EATS|RAPPI|PEDIDOSYA|DELIVERY|RESTAUR|RESTA|REST |RESTMONARCH|PASTA|SUSHI|PESCAD|TAQU|TACO|ASADO|PIZZA|DOMINO|KFC|CAFE|COFFEE|STARBUCKS|COMIDA|BAR |CERVECER|FISHER|DOCENA|AROMI|SAPORI|BALCON DEL ZOCALO|PASTELERIA|HELADOS|LE PAIN|VINATA|SIGNORA|SONORA GRILL|JAPANTOWN|SIEMBRA)/.test(value)) return 'Comida fuera'
   if (/(NETFLIX|SPOTIFY|YOUTUBE|APPLE|GOOGLE|PRIME|DISNEY|HBO|OPENAI|MICROSOFT|ADOBE|ZOOM|FIGMA|SUBSCRIP|SUSCRIP)/.test(value)) return 'Suscripciones'
-  if (/(AMERICAN EXPRESS|AMEX|PAGO TARJETA|TARJETA DE CREDITO|TDC|CREDITO 0*\d{3,}|GRACIAS POR SU PAGO|PLAN DE PAGOS DIFERIDOS|COMISION POR PLAN DE PAGOS DIFERIDOS|COMISION POR PLAN|IVA APLICABLE|SERVICIO DE FACTURACION|REVERSION CARGO)/.test(value)) return 'Deuda'
+  if (/(AMERICAN EXPRESS|AMEX|PAGO TARJETA|TARJETA DE CREDITO|PAGO TDC|TDC|CREDITO 0*\d{3,}|SU PAGO.*GRACIAS|SU ABONO.*GRACIAS|GRACIAS POR SU PAGO|INTERESES DEL PERIODO|COMISION POR DISPOSICION|COM MANEJO DE CUENT|PLAN DE PAGOS DIFERIDOS|COMISION POR PLAN DE PAGOS DIFERIDOS|COMISION POR PLAN|IVA APLICABLE|SERVICIO DE FACTURACION|REVERSION CARGO)/.test(value)) return 'Deuda'
   if (/(SPEI ENVIADO|TRANSFERENCIA ENVIADA|PAGO CUENTA DE TERCERO|TRASPASO|STP|PAGO TERCERO)/.test(value)) return 'Transferencias'
-  if (/(RETIRO CAJERO|RET CAJ|CAJERO AUTOMATICO|ATM)/.test(value)) return 'Retiros'
+  if (/(DISPOS\.?EFECTIVO|DISPOSICION EFECTIVO|RETIRO CAJERO|RET CAJ|\bRETIRO\b|CAJERO AUTOMATICO|ATM)/.test(value)) return 'Retiros'
+  if (/(INVERSION|INVERTIR|FONDO DE INVERSION|CETES|CETESDIRECTO|GBM|GBM\+|BITSO|BROKER|CRIPTO|CRYPTO|ACCIONES|ETF)/.test(value)) return 'Inversión'
   if (/(UBER RIDE|UBER RIDES|DLO\*?TDA UBER RIDES|DLO\*?UBER RIDES|DIDI|TAXI|CABIFY|METRO|BENCINA|GASOLINA|COPEC|SHELL|PETROBRAS|TRANSPORTE|PEMEX)/.test(value)) return 'Transporte'
-  if (/(SUPERMERCADO|JUMBO|LIDER|SANTA ISABEL|UNIMARC|TOTTUS|WALMART|WM EXPRESS|SUPERAMA|SAMS|COSTCO|CHEDRAUI|OXXO|MERCADO|ESTADO NATURAL)/.test(value)) return 'Supermercado'
+  if (/(SUPERMERCADO|JUMBO|LIDER|SANTA ISABEL|UNIMARC|TOTTUS|WALMART|WAL MART|WM EXPRESS|SUPERAMA|SAMS|COSTCO|CHEDRAUI|OXXO|MERCADO|ESTADO NATURAL)/.test(value)) return 'Supermercado'
   if (/(FARMACIA|HOSPITAL|CLINICA|MEDIC|SALUD|SOFIA|GYMPASS|GIMNASIO|FITNESS|PEDIATR|CLUB DEPORTIVO|CUICACALLI)/.test(value)) return 'Salud'
   if (/(ARRIENDO|RENTA|DIVIDENDO|HIPOTECA|LUZ|AGUA|GAS|INTERNET|TELCO|HOGAR|CFE|TELCEL)/.test(value)) return 'Hogar'
   if (/(COLEGIO|UNIVERSIDAD|EDUCACION|CURSO)/.test(value)) return 'Educación'
-  if (/(IMPUESTO|SAT|SII|TESORERIA)/.test(value)) return 'Impuestos'
+  if (/(IMPUESTO|\bSAT\b|\bSII\b|TESORERIA)/.test(value)) return 'Impuestos'
   if (/(ONLYFANS|CINE|CINEMEX|CINEPOLIS|TICKETMASTER|PALACIO DEPORTES|AUDITORIO|TEATRO|CONCIERTO|EVENTO|JUEGO|GAMING)/.test(value)) return 'Ocio'
-  if (/(AMAZON|MERCADOPAGO|MERPAGO|LIVERPOOL|PALACIO|SEARS|SHOP|STORE|TIENDA|STRIPE|ADIDAS|LEVIS|HM MX|H M |FLORERIA|BOUT )/.test(value)) return 'Compras'
+  if (/(AMAZON|MERCADOPAGO|MERPAGO|LIVERPOOL|PALACIO|SEARS|SHOP|STORE|TIENDA|STRIPE|ADIDAS|LEVIS|HM MX|H M |FLORERIA|BOUT |CLIP MX|NETPAY|CONSUMO LOCAL AJENO)/.test(value)) return 'Compras'
 
   return 'Otro'
 }
@@ -4194,7 +4318,7 @@ export function buildFinancialInsights(
         id: 'empty',
         title: 'Sin señal todavía',
         value: '0 movimientos',
-        body: 'Conecta una cuenta con Syncfy para generar insights reales.',
+        body: 'Ve a Conectar cuenta y sigue los pasos para generar insights reales.',
         tone: 'watch',
       },
     ]
@@ -4419,7 +4543,7 @@ function buildFinanceNextActions(
       {
         id: 'connect',
         label: 'Conectar institución',
-        body: 'Trae movimientos reales con Syncfy para que FinovAI pueda detectar fugas.',
+        body: 'Ve a Conectar cuenta y sigue los pasos para que FinovAI pueda detectar fugas.',
         target: 'connect',
       },
     ]
@@ -4429,8 +4553,8 @@ function buildFinanceNextActions(
   if (opportunities.some((opportunity) => opportunity.kind === 'recurring')) {
     actions.push({
       id: 'review-recurring',
-      label: 'Revisar recurrentes',
-      body: 'Confirma qué cargos siguen siendo necesarios y elimina los que ya no uses.',
+      label: 'Ver movimientos',
+      body: 'Revisa los cargos repetidos en Movimientos y elimina los que ya no uses.',
       target: 'movements',
     })
   }
@@ -4860,7 +4984,7 @@ Analizar transacciones autorizadas, encontrar fugas de dinero, explicar patrones
 FILOSOFÍA CORE:
 - Primero detectas la fuga, luego decides qué hacer con ese margen.
 - FinovAI trabaja con lectura transaccional; no inicia pagos, retiros ni inversiones.
-- Syncfy es la fuente principal de conexión transaccional, bancaria, fiscal y de fuentes compatibles.
+- La conexión bancaria autorizada es la fuente principal de datos transaccionales, fiscales y de fuentes compatibles.
 - Las proyecciones de inversión son ilustrativas, no garantías.
 
 TU ROL EN ESTA CONVERSACIÓN:
@@ -4868,7 +4992,7 @@ TU ROL EN ESTA CONVERSACIÓN:
 2. Priorizar fugas accionables: comercios repetidos, días de gasto, suscripciones y picos inusuales.
 3. Estimar ahorro posible de forma conservadora.
 4. Explicar cómo ese ahorro podría convertirse en aportación hacia una plataforma de inversión aliada.
-5. Ser claro cuando faltan transacciones conectadas y pedir conectar una cuenta con Syncfy.
+5. Ser claro cuando faltan transacciones conectadas y pedir ir a Conectar cuenta y seguir los pasos.
 
 TONO:
 - Cercano pero profesional
@@ -4881,6 +5005,7 @@ IMPORTANTE:
 - NO prometas rendimientos
 - NO uses jerga financiera compleja
 - NO digas que FinovAI mueve dinero
+- NO menciones el proveedor de conexión por nombre; si faltan movimientos, di: "Ve a Conectar cuenta y sigue los pasos."
 - SÍ valida sus preocupaciones
 - SÍ menciona supuestos cuando hables de proyecciones
 - SÍ enfoca la respuesta en ahorro, patrones y siguientes pasos
@@ -4889,7 +5014,7 @@ Responde siempre en español. Mantén las respuestas concisas (2-4 párrafos má
 
 const DASHBOARD_CHAT_SYSTEM_PROMPT = `Eres FinovAI, un copiloto financiero para México y Latinoamérica.
 
-Responde siempre en español. Usa solo los datos financieros incluidos en el mensaje del usuario. Si faltan movimientos, dilo con claridad y pide conectar o sincronizar la institución.
+Responde siempre en español. Usa solo los datos financieros incluidos en el mensaje del usuario. Si faltan movimientos, dilo con claridad y pide ir a Conectar cuenta y seguir los pasos. No menciones el proveedor de conexión por nombre.
 
 Tu trabajo:
 - detectar fugas de gasto, patrones, recurrencias y oportunidades de ahorro;
@@ -4898,7 +5023,16 @@ Tu trabajo:
 - tratar conjuntos de datos marcados como preliminares como lecturas direccionales, no conclusiones definitivas;
 - usar categoryBreakdown.allExpenses cuando la pregunta sea sobre categorías/rubros en general, salvo que el usuario pida el mes actual;
 - evitar consejos de inversión específicos, promesas de rendimiento o jerga innecesaria;
-- mantener respuestas breves, accionables y orientadas a próximos pasos.`
+- mantener respuestas breves, accionables y orientadas a próximos pasos.
+
+Formato obligatorio:
+- Responde solo en 3 a 5 bullets cortos; no uses párrafo introductorio.
+- Cada bullet debe tener máximo 18 palabras.
+- Máximo 100 palabras, salvo que el usuario pida detalle.
+- No cierres con preguntas de seguimiento.
+- No menciones páginas o secciones que no existen. Destinos válidos: Chat, Conectar cuenta, Movimientos, Categorías, Ajustes.
+- Si recomiendas revisar cargos, di "ve a Movimientos" o "usa Categorías"; nunca digas "Revisar recurrentes".
+- Termina con una frase completa antes de cualquier gráfico.`
 
 // =====================
 // MAIN HANDLER
@@ -4927,7 +5061,7 @@ export default {
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
       refreshDueSyncfyCredentials(env).then((result) => {
-        console.log('Syncfy scheduled refresh complete', result)
+        console.log('Scheduled connection refresh complete', result)
       })
     )
   },
@@ -6176,7 +6310,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       const payload = body.payload ?? body
       const credential = await storeSyncfyCredential(env, payload, eventType, normalizedEmail)
       if (!credential) {
-        return error('Syncfy aún no regresó una credencial lista. Esperando webhook de refresh.', 422)
+        return error('La conexión aún no regresó una credencial lista. Esperando confirmación.', 422)
       }
 
       const transactionEndpoints = getSyncfyWebhookEndpointPaths(payload, 'transactions')
@@ -6251,7 +6385,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         pendingTransactions: importResult ? !isSyncfyTransactionImportComplete(importResult) : true,
         message: importResult
           ? getSyncfyTransactionImportMessage(importResult)
-          : 'Credencial Syncfy guardada. Ya puedes sincronizar transacciones.',
+          : 'Institución guardada. Ya puedes sincronizar transacciones.',
       })
     }
 
@@ -6273,13 +6407,13 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         : credentials[0]
 
       if (!credential) {
-        return error('Primero conecta una institución con Syncfy.', 404)
+        return error('Ve a Conectar cuenta y sigue los pasos primero.', 404)
       }
 
       if (isSyncfyReconnectRequiredStatus(credential.status)) {
         return json({
           success: false,
-          error: 'Syncfy requiere reconectar esta institución antes de volver a sincronizar.',
+          error: 'Ve a Conectar cuenta y sigue los pasos para reconectar esta institución antes de volver a sincronizar.',
           credential: syncfyCredentialToApi(credential),
         }, 409)
       }
@@ -6288,7 +6422,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       if (cooldownSeconds > 0) {
         return json({
           success: false,
-          error: 'Syncfy permite una sincronización exitosa por credencial cada 5 minutos.',
+          error: 'Puedes hacer una sincronización exitosa por institución cada 5 minutos.',
           retryAfterSeconds: cooldownSeconds,
           credential: syncfyCredentialToApi(credential),
         }, 429)
@@ -6347,7 +6481,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
 
       const verified = await verifySyncfySecret(request, env)
       if (env.SYNCFY_WEBHOOK_SECRET && !verified) {
-        return error('Secreto de webhook Syncfy inválido', 401)
+        return error('Secreto de webhook inválido', 401)
       }
 
       const payload = await request.json() as unknown
@@ -6557,7 +6691,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         summary: summarizeExpenses(expenses),
         expenses,
         raw: rawTransactions,
-        message: `${expenses.length} movimientos cargados desde Syncfy.`,
+        message: `${expenses.length} movimientos cargados.`,
       })
     }
 

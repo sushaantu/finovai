@@ -1,6 +1,7 @@
 export const DASHBOARD_EMAIL_STORAGE_KEY = 'finovai_signup_email'
 export const DASHBOARD_SECRET_STORAGE_KEY = 'finovai_dashboard_secret'
 export const DASHBOARD_SECRET_HEADER = 'X-FinovAI-Dashboard-Secret'
+const LOCAL_DASHBOARD_SECRET = 'local-dev-session'
 
 export function getStoredDashboardEmail() {
   if (typeof window === 'undefined') return null
@@ -24,6 +25,8 @@ export function setDashboardSession(email: string, clientSecret?: string | null)
   window.localStorage.setItem(DASHBOARD_EMAIL_STORAGE_KEY, email)
   if (clientSecret) {
     window.localStorage.setItem(DASHBOARD_SECRET_STORAGE_KEY, clientSecret)
+  } else if (import.meta.env.DEV) {
+    window.localStorage.setItem(DASHBOARD_SECRET_STORAGE_KEY, LOCAL_DASHBOARD_SECRET)
   }
 }
 

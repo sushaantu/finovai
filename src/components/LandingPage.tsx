@@ -219,12 +219,12 @@ const faqItems: FaqItem[] = [
   {
     question: '¿Puede FinovAI mover dinero de mi cuenta?',
     answer:
-      'No. FinovAI usa Syncfy para obtener datos transaccionales y analizarlos; no inicia transferencias, retiros ni pagos. Cuando decides invertir, la decisión y el movimiento ocurren fuera de FinovAI con el proveedor que elijas.',
+      'No. FinovAI usa conexiones autorizadas para obtener datos transaccionales y analizarlos; no inicia transferencias, retiros ni pagos. Cuando decides invertir, la decisión y el movimiento ocurren fuera de FinovAI con el proveedor que elijas.',
   },
   {
     question: '¿Qué bancos y plataformas puedo conectar?',
     answer:
-      'Syncfy publica cobertura en México para bancos como BBVA México, Banorte IXE, Santander México, HSBC, Banamex, Scotiabank México, Inbursa, Banregio, Hey Banco y American Express. Syncfy Open Data también menciona billeteras digitales como Bitso. La disponibilidad final depende de la cobertura vigente de Syncfy y del tipo de cuenta.',
+      'FinovAI permite conectar bancos en México como BBVA México, Banorte IXE, Santander México, HSBC, Banamex, Scotiabank México, Inbursa, Banregio, Hey Banco y American Express, además de fuentes compatibles como Bitso. La disponibilidad final depende de la cobertura vigente y del tipo de cuenta.',
   },
   {
     question: '¿Cuánto cuesta usar FinovAI?',
@@ -399,7 +399,7 @@ function HeroSection({ onConnect }: { onConnect: () => void }) {
 
           <div className="landing-microcopy">
             <span>
-              <Lock aria-hidden="true" /> Conexión bancaria vía Syncfy
+              <Lock aria-hidden="true" /> Conexión bancaria segura
             </span>
             <span aria-hidden="true">·</span>
             <span>Sin tarjeta de crédito</span>
@@ -410,8 +410,8 @@ function HeroSection({ onConnect }: { onConnect: () => void }) {
       </div>
 
       <div className="landing-container landing-trust-row">
-        <span>Conexión bancaria vía</span>
-        {['Syncfy Open Data', 'Bancos y wallets MX', 'SAT'].map((name) => (
+        <span>Conecta fuentes compatibles</span>
+        {['Bancos y wallets MX', 'SAT', 'American Express'].map((name) => (
           <strong key={name}>{name}</strong>
         ))}
       </div>
@@ -421,10 +421,10 @@ function HeroSection({ onConnect }: { onConnect: () => void }) {
 
 function BankNetworkAnimation() {
   return (
-    <div className="landing-bank-network" aria-label="Instituciones mexicanas conectables mediante Syncfy">
+    <div className="landing-bank-network" aria-label="Instituciones mexicanas conectables">
       <div className="landing-bank-rings" aria-hidden="true" />
       <div className="landing-bank-center">
-        <span>Syncfy Open Data</span>
+        <span>Conexión bancaria</span>
         <strong>Conecta tus cuentas</strong>
         <small>Bancos, billeteras digitales y SAT para análisis financiero en FinovAI</small>
       </div>
@@ -570,8 +570,8 @@ function HowItWorksSection() {
           <StepCard
             icon={<Landmark aria-hidden="true" />}
             step="01 · Conecta"
-            title="Vincula tu banco con Syncfy"
-            body="Usamos el widget de Syncfy para conectar bancos mexicanos y traer movimientos transaccionales a FinovAI."
+            title="Vincula tu banco"
+            body="Conecta bancos mexicanos y trae movimientos transaccionales a FinovAI."
           >
             <div className="landing-bank-tags">
               {['BBVA', 'Banorte', 'Santander', 'HSBC', 'Hey'].map((bank) => (
@@ -813,7 +813,7 @@ function SecuritySection() {
     },
     {
       title: 'Conexión cifrada',
-      body: 'Syncfy gestiona el flujo de conexión bancaria. La clave API de Syncfy se usa solo en el servidor, no en el navegador.',
+      body: 'El flujo de conexión bancaria se maneja con sesiones seguras. Las claves de conexión se usan solo en el servidor, no en el navegador.',
     },
     {
       title: 'Desconecta cuando quieras',
@@ -835,7 +835,7 @@ function SecuritySection() {
             <span>Nosotros no tocamos tus credenciales.</span>
           </h2>
           <p>
-            La lectura de transacciones ocurre a través de Syncfy. FinovAI usa esos movimientos para detectar
+            La lectura de transacciones ocurre con autorización del usuario. FinovAI usa esos movimientos para detectar
             patrones, no para operar tu dinero.
           </p>
 

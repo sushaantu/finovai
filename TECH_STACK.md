@@ -136,8 +136,11 @@ FinovAI is a Spanish-language financial coaching platform built as a full-stack 
 bun run dev           # Frontend dev server (port 5173)
 bunx wrangler dev     # Backend dev server (port 8788)
 bun run build         # Production build
-bun run worker:deploy # Deploy to Cloudflare
-bun run db:migrate    # Run DB migrations (remote)
+bun run verify        # Typecheck, focused tests, production build
+bun run deploy:preview    # Migrate preview D1 and deploy finovai-preview
+bun run deploy:production # Migrate production D1 and deploy finovai
+bun run db:migrate:preview    # Run preview DB migrations (remote)
+bun run db:migrate:production # Run production DB migrations (remote)
 bun run db:migrate:local # Run DB migrations (local)
 ```
 
@@ -286,14 +289,20 @@ bun run dev                     # Terminal 2
 # 5. Check WhatsApp for OTP
 ```
 
-### 4. Deploy to Production
+### 4. Deploy to Preview
 ```bash
-bun run build && bunx wrangler deploy
+direnv exec . bun run deploy:preview
+curl https://finovai-preview.my-cloudflare-711.workers.dev/api/health
 ```
 
-### 5. Verify Production
+### 5. Deploy to Production
+```bash
+direnv exec . bun run deploy:production
+```
+
+### 6. Verify Production
 - Visit https://finov.ai (or workers.dev URL)
-- Test full OTP flow with real WhatsApp
+- Check `https://finov.ai/api/health`
 
 ---
 
