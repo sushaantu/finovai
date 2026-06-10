@@ -1627,6 +1627,13 @@ function extractSyncfyCode(payload: unknown): string | null {
   return firstSyncfyString(payload, ['code', 'error_code', 'errorCode', 'status_code', 'statusCode'])
 }
 
+function extractSyncfyNumericStatus(payload: unknown): number | null {
+  const code = extractSyncfyCode(payload)
+  if (!code) return null
+  const value = Number(code)
+  return Number.isFinite(value) ? value : null
+}
+
 function extractSyncfyCredentialPayload(payload: unknown): SyncfyCredentialPayload {
   const site = extractSyncfySiteMetadata(payload)
 
@@ -2564,6 +2571,10 @@ async function buildSyncfyStatusProbes(
 }
 
 function buildSyncfyUserMessage(error: SyncfyRequestError): string {
+  if (error.status === 402) {
+    return 'La cuenta de Syncfy no tiene habilitada la creación de nuevas credenciales. El equipo debe corregir la llave o el plan de Syncfy antes de pedirte reintentar.'
+  }
+
   if (error.status === 429) {
     return 'La conexión está limitando nuevas sincronizaciones. Intenta de nuevo en unos minutos.'
   }
@@ -7259,7 +7270,31 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
       const payload = body.payload ?? body
       const credential = await storeSyncfyCredential(env, payload, eventType, normalizedEmail)
       if (!credential) {
-        return error('La conexión aún no regresó una credencial lista. Esperando confirmación.', 422)
+        const rid = extractSyncfyRid(payload)
+        const isWidgetError = eventType.toLowerCase().includes('error')
+        await storeSyncfyError(env, {
+          email: normalizedEmail,
+          rid,
+          statusCode: extractSyncfyNumericStatus(payload),
+          errorCode: extractSyncfyCode(payload),
+          message: isWidgetError
+            ? 'Syncfy widget reported an error before returning a credential.'
+            : 'Syncfy widget callback did not include a credential.',
+          source: isWidgetError ? 'syncfy-widget-error' : 'syncfy-widget-no-credential',
+          payload,
+        })
+        const credentials = await loadDisplaySyncfyCredentialsForEmail(env, normalizedEmail)
+        const message = rid
+          ? `Syncfy no creó una credencial para esta conexión. RID: ${rid}`
+          : 'Syncfy no creó una credencial para esta conexión.'
+        return json({
+          success: false,
+          email: normalizedEmail,
+          rid,
+          error: message,
+          message,
+          credentials: credentials.map(syncfyCredentialToApi),
+        }, isWidgetError ? 409 : 422)
       }
 
       const transactionEndpoints = getSyncfyWebhookEndpointPaths(payload, 'transactions')

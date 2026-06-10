@@ -297,6 +297,7 @@ export function SyncfyConnect({
   const widgetRef = useRef<SyncfyWidgetInstance | null>(null)
   const pollTimeoutRef = useRef<number | null>(null)
   const retryTimeoutRef = useRef<number | null>(null)
+  const sessionBaselineCredentialIdsRef = useRef<Set<string>>(new Set(initialCredentials.map((credential) => credential.syncfyCredentialId)))
   const [credentials, setCredentials] = useState<SyncfyCredential[]>(initialCredentials)
   const [session, setSession] = useState<SyncfySessionResponse | null>(null)
   const [widgetMode, setWidgetMode] = useState<WidgetMode>('create')
@@ -323,6 +324,18 @@ export function SyncfyConnect({
     )
     applyCredentials(response.credentials)
     return response.credentials
+  }
+
+  const isCredentialForWidgetRun = (credential: SyncfyCredential) => {
+    if (widgetMode === 'update' && activeCredentialId) {
+      return credential.syncfyCredentialId === activeCredentialId
+    }
+
+    return !sessionBaselineCredentialIdsRef.current.has(credential.syncfyCredentialId)
+  }
+
+  const findCredentialForWidgetRun = (nextCredentials: SyncfyCredential[]) => {
+    return nextCredentials.find(isCredentialForWidgetRun) || null
   }
 
   const clearCredentialPolling = () => {
@@ -360,7 +373,7 @@ export function SyncfyConnect({
     const tick = async () => {
       attempts += 1
       const nextCredentials = await loadCredentials().catch(() => [])
-      const nextCredential = nextCredentials[0]
+      const nextCredential = findCredentialForWidgetRun(nextCredentials)
 
       if (nextCredential) {
         dismissWidgetSession()
@@ -409,7 +422,10 @@ export function SyncfyConnect({
         onSynced?.(response)
       }
 
-      const nextCredential = response.credential || response.credentials[0]
+      const responseCredential = response.credential && isCredentialForWidgetRun(response.credential)
+        ? response.credential
+        : null
+      const nextCredential = responseCredential || findCredentialForWidgetRun(response.credentials)
       if (nextCredential?.syncfyCredentialId) {
         dismissWidgetSession()
         window.setTimeout(() => {
@@ -494,7 +510,7 @@ export function SyncfyConnect({
         window.setTimeout(() => {
           void loadCredentials()
             .then((nextCredentials) => {
-              const nextCredential = nextCredentials[0]
+              const nextCredential = findCredentialForWidgetRun(nextCredentials)
               if (nextCredential?.syncfyCredentialId) {
                 dismissWidgetSession()
                 const nextMessage = 'Institución detectada. Buscando movimientos.'
@@ -504,7 +520,9 @@ export function SyncfyConnect({
                 return
               }
 
-              pollForCredential(true)
+              dismissWidgetSession()
+              setMessage(fallbackMessage)
+              onStatus?.(fallbackMessage)
             })
             .catch(() => {
               setMessage(fallbackMessage)
@@ -561,6 +579,7 @@ export function SyncfyConnect({
       setIsLoading(true)
       setOpenCredentialMenuId(null)
       clearTransactionRetry()
+      sessionBaselineCredentialIdsRef.current = new Set(credentials.map((credential) => credential.syncfyCredentialId))
       setMessage(mode === 'update'
         ? 'Abriendo el formulario para actualizar el acceso.'
         : 'Abriendo el formulario. Después del éxito, los movimientos pueden tardar unos minutos en llegar.')

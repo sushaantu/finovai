@@ -1724,6 +1724,42 @@ test('syncfy credential delete cleans local stale rows for Syncfy status-false 2
   }
 })
 
+test('syncfy widget error without credential is logged without creating a local connection', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+
+  const response = await worker.fetch(new Request('http://local.test/api/syncfy/credential', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'user@example.com',
+      eventType: 'widget.error',
+      payload: {
+        rid: 'rid-widget-error',
+        code: 402,
+        message: 'Payment Required',
+      },
+    }),
+  }), env)
+  const data = await response.json() as {
+    success?: boolean
+    rid?: string
+    credentials?: unknown[]
+  }
+
+  expect(response.status).toBe(409)
+  expect(data.success).toBe(false)
+  expect(data.rid).toBe('rid-widget-error')
+  expect(data.credentials).toEqual([])
+  expect(env.DB.syncfyCredentials).toEqual([])
+  expect(env.DB.syncfyErrors).toHaveLength(1)
+  expect(env.DB.syncfyErrors[0]).toMatchObject({
+    email: 'user@example.com',
+    rid: 'rid-widget-error',
+    status_code: 402,
+    error_code: '402',
+    source: 'syncfy-widget-error',
+  })
+})
+
 test('syncfy sandbox sessions enable Syncfy widget test mode', async () => {
   const env = createEnv('test', {
     SYNCFY_API_KEY: 'test-key',
