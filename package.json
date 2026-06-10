@@ -14,6 +14,8 @@
     "verify": "bunx tsc --noEmit && bun test worker/finance.test.ts worker/signup.test.ts worker/dashboard-chat-benchmark.test.ts scripts/benchmark-dashboard-chat.test.ts && bun run build",
     "benchmark:dashboard-chat": "bun scripts/benchmark-dashboard-chat.ts",
     "smoke:email-login:local": "bun scripts/smoke-email-login-local.ts",
+    "smoke:ux:local": "FINOVAI_FULL_UX_REQUIRE_EMAIL_CODE=true bun scripts/smoke-full-ux.ts",
+    "smoke:ux:preview": "FINOVAI_FULL_UX_TARGET=preview bun scripts/smoke-full-ux.ts",
     "smoke:syncfy:sandbox": "bun scripts/smoke-syncfy-sandbox.ts",
     "smoke:syncfy:full-flow": "bun scripts/smoke-syncfy-full-flow.ts",
     "smoke:syncfy:preview-full": "FINOVAI_API_BASE_URL=https://finovai-preview.my-cloudflare-711.workers.dev bun scripts/smoke-syncfy-full-flow.ts",

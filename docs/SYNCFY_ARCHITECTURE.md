@@ -173,6 +173,18 @@ bun run smoke:syncfy:preview-full
 
 This runs the app-facing flow against preview: signup, Syncfy session, ACME credential creation through Paybook's API, FinovAI credential callback, transaction import, and dashboard chat over the imported movements. On 2026-06-10 this passed against preview in 47 seconds with Syncfy RID `52705c33-39af-494d-975a-83d0f2a7eaf3` and 27 imported transactions.
 
+Full UX smoke:
+
+```sh
+# Local production-like auth + sandbox Syncfy. Requires local .dev.vars to have a working sandbox key.
+bun run smoke:ux:local
+
+# Deployed preview. Uses preview's Cloudflare Syncfy sandbox secret; preview does not require email-code auth.
+bun run smoke:ux:preview
+```
+
+`smoke:ux:*` is the closest automated proof of the target user journey: signup, email-code verification when the environment requires it, Syncfy session, ACME credential creation, FinovAI credential capture, transaction import, and dashboard chat under 120 seconds. Preview currently proves the bank/movements/chat leg with the authorized sandbox key. Local proves the email-code leg, but cannot prove bank linking until `.dev.vars` has an authorized sandbox Syncfy key.
+
 Current key note:
 
 - Preview Cloudflare `SYNCFY_API_KEY` can create sandbox ACME credentials.
