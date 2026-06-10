@@ -123,6 +123,8 @@ The webhook path is important, but user-visible success must not depend only on 
 
 The five-minute UI cooldown, `POST /api/syncfy/refresh`, and scheduled cron interval must stay aligned. If the UI says FinovAI will retry in about five minutes, the Worker must consider that credential due after the same interval.
 
+`POST /api/syncfy/refresh` must not block the browser on long Syncfy pulls when the credential is already inside the provider cooldown. If credential-scoped transaction rows already exist in D1, the endpoint returns success from stored evidence without calling Syncfy again. If the credential is `pending_transactions` and still cooling down, the endpoint returns `202` quickly and continues job-status/direct-transaction import in `ctx.waitUntil`.
+
 Syncfy HTTP register status is transport-level evidence only. A `200` on `/credentials/:id/pulls`, `/jobs/:id/status`, or `/transactions` means Syncfy accepted and answered the API request; it does not prove that the institution produced readable movements. FinovAI treats `200` plus zero transactions as `pending_transactions`, records `last_pull_at`, and waits for scheduled/support refresh.
 
 New institution connection has an earlier hard gate: Syncfy must allow `POST /v1/credentials/pulls`. If Syncfy returns `402 Payment Required` there, the account/API key cannot create the credential at all. No webhook, transaction import, or chat behavior can fix that because no usable provider credential exists yet. Validate this with `bun run probe:syncfy:credential --site all`, which mirrors Paybook's official sample sequence.
@@ -171,7 +173,7 @@ Full sandbox outcome proof:
 bun run smoke:syncfy:preview-full
 ```
 
-This runs the app-facing flow against preview: signup, Syncfy session, ACME credential creation through Paybook's API, FinovAI credential callback, transaction import, and dashboard chat over the imported movements. On 2026-06-10 this passed against preview in 47 seconds with Syncfy RID `52705c33-39af-494d-975a-83d0f2a7eaf3` and 27 imported transactions.
+This runs the app-facing flow against preview: signup, Syncfy session, ACME credential creation through Paybook's API, FinovAI credential callback, transaction import, and dashboard chat over the imported movements. On 2026-06-10 this passed against preview in 49 seconds with Syncfy RID `fa1f5a6b-42dc-43ee-ab7a-f980468309c7` and 135 imported transactions.
 
 Full UX smoke:
 

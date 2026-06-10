@@ -2480,10 +2480,12 @@ test('syncfy refresh treats webhook-imported transactions as complete when polli
     raw_source: JSON.stringify({ _finovaiCredentialId: 'credential-1' }),
   })
 
+  let upstreamCalls = 0
   const originalFetch = globalThis.fetch
-  globalThis.fetch = (async () => new Response(JSON.stringify({ response: { transactions: [] } }), {
-    headers: { 'Content-Type': 'application/json' },
-  })) as typeof fetch
+  globalThis.fetch = (async () => {
+    upstreamCalls += 1
+    throw new Error('Syncfy upstream should not be called when credential transactions are already stored.')
+  }) as typeof fetch
 
   try {
     const response = await worker.fetch(new Request('http://local.test/api/syncfy/refresh', {
@@ -2503,6 +2505,7 @@ test('syncfy refresh treats webhook-imported transactions as complete when polli
     expect(data.message).toBe('1 movimientos sincronizados.')
     expect(env.DB.syncfyCredentials[0].status).toBe('synced')
     expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+    expect(upstreamCalls).toBe(0)
   } finally {
     globalThis.fetch = originalFetch
   }

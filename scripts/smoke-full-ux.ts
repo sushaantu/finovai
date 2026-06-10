@@ -33,15 +33,20 @@ async function requestJson<T extends JsonRecord>(
   path: string,
   init?: RequestInit,
 ): Promise<{ status: number; data: T }> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
-  })
-  const data = await response.json().catch(() => ({})) as T
-  return { status: response.status, data }
+  try {
+    const response = await fetch(`${apiBaseUrl}${path}`, {
+      ...init,
+      signal: init?.signal || AbortSignal.timeout(requestTimeoutMs),
+      headers: {
+        'Content-Type': 'application/json',
+        ...init?.headers,
+      },
+    })
+    const data = await response.json().catch(() => ({})) as T
+    return { status: response.status, data }
+  } catch (err) {
+    throw new Error(`Request failed for ${path}: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 function walkFiles(root: string, suffix: string, deadlineMs: number): string[] {
@@ -129,6 +134,7 @@ const apiBaseUrl = (
 const pollAttempts = Number(process.env.FINOVAI_FULL_UX_POLL_ATTEMPTS || 12)
 const pollDelayMs = Number(process.env.FINOVAI_FULL_UX_POLL_DELAY_MS || 5000)
 const maxSeconds = Number(process.env.FINOVAI_FULL_UX_MAX_SECONDS || 120)
+const requestTimeoutMs = Number(process.env.FINOVAI_SMOKE_REQUEST_TIMEOUT_MS || 20_000)
 const requireEmailCode = process.env.FINOVAI_FULL_UX_REQUIRE_EMAIL_CODE === 'true'
 const startedAt = Date.now()
 const email = `full-ux-smoke-${Date.now()}@finov.ai`
@@ -191,9 +197,10 @@ assert(stringField(session.data, 'syncfyUserId'), 'Syncfy session did not return
 
 const createResponse = await fetch('https://opendata-api.syncfy.com/v1/credentials/pulls?pretty=1', {
   method: 'POST',
+  signal: AbortSignal.timeout(requestTimeoutMs),
   headers: {
     'Content-Type': 'application/json',
-    Authorization: `TOKEN token=${token}`,
+    Authorization: `Bearer ${token}`,
   },
   body: JSON.stringify({
     id_site: ACME_NORMAL_SITE_ID,
@@ -225,6 +232,13 @@ let refresh: { status: number; data: JsonRecord } | null = null
 let transactions: { status: number; data: JsonRecord } | null = null
 
 for (let attempt = 0; attempt < pollAttempts; attempt += 1) {
+  transactions = await requestJson<JsonRecord>(
+    apiBaseUrl,
+    `/api/transactions?email=${encodeURIComponent(email)}`,
+    { headers: authHeaders },
+  )
+  if (transactionCount(transactions.data) > 0) break
+
   refresh = await requestJson<JsonRecord>(apiBaseUrl, '/api/syncfy/refresh', {
     method: 'POST',
     headers: authHeaders,
@@ -233,12 +247,10 @@ for (let attempt = 0; attempt < pollAttempts; attempt += 1) {
       credentialId: capturedCredentialId,
     }),
   })
-  transactions = await requestJson<JsonRecord>(
-    apiBaseUrl,
-    `/api/transactions?email=${encodeURIComponent(email)}`,
-    { headers: authHeaders },
-  )
-  if (transactionCount(transactions.data) > 0) break
+  if (transactionCount(refresh.data) > 0) {
+    transactions = refresh
+    break
+  }
   await Bun.sleep(pollDelayMs)
 }
 

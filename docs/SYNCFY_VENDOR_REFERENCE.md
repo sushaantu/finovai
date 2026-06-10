@@ -45,12 +45,13 @@ Observed result with the sandbox key ending in `d79c`:
 - `POST /v1/sessions`: `200`
 - `POST /v1/credentials/pulls`: `402 Payment Required`
 - Historical official-sample RID: `c1a401b7-4be5-4afa-9e1d-12e692e76554`
-- Current Paybook-header probe RID: `b68efb08-7376-4f52-9a36-13332aa5359f`
+- Current Paybook-header probe RID: `f5f99149-2c55-45ef-8ecd-9ba01ea9c4ac`
 
 Additional checks:
 
-- Paybook's documented `TOKEN token=<token>` header returns `402 Payment Required`.
-- `Bearer <token>` also returns `402 Payment Required`.
+- Paybook's official Node samples use `Authorization: Bearer <session token>` for credential pulls, job status, and transaction reads.
+- `Bearer <token>` returns `402 Payment Required` with the current local sandbox key.
+- The older `TOKEN token=<token>` compatibility format also returns `402 Payment Required`.
 - `API_KEY api_key=<key>, id_user=<id_user>` also returns `402 Payment Required`.
 - Adding `is_test=1` as query/body does not change the result.
 - The same failure occurs on both `https://opendata-api.syncfy.com/v1` and `https://sync.paybook.com/v1`.
@@ -79,7 +80,7 @@ POST /v1/credentials/pulls?pretty=1
 
 with the Syncfy user, site, username/password, and authentication fields. The Syncfy widget performs this same class of operation during first-time institution linking.
 
-The sample uses API-key auth for user/session creation and the short-lived session token as `Authorization: TOKEN token=<token>` for credential creation. FinovAI's local probe mirrors that split so failures are attributable to Syncfy account/API-key capability, not our app transport.
+The sample uses API-key auth for user/session creation and the short-lived session token as `Authorization: Bearer <token>` for credential creation. FinovAI's local probe mirrors that split so failures are attributable to Syncfy account/API-key capability, not our app transport.
 
 Operational rule:
 

@@ -62,7 +62,13 @@ function envValue(name: string, devVars: Map<string, string>) {
 }
 
 function normalizeBaseUrl(value: string) {
+  if (value === 'official') return OFFICIAL_SAMPLE_BASE_URL
+  if (value === 'app' || value === 'paybook') return DEFAULT_APP_BASE_URL
   return value.replace(/\/+$/, '')
+}
+
+function buildSessionTokenAuthHeader(token: string, tokenAuth: string) {
+  return tokenAuth === 'bearer' ? `Bearer ${token}` : `TOKEN token=${token}`
 }
 
 function asRecord(value: unknown): JsonRecord | null {
@@ -128,7 +134,7 @@ function getString(value: unknown, key: string) {
   return typeof fieldValue === 'string' ? fieldValue : ''
 }
 
-async function pollJob(baseUrl: string, token: string, statusUrl: string, seconds: number) {
+async function pollJob(baseUrl: string, token: string, tokenAuth: string, statusUrl: string, seconds: number) {
   const deadline = Date.now() + seconds * 1000
   const path = statusUrl.startsWith('http')
     ? new URL(statusUrl).pathname + new URL(statusUrl).search
@@ -139,7 +145,7 @@ async function pollJob(baseUrl: string, token: string, statusUrl: string, second
     await Bun.sleep(3000)
     const status = await requestJson(baseUrl, path, {
       method: 'GET',
-      headers: { Authorization: `TOKEN token=${token}` },
+      headers: { Authorization: buildSessionTokenAuthHeader(token, tokenAuth) },
     })
     const response = status.response
     const responseArray = Array.isArray(response) ? response : Array.isArray(response?.response) ? response.response : []
@@ -158,6 +164,7 @@ async function runProbe(options: {
   baseUrl: string
   site: typeof ACME_SITES[keyof typeof ACME_SITES]
   pollSeconds: number
+  tokenAuth: string
 }) {
   const idExternal = `finovai-probe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const user = await requestJson(options.baseUrl, '/users?pretty=1', {
@@ -179,7 +186,7 @@ async function runProbe(options: {
   const token = getString(session?.response, 'token')
   const credential = token ? await requestJson(options.baseUrl, '/credentials/pulls?pretty=1', {
     method: 'POST',
-    headers: { Authorization: `TOKEN token=${token}` },
+    headers: { Authorization: buildSessionTokenAuthHeader(token, options.tokenAuth) },
     body: JSON.stringify({
       id_site: options.site.idSite,
       credentials: options.site.credentials,
@@ -189,12 +196,12 @@ async function runProbe(options: {
   const idCredential = getString(credential?.response, 'id_credential')
   const statusUrl = getString(credential?.response, 'status')
   const job = token && statusUrl && options.pollSeconds > 0
-    ? await pollJob(options.baseUrl, token, statusUrl, options.pollSeconds)
+    ? await pollJob(options.baseUrl, token, options.tokenAuth, statusUrl, options.pollSeconds)
     : []
   const transactions = token && idCredential && (job.length === 0 || job.some((item) => item.code !== null && item.code >= 200))
     ? await requestJson(options.baseUrl, `/transactions?pretty=1&id_credential=${encodeURIComponent(idCredential)}&limit=10&skip=0`, {
       method: 'GET',
-      headers: { Authorization: `TOKEN token=${token}` },
+      headers: { Authorization: buildSessionTokenAuthHeader(token, options.tokenAuth) },
     })
     : null
   const transactionResponse = transactions?.response
@@ -238,6 +245,11 @@ const apiKey = String(args.get('api-key') || envValue('SYNCFY_API_KEY', devVars)
 const syncfyEnv = String(args.get('syncfy-env') || envValue('SYNCFY_ENV', devVars)).toLowerCase()
 const allowProduction = Boolean(args.get('allow-production'))
 const pollSeconds = Number(args.get('poll-seconds') || 0)
+const tokenAuth = String(args.get('token-auth') || 'bearer').toLowerCase()
+
+if (!['bearer', 'token'].includes(tokenAuth)) {
+  throw new Error(`Unsupported --token-auth value: ${tokenAuth}. Use "bearer" or "token".`)
+}
 
 if (!apiKey) {
   throw new Error('SYNCFY_API_KEY is missing. Set it in the shell or .dev.vars.')
@@ -259,7 +271,7 @@ const sites = selectedSite === 'all'
 const results = []
 for (const baseUrl of baseUrls) {
   for (const site of sites) {
-    results.push(await runProbe({ apiKey, baseUrl, site, pollSeconds }))
+    results.push(await runProbe({ apiKey, baseUrl, site, pollSeconds, tokenAuth }))
   }
 }
 
@@ -269,6 +281,7 @@ console.log(JSON.stringify({
   ok: passed,
   syncfyEnv,
   apiKey: maskKey(apiKey),
+  tokenAuth,
   pollSeconds,
   results,
 }, null, 2))

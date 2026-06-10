@@ -7442,9 +7442,102 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
         return error('Ve a Conectar cuenta y sigue los pasos primero.', 404)
       }
 
+      const storedTransactions = await countStoredSyncfyTransactionsForCredential(
+        env,
+        normalizedEmail,
+        credential.syncfy_credential_id
+      )
+      if (storedTransactions > 0) {
+        await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
+        const dashboard = await getFinanceDashboard(env, normalizedEmail)
+
+        return json({
+          ...dashboard,
+          source: 'syncfy',
+          syncfy: {
+            credentialId: credential.syncfy_credential_id,
+            fetched: 0,
+            imported: storedTransactions,
+            skipped: 0,
+            endpoints: [],
+          },
+          pendingTransactions: false,
+          message: `${storedTransactions} movimientos sincronizados.`,
+        }, 200)
+      }
+
       const cooldownSeconds = getSyncfyCredentialCooldownSeconds(credential)
       const jobStatusPaths = getSyncfyCredentialJobStatusPaths(credential)
       const canPollPendingCredential = credential.status === 'pending_transactions'
+
+      if (ctx && cooldownSeconds > 0 && canPollPendingCredential) {
+        ctx.waitUntil((async () => {
+          try {
+            const importResult = await importSyncfyTransactionsForCredential(
+              env,
+              normalizedEmail,
+              credential.syncfy_user_id,
+              credential.syncfy_credential_id,
+              {
+                jobStatusPaths,
+                startPull: false,
+              }
+            )
+            const importState = await resolveSyncfyTransactionImportState(
+              env,
+              normalizedEmail,
+              credential.syncfy_credential_id,
+              importResult
+            )
+
+            if (importState.complete) {
+              await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
+            } else {
+              await markSyncfyCredentialSyncPending(env, normalizedEmail, credential.syncfy_credential_id)
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            if (err instanceof SyncfyRequestError) {
+              await storeSyncfyError(env, {
+                email: normalizedEmail,
+                syncfyUserId: credential.syncfy_user_id,
+                syncfyCredentialId: credential.syncfy_credential_id,
+                rid: err.rid,
+                statusCode: err.status,
+                errorCode: err.code,
+                message: err.message,
+                source: 'syncfy-refresh-background',
+                payload: err.responseBody,
+              })
+            } else {
+              await storeSyncfyError(env, {
+                email: normalizedEmail,
+                syncfyUserId: credential.syncfy_user_id,
+                syncfyCredentialId: credential.syncfy_credential_id,
+                message,
+                source: 'syncfy-refresh-background',
+              })
+            }
+            console.error('Syncfy refresh background import failed', {
+              email: normalizedEmail,
+              credentialId: credential.syncfy_credential_id,
+              message,
+            })
+          }
+        })())
+
+        const dashboard = await getFinanceDashboard(env, normalizedEmail)
+        return json({
+          ...dashboard,
+          source: 'syncfy',
+          syncfy: null,
+          pendingTransactions: true,
+          retryAfterSeconds: cooldownSeconds,
+          credential: syncfyCredentialToApi(credential),
+          message: 'Movimientos todavía no disponibles. FinovAI seguirá verificando.',
+        }, 202)
+      }
+
       if (cooldownSeconds > 0 && !canPollPendingCredential) {
         return json({
           success: false,

@@ -16,15 +16,20 @@ async function requestJson<T extends JsonRecord>(
   path: string,
   init?: RequestInit,
 ): Promise<{ status: number; data: T }> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
-  })
-  const data = await response.json().catch(() => ({})) as T
-  return { status: response.status, data }
+  try {
+    const response = await fetch(`${apiBaseUrl}${path}`, {
+      ...init,
+      signal: init?.signal || AbortSignal.timeout(requestTimeoutMs),
+      headers: {
+        'Content-Type': 'application/json',
+        ...init?.headers,
+      },
+    })
+    const data = await response.json().catch(() => ({})) as T
+    return { status: response.status, data }
+  } catch (err) {
+    throw new Error(`Request failed for ${path}: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 function booleanField(record: JsonRecord, key: string) {
@@ -46,14 +51,21 @@ function transactionCount(data: JsonRecord) {
 const apiBaseUrl = (process.env.FINOVAI_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '')
 const pollAttempts = Number(process.env.SYNCFY_FULL_FLOW_POLL_ATTEMPTS || 12)
 const pollDelayMs = Number(process.env.SYNCFY_FULL_FLOW_POLL_DELAY_MS || 5000)
+const requestTimeoutMs = Number(process.env.FINOVAI_SMOKE_REQUEST_TIMEOUT_MS || 20_000)
 const started = Date.now()
 
+function logStep(step: string) {
+  console.error(`[smoke-syncfy-full-flow] ${step}`)
+}
+
+logStep('health')
 const health = await requestJson<JsonRecord>(apiBaseUrl, '/api/health')
 assert(health.status === 200, `Health failed with ${health.status}`)
 assert(health.data.syncfyEnvironment === 'sandbox', `Refusing full-flow smoke outside Syncfy sandbox: ${String(health.data.syncfyEnvironment || 'missing')}`)
 assert(health.data.environment !== 'production', 'Refusing full-flow smoke against production.')
 
 const email = `syncfy-full-flow-${Date.now()}@finov.ai`
+logStep('signup')
 const signup = await requestJson<JsonRecord>(apiBaseUrl, '/api/signup', {
   method: 'POST',
   body: JSON.stringify({
@@ -67,6 +79,7 @@ assert(signup.data.success !== false, 'Signup returned success=false')
 
 const dashboardSecret = stringField(signup.data, 'clientSecret')
 const authHeaders = dashboardSecret ? { 'x-finovai-dashboard-secret': dashboardSecret } : {}
+logStep('syncfy-session')
 const session = await requestJson<JsonRecord>(apiBaseUrl, '/api/syncfy/session', {
   method: 'POST',
   headers: authHeaders,
@@ -81,11 +94,13 @@ assert(session.status === 200, `Syncfy session failed with ${session.status}: ${
 assert(token, 'Syncfy session did not return a widget token.')
 assert(stringField(session.data, 'syncfyUserId'), 'Syncfy session did not return a Syncfy user.')
 
+logStep('syncfy-credential-create')
 const createResponse = await fetch('https://opendata-api.syncfy.com/v1/credentials/pulls?pretty=1', {
   method: 'POST',
+  signal: AbortSignal.timeout(requestTimeoutMs),
   headers: {
     'Content-Type': 'application/json',
-    Authorization: `TOKEN token=${token}`,
+    Authorization: `Bearer ${token}`,
   },
   body: JSON.stringify({
     id_site: ACME_NORMAL_SITE_ID,
@@ -101,6 +116,7 @@ const credentialId = stringField(createBody, 'id_credential')
 assert(createResponse.ok && createPayload.status !== false, `Syncfy credential create failed with ${createResponse.status}: ${String(createPayload.message || 'unknown')}`)
 assert(credentialId, 'Syncfy credential create did not return id_credential.')
 
+logStep('finovai-credential-capture')
 const capture = await requestJson<JsonRecord>(apiBaseUrl, '/api/syncfy/credential', {
   method: 'POST',
   headers: authHeaders,
@@ -119,6 +135,15 @@ let refresh: { status: number; data: JsonRecord } | null = null
 let transactions: { status: number; data: JsonRecord } | null = null
 
 for (let attempt = 0; attempt < pollAttempts; attempt += 1) {
+  logStep(`transactions attempt ${attempt + 1}/${pollAttempts}`)
+  transactions = await requestJson<JsonRecord>(
+    apiBaseUrl,
+    `/api/transactions?email=${encodeURIComponent(email)}`,
+    { headers: authHeaders },
+  )
+  if (transactionCount(transactions.data) > 0) break
+
+  logStep(`refresh attempt ${attempt + 1}/${pollAttempts}`)
   refresh = await requestJson<JsonRecord>(apiBaseUrl, '/api/syncfy/refresh', {
     method: 'POST',
     headers: authHeaders,
@@ -127,18 +152,18 @@ for (let attempt = 0; attempt < pollAttempts; attempt += 1) {
       credentialId: capturedCredentialId,
     }),
   })
-  transactions = await requestJson<JsonRecord>(
-    apiBaseUrl,
-    `/api/transactions?email=${encodeURIComponent(email)}`,
-    { headers: authHeaders },
-  )
-  if (transactionCount(transactions.data) > 0) break
+  if (transactionCount(refresh.data) > 0) {
+    transactions = refresh
+    break
+  }
+
   await Bun.sleep(pollDelayMs)
 }
 
 const importedTransactionCount = transactions ? transactionCount(transactions.data) : 0
 assert(importedTransactionCount > 0, `No transactions imported after ${pollAttempts} attempts.`)
 
+logStep('dashboard-chat')
 const chat = await requestJson<JsonRecord>(apiBaseUrl, '/api/dashboard/chat', {
   method: 'POST',
   headers: authHeaders,
