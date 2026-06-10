@@ -13,6 +13,7 @@
     "verify": "bunx tsc --noEmit && bun test worker/finance.test.ts worker/signup.test.ts worker/dashboard-chat-benchmark.test.ts scripts/benchmark-dashboard-chat.test.ts && bun run build",
     "benchmark:dashboard-chat": "bun scripts/benchmark-dashboard-chat.ts",
     "smoke:syncfy:sandbox": "bun scripts/smoke-syncfy-sandbox.ts",
+    "probe:syncfy:credential": "bun scripts/probe-syncfy-credential-create.ts",
     "worker:dev": "wrangler dev",
     "worker:deploy": "wrangler deploy",
     "deploy:preview": "bun run verify && bun run db:migrate:preview && wrangler deploy --env preview",

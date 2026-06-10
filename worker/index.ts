@@ -7408,7 +7408,9 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
       }
 
       const cooldownSeconds = getSyncfyCredentialCooldownSeconds(credential)
-      if (cooldownSeconds > 0) {
+      const jobStatusPaths = getSyncfyCredentialJobStatusPaths(credential)
+      const canPollPendingCredential = credential.status === 'pending_transactions'
+      if (cooldownSeconds > 0 && !canPollPendingCredential) {
         return json({
           success: false,
           error: 'Puedes hacer una sincronización exitosa por institución cada 5 minutos.',
@@ -7423,7 +7425,10 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
           normalizedEmail,
           credential.syncfy_user_id,
           credential.syncfy_credential_id,
-          { jobStatusPaths: getSyncfyCredentialJobStatusPaths(credential) }
+          {
+            jobStatusPaths,
+            startPull: cooldownSeconds > 0 ? false : true,
+          }
         )
         const importState = await resolveSyncfyTransactionImportState(
           env,

@@ -258,8 +258,8 @@ function getCredentialLogoText(credential: SyncfyCredential) {
 function getCredentialStatusText(credential: SyncfyCredential) {
   if (credential.status === 'pending_transactions') {
     return credential.ready
-      ? 'Movimientos pendientes; FinovAI reintentará automáticamente.'
-      : `Movimientos pendientes; próximo intento automático en ${formatCooldown(credential.cooldownSeconds)}.`
+      ? 'Movimientos pendientes; verificando disponibilidad.'
+      : `Movimientos pendientes; siguiente verificación en ${formatCooldown(credential.cooldownSeconds)}.`
   }
 
   if (credential.needsReconnect || credential.status === 'needs_reconnect') {
@@ -275,7 +275,7 @@ function getCredentialStatusText(credential: SyncfyCredential) {
 
 function getDefaultConnectMessage(credentials: SyncfyCredential[]) {
   if (credentials.some((credential) => credential.status === 'pending_transactions')) {
-    return 'Movimientos pendientes. FinovAI reintentará automáticamente.'
+    return 'Credencial creada. Movimientos todavía no importados.'
   }
 
   if (credentials.length > 0) {
@@ -619,20 +619,33 @@ export function SyncfyConnect({
 
       const pendingTransactions = Boolean(response.pendingTransactions)
       const nextMessage = response.message || 'Movimientos sincronizados.'
-      if (pendingTransactions && credentialId && retryAttempt < 6) {
-        setMessage('Movimientos pendientes. FinovAI reintentará automáticamente.')
+      const nextCredentials = await loadCredentials()
+      const refreshedCredential = credentialId
+        ? nextCredentials.find((credential) => credential.syncfyCredentialId === credentialId)
+        : nextCredentials[0]
+      if (pendingTransactions && credentialId && retryAttempt < 8) {
+        const waitSeconds = Math.max(
+          refreshedCredential?.cooldownSeconds && refreshedCredential.cooldownSeconds > 0
+            ? Math.min(refreshedCredential.cooldownSeconds, 45)
+            : 20,
+          10
+        )
+        setMessage(`Movimientos todavía no disponibles. Verificaremos otra vez en ${formatCooldown(waitSeconds)}.`)
         onStatus?.(nextMessage)
+        clearTransactionRetry()
+        retryTimeoutRef.current = window.setTimeout(() => {
+          void refreshTransactions(credentialId, retryAttempt + 1)
+        }, waitSeconds * 1000)
       } else {
         setMessage(nextMessage)
         onStatus?.(nextMessage)
       }
       onSynced?.(response)
-      await loadCredentials()
     } catch (error) {
       const data = (error as Error & { data?: { credential?: SyncfyCredential; retryAfterSeconds?: number } }).data
       const isPendingCredential = data?.credential?.status === 'pending_transactions'
       const nextMessage = isPendingCredential
-        ? 'Movimientos pendientes. FinovAI reintentará automáticamente.'
+        ? 'Movimientos todavía no disponibles. FinovAI seguirá verificando.'
         : data?.retryAfterSeconds
           ? `Puedes volver a sincronizar en ${formatCooldown(data.retryAfterSeconds)}.`
           : error instanceof Error ? error.message : 'No pudimos sincronizar movimientos.'
@@ -745,7 +758,13 @@ export function SyncfyConnect({
                     </div>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{getCredentialLabel(credential)}</p>
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">Institución conectada</p>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {isPendingTransactions
+                          ? 'Credencial creada; movimientos pendientes'
+                          : needsReconnect
+                            ? 'Acceso requiere actualización'
+                            : 'Movimientos importados'}
+                      </p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {getCredentialStatusText(credential)}
                       </p>

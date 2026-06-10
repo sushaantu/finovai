@@ -19,6 +19,8 @@ Transport success is not data success. A `200` in Syncfy HTTP logs only proves t
 
 The local investigation also used the Syncfy quickstart/docs snippets supplied in this thread for Users, Sessions, Accounts, Credentials, and Transactions.
 
+Local validation script: `bun run probe:syncfy:credential --site all`. It follows the same sequence as the Paybook samples: `POST /users`, `POST /sessions`, `POST /credentials/pulls`, optional job polling, then `/transactions`.
+
 ## Entity Lifecycle
 
 | Step | Syncfy object | Endpoint | FinovAI responsibility |
@@ -40,6 +42,8 @@ POST /v1/credentials/pulls?pretty=1
 ```
 
 with the Syncfy user, site, username/password, and authentication fields. The Syncfy widget performs this same class of operation during first-time institution linking.
+
+The sample uses API-key auth for user/session creation and the short-lived session token as `Authorization: Bearer <token>` for credential creation. FinovAI's local probe mirrors that split so failures are attributable to Syncfy account/API-key capability, not our app transport.
 
 Operational rule:
 
@@ -114,6 +118,7 @@ FinovAI should import those endpoints when present, but it must also support dir
 
 - Production must use the authorized `@finovai` Syncfy account.
 - Preview/local validation must use Syncfy sandbox credentials before production changes.
+- Run `bun run probe:syncfy:credential --site all` before treating any Syncfy key as usable for bank linking.
 - Do not swap production to a candidate Syncfy key until that key passes `POST /v1/credentials/pulls` against sandbox/test or a controlled production institution.
 - Never store Syncfy API keys or webhook secrets in this document.
 - Do not equate Syncfy HTTP `200` with imported movements.

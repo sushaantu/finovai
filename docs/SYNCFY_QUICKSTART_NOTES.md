@@ -71,6 +71,14 @@ Paybook ACME validation must prove two separate things:
 
 Seeing Syncfy HTTP `200` rows for sessions, catalogues, jobs, pulls, or transactions is not enough. New bank linking can still be blocked if `POST /v1/credentials/pulls` returns `402 Payment Required`.
 
+Run the local probe before any production change:
+
+```sh
+bun run probe:syncfy:credential --site all
+```
+
+The probe is expected to create a Syncfy user, create a short-lived session, create an ACME credential, and optionally poll/read transactions. If it fails at credential creation, fix the Syncfy account/API-key entitlement first.
+
 ## Acceptance Criteria
 
 - A newly signed-up FinovAI user can open the widget.
@@ -79,4 +87,3 @@ Seeing Syncfy HTTP `200` rows for sessions, catalogues, jobs, pulls, or transact
 - FinovAI imports at least one transaction when the provider exposes rows.
 - Movements page shows imported rows.
 - Chat can answer using those imported movements.
-

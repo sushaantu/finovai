@@ -1909,6 +1909,149 @@ test('syncfy refresh follows saved job status when direct transactions are still
   }
 })
 
+test('syncfy pending refresh polls job status during pull cooldown without starting another pull', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: '56cf5728784806f72b8b4568',
+    site_name: 'Acme Bank',
+    status: 'pending_transactions',
+    last_successful_sync_at: null,
+    last_pull_at: new Date().toISOString(),
+    last_rid: null,
+    raw_json: JSON.stringify({
+      id_job: 'job-during-cooldown',
+      id_credential: 'credential-1',
+      status: 'https://sync.paybook.com/v1/jobs/job-during-cooldown/status',
+    }),
+    created_at: '2026-06-07T03:11:19Z',
+    updated_at: '2026-06-07T03:11:19Z',
+  })
+
+  const calls: Array<{ url: string; method: string }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    const method = init?.method || 'GET'
+    calls.push({ url, method })
+
+    if (url.includes('/credentials/credential-1/pulls')) {
+      return new Response(JSON.stringify({
+        status: false,
+        code: 429,
+        message: 'Pull should not be called during cooldown polling',
+        response: null,
+      }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    if (url.includes('/jobs/job-during-cooldown/status')) {
+      return new Response(JSON.stringify({
+        response: {
+          endpoints: {
+            transactions: ['/transactions?from_cooldown_job=1&id_credential=credential-1&limit=500&skip=0'],
+          },
+        },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    if (url.includes('from_cooldown_job=1')) {
+      return new Response(JSON.stringify({
+        response: {
+          transactions: [{
+            id_transaction: 'txn-from-cooldown-job',
+            dt_transaction: 1772150400,
+            description: 'ACME Grocery',
+            amount: '512.45',
+            currency: 'MXN',
+            type: 'debit',
+          }],
+        },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    if (url.includes('/transactions')) {
+      return new Response(JSON.stringify({ response: { transactions: [] } }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    return new Response(JSON.stringify({ response: {} }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env)
+    const data = await response.json() as DashboardResponse & { syncfy?: { imported: number; endpoints: string[] } }
+
+    expect(response.status).toBe(200)
+    expect(data.syncfy?.imported).toBe(1)
+    expect(data.transactions).toHaveLength(1)
+    expect(calls.some((call) => call.url.includes('/credentials/credential-1/pulls'))).toBe(false)
+    expect(calls.some((call) => call.url.includes('/jobs/job-during-cooldown/status'))).toBe(true)
+    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
+    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy synced refresh still respects provider pull cooldown', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: '56cf5728784806f72b8b4568',
+    site_name: 'Acme Bank',
+    status: 'synced',
+    last_successful_sync_at: new Date().toISOString(),
+    last_pull_at: new Date().toISOString(),
+    last_rid: null,
+    raw_json: null,
+    created_at: '2026-06-07T03:11:19Z',
+    updated_at: '2026-06-07T03:11:19Z',
+  })
+
+  const originalFetch = globalThis.fetch
+  let externalFetches = 0
+  globalThis.fetch = (async () => {
+    externalFetches += 1
+    return new Response('{}', { headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env)
+    const data = await response.json() as { retryAfterSeconds?: number; error?: string }
+
+    expect(response.status).toBe(429)
+    expect(data.retryAfterSeconds).toBeGreaterThan(0)
+    expect(data.error).toContain('5 minutos')
+    expect(externalFetches).toBe(0)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('syncfy refresh starts credential pull and imports transactions from returned job', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
   env.DB.syncfyCredentials.push({

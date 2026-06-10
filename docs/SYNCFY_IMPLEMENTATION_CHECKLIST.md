@@ -2,7 +2,7 @@
 
 ## PM-Ready Status
 
-FinovAI now has the core Syncfy operating model in place: one Syncfy user per FinovAI user, `id_external` mapping, stored `id_user`, widget session creation, email-scoped dashboard sessions, Cloudflare Email passwordless login support, credential/webhook/error storage, `rid` capture, refresh cooldowns, and Syncfy transaction import into the same dashboard analysis tables. The default transaction pull requests six months of history with `dt_transaction_from` / `dt_transaction_to` and paginates up to 5,000 rows per import.
+FinovAI now has the core Syncfy operating model in place: one Syncfy user per FinovAI user, `id_external` mapping, stored `id_user`, widget session creation, email-scoped dashboard sessions, Cloudflare Email passwordless login support, credential/webhook/error storage, `rid` capture, refresh cooldowns, and Syncfy transaction import into the same dashboard analysis tables. The default transaction pull requests six months of history with `dt_transaction_from` / `dt_transaction_to` and paginates up to 5,000 rows per import. Local validation now includes a Paybook-sample-compatible credential creation probe, because sessions and HTTP `200` rows are not enough proof that new bank linking works.
 
 ## Configure In Syncfy
 
@@ -32,13 +32,13 @@ direnv exec /Users/sushaantu/Developer bunx wrangler secret put SYNCFY_WEBHOOK_S
 | Historical transaction window | DONE | Default credential pulls request the last 6 months; override with `SYNCFY_TRANSACTION_LOOKBACK_MONTHS` if product needs a different baseline. |
 | Error `rid` storage | DONE | Syncfy API failures and webhook payloads store `rid` when present. |
 | Widget integration | DONE | Dashboard embeds `@syncfy/authentication-widget`, locks country to Mexico, supports credential creation/update, and handles widget events. |
-| Pull/rate-limit behavior | DONE | Backend enforces a 5-minute pull cooldown per credential and the dashboard disables refresh while cooling down. |
+| Pull/rate-limit behavior | DONE | Backend enforces a 5-minute cooldown before starting another provider pull, but pending credentials can still poll saved job status/direct transactions during that cooldown. |
 | API-change tolerance | DONE | Payload extraction is flexible around nested `response`, `data`, `credential`, `credentials`, `extra`, and variable field names. |
 | Dashboard access control | DONE | Production dashboard APIs require a browser-held client secret created during email signup, so email-only reads are blocked. |
 | Email account recovery | READY | `/api/auth/request-link` and `/api/auth/verify` support passwordless codes/links through Cloudflare Email. Turn on `EMAIL_AUTH_REQUIRED` after Email Sending is enabled for `mail.finov.ai`. |
 | Legacy flow shutdown | DONE | Generic expenses, legacy chat, manual entry, and bank-statement backup imports are disabled in production unless explicitly re-enabled. |
 | Security | DONE | API key stays server-side, browser uses widget session tokens, and production Syncfy webhooks are protected with a shared-secret header. |
-| Docs/tests | DONE | Unit tests cover path, transaction normalization, dashboard session auth, production legacy-gating, nested webhook envelopes, webhook `waitUntil`, stored-transaction fallback, sandbox widget test mode, and stale Syncfy-state cleanup. |
+| Docs/tests | DONE | Unit tests cover path, transaction normalization, dashboard session auth, production legacy-gating, nested webhook envelopes, webhook `waitUntil`, stored-transaction fallback, pending-credential cooldown polling, sandbox widget test mode, stale Syncfy-state cleanup, and the local credential-create probe script. |
 
 ## Technical Notes
 
@@ -53,7 +53,7 @@ direnv exec /Users/sushaantu/Developer bunx wrangler secret put SYNCFY_WEBHOOK_S
 
 ## Remaining Work
 
-1. Resolve Syncfy account/API-key entitlement for new credential creation. Local sandbox and direct API verification must pass `POST /v1/credentials/pulls`; `402 Payment Required` blocks bank linking before FinovAI can import movements.
+1. Resolve Syncfy account/API-key entitlement for new credential creation. Local sandbox and direct API verification must pass `bun run probe:syncfy:credential --site all`; the current sandbox key reaches users/sessions but returns `402 Payment Required` on `POST /v1/credentials/pulls`, which blocks bank linking before FinovAI can import movements.
 2. Enable Cloudflare Email Sending for `mail.finov.ai`, then set `EMAIL_AUTH_REQUIRED = "true"`.
 3. Keep validating sandbox ACME Bank tests before changing production behavior.
 4. Add load tests once expected traffic is known.

@@ -116,16 +116,16 @@ FinovAI has three refresh paths:
 | Path | Trigger | Notes |
 | --- | --- | --- |
 | Immediate import | Widget success / credential callback | Gives the user fast feedback after connecting. |
-| Manual refresh | `POST /api/syncfy/refresh` | Uses a five-minute credential cooldown; support-admin can run the same endpoint for production repair. |
+| Manual refresh | `POST /api/syncfy/refresh` | Uses a five-minute cooldown for starting new provider pulls; support-admin can run the same endpoint for production repair. |
 | Scheduled refresh | Production cron every five minutes | Refreshes due credentials whose last pull is older than the configured interval. |
 
-The webhook path is important, but user-visible success must not depend only on webhook delivery. After a credential exists, FinovAI explicitly starts a Syncfy pull, persists the returned job state in `syncfy_credentials.raw_json`, follows job-status links, and falls back to direct `/transactions` reads. If Syncfy rejects a new pull as rate-limited but `/transactions` is already readable, FinovAI should still import the readable movements and store the pull error for support.
+The webhook path is important, but user-visible success must not depend only on webhook delivery. After a credential exists, FinovAI explicitly starts a Syncfy pull, persists the returned job state in `syncfy_credentials.raw_json`, follows job-status links, and falls back to direct `/transactions` reads. If a credential is already `pending_transactions`, FinovAI can keep polling saved job-status links and direct `/transactions` during the five-minute cooldown without starting another provider pull. If Syncfy rejects a new pull as rate-limited but `/transactions` is already readable, FinovAI should still import the readable movements and store the pull error for support.
 
 The five-minute UI cooldown, `POST /api/syncfy/refresh`, and scheduled cron interval must stay aligned. If the UI says FinovAI will retry in about five minutes, the Worker must consider that credential due after the same interval.
 
 Syncfy HTTP register status is transport-level evidence only. A `200` on `/credentials/:id/pulls`, `/jobs/:id/status`, or `/transactions` means Syncfy accepted and answered the API request; it does not prove that the institution produced readable movements. FinovAI treats `200` plus zero transactions as `pending_transactions`, records `last_pull_at`, and waits for scheduled/support refresh.
 
-New institution connection has an earlier hard gate: Syncfy must allow `POST /v1/credentials/pulls`. If Syncfy returns `402 Payment Required` there, the account/API key cannot create the credential at all. No webhook, transaction import, or chat behavior can fix that because no usable provider credential exists yet.
+New institution connection has an earlier hard gate: Syncfy must allow `POST /v1/credentials/pulls`. If Syncfy returns `402 Payment Required` there, the account/API key cannot create the credential at all. No webhook, transaction import, or chat behavior can fix that because no usable provider credential exists yet. Validate this with `bun run probe:syncfy:credential --site all`, which mirrors Paybook's official sample sequence.
 
 ## Status Semantics
 
