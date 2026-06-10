@@ -647,6 +647,22 @@ class MockD1 {
       return { results }
     }
 
+    if (sql.includes('FROM syncfy_errors')) {
+      const [email, syncfyUserId] = params
+      const results = this.syncfyErrors
+        .filter((item) => item.email === email || item.syncfy_user_id === syncfyUserId)
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))) as T[]
+      return { results }
+    }
+
+    if (sql.includes('FROM syncfy_webhook_events') && sql.includes('WHERE syncfy_user_id = ?')) {
+      const [syncfyUserId] = params
+      const results = this.syncfyWebhookEvents
+        .filter((item) => item.syncfy_user_id === syncfyUserId)
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))) as T[]
+      return { results }
+    }
+
     if (sql.includes('SELECT * FROM transactions')) {
       const [email] = params
       const results = this.transactions
@@ -2080,6 +2096,90 @@ test('syncfy deleted webhook removes local credential instead of recreating it',
   expect(env.DB.syncfyCredentials).toEqual([])
   expect(env.DB.transactions).toEqual([])
   expect(env.DB.syncfyWebhookEvents[0].processed_at).toBeTruthy()
+})
+
+test('syncfy status probe is protected and returns sanitized upstream checks', async () => {
+  const env = createEnv('production', {
+    SUPPORT_ADMIN_SECRET: 'admin-secret',
+    SYNCFY_API_KEY: 'test-key',
+  })
+  env.DB.syncfyUsers.push({
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_external_id: 'finovai:user@example.com',
+    name: 'User',
+    mode: 'live',
+    created_at: '2026-06-10T02:49:34Z',
+    updated_at: null,
+    last_session_at: null,
+  })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: '572930c4784806060f8b456b',
+    site_name: 'American Express',
+    status: 'pending_transactions',
+    last_successful_sync_at: null,
+    last_pull_at: null,
+    last_rid: 'rid-1',
+    raw_json: JSON.stringify({ id_job: 'job-1' }),
+    created_at: '2026-06-10T02:49:34Z',
+    updated_at: '2026-06-10T02:49:34Z',
+  })
+
+  const blocked = await worker.fetch(new Request(
+    'http://local.test/api/syncfy/status?email=user@example.com&probe=1'
+  ), env)
+  expect(blocked.status).toBe(404)
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.includes('/jobs/job-1/status')) {
+      return new Response(JSON.stringify({
+        status: true,
+        rid: 'job-rid',
+        response: {
+          is_executing: 0,
+          endpoints: { credential: ['/credentials/credential-1'] },
+        },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    if (url.includes('/transactions')) {
+      return new Response(JSON.stringify({
+        status: true,
+        rid: 'transactions-rid',
+        response: { transactions: [] },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    return new Response(JSON.stringify({
+      status: true,
+      rid: 'credential-rid',
+      response: { id_credential: 'credential-1', status: 'active' },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch
+
+  try {
+    const allowed = await worker.fetch(new Request(
+      'http://local.test/api/syncfy/status?email=user@example.com&probe=1',
+      { headers: { 'x-finovai-admin-secret': 'admin-secret' } }
+    ), env)
+    const data = await allowed.json() as {
+      probes?: Array<{ target: string; ok: boolean; response?: Record<string, unknown> }>
+    }
+
+    expect(allowed.status).toBe(200)
+    expect(data.probes?.map((probe) => probe.target)).toEqual(['credential', 'job_status', 'transactions'])
+    expect(data.probes?.every((probe) => probe.ok)).toBe(true)
+    expect(data.probes?.find((probe) => probe.target === 'transactions')?.response)
+      .toMatchObject({ type: 'object', transactionsCount: 0 })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('transaction category endpoint persists user category overrides', async () => {

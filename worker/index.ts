@@ -2371,6 +2371,129 @@ async function storeSyncfyError(
     .run()
 }
 
+function summarizeSyncfyProbeValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    const sample = asRecord(value[0])
+    return {
+      type: 'array',
+      length: value.length,
+      sampleKeys: sample ? Object.keys(sample).slice(0, 20) : [],
+    }
+  }
+
+  const record = asRecord(value)
+  if (!record) return { type: value === null ? 'null' : typeof value }
+
+  const endpoints = asRecord(record.endpoints)
+  const summary: Record<string, unknown> = {
+    type: 'object',
+    keys: Object.keys(record).slice(0, 30),
+  }
+
+  if (endpoints) {
+    summary.endpointGroups = Object.fromEntries(
+      Object.entries(endpoints).map(([key, item]) => [key, Array.isArray(item) ? item.length : 1])
+    )
+  }
+
+  for (const key of ['transactions', 'items', 'results', 'data']) {
+    const nested = record[key]
+    if (Array.isArray(nested)) summary[`${key}Count`] = nested.length
+  }
+
+  const responseValue = record.response
+  if (responseValue !== undefined) {
+    summary.response = summarizeSyncfyProbeValue(responseValue)
+  }
+
+  for (const key of ['is_executing', 'code', 'status', 'message']) {
+    if (key in record) summary[key] = record[key]
+  }
+
+  return summary
+}
+
+async function probeSyncfyPath(
+  env: Env,
+  target: string,
+  path: string
+): Promise<Record<string, unknown>> {
+  if (!env.SYNCFY_API_KEY) {
+    return { target, configured: false, ok: false, message: 'SYNCFY_API_KEY is not configured' }
+  }
+
+  const baseUrl = (env.SYNCFY_API_BASE_URL || DEFAULT_SYNCFY_BASE_URL).replace(/\/+$/, '')
+  const requestPath = normalizeSyncfyRequestPath(path)
+  const headers = new Headers()
+  headers.set('Content-Type', 'application/json')
+  headers.set(env.SYNCFY_AUTH_HEADER_NAME || 'Authorization', buildSyncfyAuthHeaderValue(env))
+
+  try {
+    const response = await fetch(`${baseUrl}${requestPath}`, { method: 'GET', headers })
+    const text = await response.text()
+    const payload = parseJsonUnknown(text)
+    const record = asRecord(payload)
+    const syncfyStatus = record && 'status' in record ? Boolean(record.status) : response.ok
+    const wrappedResponse = record && 'response' in record ? record.response : payload
+
+    return {
+      target,
+      configured: true,
+      ok: response.ok && syncfyStatus,
+      httpStatus: response.status,
+      rid: extractSyncfyRid(payload),
+      code: extractSyncfyCode(payload),
+      syncfyStatus,
+      message: stringFromUnknown(record?.message, 500),
+      response: summarizeSyncfyProbeValue(wrappedResponse),
+    }
+  } catch (err) {
+    return {
+      target,
+      configured: true,
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+async function buildSyncfyStatusProbes(
+  env: Env,
+  syncfyUser: SyncfyUserRow | null,
+  credentials: SyncfyCredentialRow[]
+): Promise<Record<string, unknown>[]> {
+  if (!syncfyUser) return []
+
+  const credential = credentials[0] || null
+  if (!credential) return []
+
+  const probes: Promise<Record<string, unknown>>[] = [
+    probeSyncfyPath(
+      env,
+      'credential',
+      `/credentials/${encodeURIComponent(credential.syncfy_credential_id)}?id_user=${encodeURIComponent(syncfyUser.syncfy_user_id)}`
+    ),
+  ]
+
+  for (const jobStatusPath of getSyncfyCredentialJobStatusPaths(credential).slice(0, 3)) {
+    probes.push(probeSyncfyPath(
+      env,
+      'job_status',
+      addSyncfyUserParamToEndpoint(jobStatusPath, syncfyUser.syncfy_user_id)
+    ))
+  }
+
+  probes.push(probeSyncfyPath(
+    env,
+    'transactions',
+    buildSyncfyTransactionsPath(credential.syncfy_credential_id, syncfyUser.syncfy_user_id, 0, {
+      lookbackMonths: getSyncfyTransactionLookbackMonths(env),
+    })
+  ))
+
+  return Promise.all(probes)
+}
+
 function buildSyncfyUserMessage(error: SyncfyRequestError): string {
   if (error.status === 429) {
     return 'La conexión está limitando nuevas sincronizaciones. Intenta de nuevo en unos minutos.'
@@ -2420,6 +2543,11 @@ async function verifySyncfySecret(request: Request, env: Env): Promise<boolean> 
   if (!suppliedSecret) return false
 
   return timingSafeStringEqual(suppliedSecret, env.SYNCFY_WEBHOOK_SECRET)
+}
+
+async function verifySyncfyDiagnosticAccess(request: Request, env: Env): Promise<boolean> {
+  if (await verifySyncfySecret(request, env)) return true
+  return verifySupportAdminAccess(request, env)
 }
 
 async function processSyncfyWebhookEvent(
@@ -7179,7 +7307,7 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
     }
 
     if (url.pathname === '/api/syncfy/status' && request.method === 'GET') {
-      if (env.ENVIRONMENT === 'production' && !(await verifySyncfySecret(request, env))) {
+      if (env.ENVIRONMENT === 'production' && !(await verifySyncfyDiagnosticAccess(request, env))) {
         return error('Not found', 404)
       }
 
@@ -7216,6 +7344,9 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
       )
         .bind(syncfyUser?.syncfy_user_id || '')
         .all<SyncfyWebhookEventRow>()
+      const probes = url.searchParams.get('probe') === '1'
+        ? await buildSyncfyStatusProbes(env, syncfyUser, credentials.results)
+        : undefined
 
       return json({
         success: true,
@@ -7224,6 +7355,7 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
         credentials: credentials.results,
         recentErrors: errors.results,
         recentWebhooks: webhooks.results,
+        probes,
       })
     }
 
