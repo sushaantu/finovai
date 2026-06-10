@@ -2641,6 +2641,15 @@ async function verifySupportAdminAccess(request: Request, env: Env): Promise<boo
   return timingSafeStringEqual(suppliedSecret, env.SUPPORT_ADMIN_SECRET)
 }
 
+async function verifyDashboardEmailAccessOrSupportAdmin(
+  env: Env,
+  request: Request,
+  email: string
+): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
+  if (await verifySupportAdminAccess(request, env)) return { ok: true }
+  return verifyDashboardEmailAccess(env, request, email)
+}
+
 async function getOrCreateSyncfyUser(env: Env, email: string, name?: string): Promise<SyncfyUserRow> {
   await ensureSyncfyTables(env)
 
@@ -6992,7 +7001,7 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
       if (!normalizedEmail) {
         return error('Correo inválido')
       }
-      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      const access = await verifyDashboardEmailAccessOrSupportAdmin(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
 
       const reset = await resetSyncfyConnectionForEmail(env, normalizedEmail, name)

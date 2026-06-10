@@ -325,6 +325,13 @@ class MockD1 {
       return { success: true, meta: { changes: before - this.transactions.length } }
     }
 
+    if (sql.includes('DELETE FROM syncfy_credentials') && !sql.includes('syncfy_credential_id')) {
+      const [email] = params
+      const before = this.syncfyCredentials.length
+      this.syncfyCredentials = this.syncfyCredentials.filter((item) => item.email !== email)
+      return { success: true, meta: { changes: before - this.syncfyCredentials.length } }
+    }
+
     if (sql.includes('DELETE FROM syncfy_credentials')) {
       const [email, credentialId] = params
       const before = this.syncfyCredentials.length
@@ -332,6 +339,27 @@ class MockD1 {
         (item) => !(item.email === email && item.syncfy_credential_id === credentialId)
       )
       return { success: true, meta: { changes: before - this.syncfyCredentials.length } }
+    }
+
+    if (sql.includes('INSERT INTO syncfy_users')) {
+      const [email, syncfyUserId, externalId, name] = params
+      const existing = this.syncfyUsers.find((item) => item.email === email)
+      const next = {
+        email,
+        syncfy_user_id: syncfyUserId,
+        syncfy_external_id: externalId,
+        name,
+        mode: 'live',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        last_session_at: existing?.last_session_at || null,
+      }
+      if (existing) {
+        Object.assign(existing, next)
+      } else {
+        this.syncfyUsers.push(next)
+      }
+      return { success: true, meta: { last_row_id: 1, changes: 1 } }
     }
 
     if (sql.includes('INSERT INTO syncfy_credentials')) {
@@ -2177,6 +2205,77 @@ test('syncfy status probe is protected and returns sanitized upstream checks', a
     expect(data.probes?.every((probe) => probe.ok)).toBe(true)
     expect(data.probes?.find((probe) => probe.target === 'transactions')?.response)
       .toMatchObject({ type: 'object', transactionsCount: 0 })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy reset allows support admin to recreate a stale user without browser session', async () => {
+  const env = createEnv('production', {
+    SUPPORT_ADMIN_SECRET: 'admin-secret',
+    SYNCFY_API_KEY: 'test-key',
+  })
+  env.DB.syncfyUsers.push({
+    email: 'user@example.com',
+    syncfy_user_id: 'stale-user',
+    syncfy_external_id: 'finovai:user@example.com:reset:old',
+    name: 'User',
+    mode: 'live',
+    created_at: '2026-06-10T02:49:34Z',
+    updated_at: null,
+    last_session_at: null,
+  })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'stale-user',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: '572930c4784806060f8b456b',
+    site_name: 'American Express',
+    status: 'pending_transactions',
+    last_successful_sync_at: null,
+    last_pull_at: null,
+    last_rid: 'rid-1',
+    raw_json: null,
+    created_at: '2026-06-10T02:49:34Z',
+    updated_at: '2026-06-10T02:49:34Z',
+  })
+
+  const blocked = await worker.fetch(new Request('http://local.test/api/syncfy/reset', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'user@example.com' }),
+  }), env)
+  expect(blocked.status).toBe(401)
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    status: true,
+    response: { id_user: 'fresh-user' },
+  }), {
+    headers: { 'Content-Type': 'application/json' },
+  })) as typeof fetch
+
+  try {
+    const allowed = await worker.fetch(new Request('http://local.test/api/syncfy/reset', {
+      method: 'POST',
+      headers: { 'x-finovai-admin-secret': 'admin-secret' },
+      body: JSON.stringify({ email: 'user@example.com', name: 'User' }),
+    }), env)
+    const data = await allowed.json() as {
+      success?: boolean
+      syncfyUserId?: string
+      recreated?: boolean
+      credentials?: unknown[]
+    }
+
+    expect(allowed.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.recreated).toBe(true)
+    expect(data.syncfyUserId).toBe('fresh-user')
+    expect(data.credentials).toEqual([])
+    expect(env.DB.syncfyCredentials).toEqual([])
+    expect(env.DB.syncfyUsers.find((item) => item.email === 'user@example.com')?.syncfy_user_id)
+      .toBe('fresh-user')
   } finally {
     globalThis.fetch = originalFetch
   }
