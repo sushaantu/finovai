@@ -58,7 +58,7 @@ Read contract:
 | --- | --- | --- |
 | Widget update/reconnect | `POST /api/syncfy/session` with update credential | Reuse the stored `id_user` and pass the selected credential to the widget. |
 | Credential callback | `POST /api/syncfy/credential` | Upsert credential metadata and import any returned transactions. |
-| Manual refresh | `POST /api/syncfy/refresh` | Enforce cooldown, import transactions, then mark status. |
+| Manual refresh | `POST /api/syncfy/refresh` | Enforce cooldown, import transactions, then mark status. Support-admin access can run this without a browser session for production repair. |
 | Webhook refresh | `POST /api/syncfy/webhook` | Store event, return `202`, process import in `ctx.waitUntil`. |
 | Production cron | Scheduled Worker | Refresh due credentials only. |
 
@@ -67,6 +67,7 @@ Update status rules:
 - `synced`: transaction import succeeded or existing credential-tagged transactions prove success.
 - `pending_transactions`: credential exists but no readable transactions are available yet.
 - A `200` response with zero readable transactions is still a pull attempt. Keep the credential in `pending_transactions`, update `last_pull_at`, and apply the normal cooldown so repeated empty polls do not flood Syncfy HTTP logs.
+- A Syncfy widget `error` event is not enough to mark the FinovAI connection failed if a credential was created. Re-read credentials first; if one exists, continue refresh/import and keep the state as `pending_transactions` until transaction evidence arrives or Syncfy returns a terminal credential error.
 - `needs_reconnect`: Syncfy reports invalid/expired/failed credential state.
 
 ## Delete

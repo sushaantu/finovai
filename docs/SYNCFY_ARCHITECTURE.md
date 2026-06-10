@@ -71,7 +71,7 @@ Primary routes:
 | `GET /api/syncfy/credentials` | Return connected credentials for the signed-in user. |
 | `POST /api/syncfy/credential` | Store/update a credential after widget success and attempt import. |
 | `DELETE /api/syncfy/credential` | Delete the Syncfy credential upstream, then remove the stored credential and its Syncfy transactions from FinovAI. |
-| `POST /api/syncfy/refresh` | Refresh one credential with cooldown protection. |
+| `POST /api/syncfy/refresh` | Refresh one credential with cooldown protection; support-admin access can trigger this without a browser session. |
 | `POST /api/syncfy/webhook` | Receive Syncfy webhook, acknowledge quickly, process in background. |
 | `GET /api/syncfy/status` | Internal per-user diagnostic endpoint. |
 | `GET /api/admin/syncfy` | Support/admin overview of users, credentials, errors, and webhooks. |
@@ -110,10 +110,12 @@ FinovAI has three refresh paths:
 | Path | Trigger | Notes |
 | --- | --- | --- |
 | Immediate import | Widget success / credential callback | Gives the user fast feedback after connecting. |
-| Manual refresh | `POST /api/syncfy/refresh` | Uses a five-minute credential cooldown. |
+| Manual refresh | `POST /api/syncfy/refresh` | Uses a five-minute credential cooldown; support-admin can run the same endpoint for production repair. |
 | Scheduled refresh | Production cron every five minutes | Refreshes due credentials whose last pull is older than the configured interval. |
 
 The webhook path is important, but user-visible success should not depend only on webhook delivery. The app also stores credentials and can import through explicit refresh paths.
+
+Syncfy HTTP register status is transport-level evidence only. A `200` on `/credentials/:id/pulls`, `/jobs/:id/status`, or `/transactions` means Syncfy accepted and answered the API request; it does not prove that the institution produced readable movements. FinovAI treats `200` plus zero transactions as `pending_transactions`, records `last_pull_at`, and waits for scheduled/support refresh.
 
 ## Status Semantics
 
@@ -158,10 +160,11 @@ When a user says the connection did not complete:
 4. Check `transactions` for `source = 'syncfy'` rows for that email.
 5. Check `syncfy_errors` for recent `rid`, HTTP status, and Syncfy message.
 6. Check Syncfy HTTP logs for fresh webhook delivery status.
-7. Treat `401 Invalid user` as a reconnect/recovery state unless Syncfy confirms otherwise.
+7. If Syncfy HTTP logs show `200`, still verify whether `/transactions` returned rows; `200` with zero rows is pending/provider data, not app success.
+8. Treat `401 Invalid user` as a reconnect/recovery state unless Syncfy confirms otherwise.
 
 PM-ready support wording:
 
-> The account connection can exist before transactions are usable. For each user, confirm three things separately: Syncfy user exists, institution credential exists, and transaction data imported successfully. If the credential is `needs_reconnect`, ask the user to reconnect before relying on dashboard data.
+> The account connection can exist before transactions are usable. For each user, confirm three things separately: Syncfy user exists, institution credential exists, and transaction data imported successfully. If a credential is `pending_transactions`, FinovAI will keep retrying; if it is `needs_reconnect`, the user needs a clean reconnect before relying on dashboard data.
 
 When a user wants to fully retry an institution, use the FinovAI delete action first. That now removes the upstream Syncfy credential as well as FinovAI's local rows, so the next add attempt is a clean provider-side connection attempt.
