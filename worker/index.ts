@@ -461,7 +461,7 @@ const DEFAULT_CLOUDFLARE_ACCOUNT_ID = '711cb78717605db93e601e6a06e7eeec'
 const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
 const ANTHROPIC_API_VERSION = '2023-06-01'
 const SYNCFY_REFRESH_COOLDOWN_SECONDS = 5 * 60
-const SYNCFY_BACKGROUND_REFRESH_INTERVAL_SECONDS = 60 * 60
+const SYNCFY_BACKGROUND_REFRESH_INTERVAL_SECONDS = SYNCFY_REFRESH_COOLDOWN_SECONDS
 const SYNCFY_BACKGROUND_REFRESH_LIMIT = 25
 const SYNCFY_DEFAULT_TRANSACTION_LIMIT = 500
 const SYNCFY_DEFAULT_TRANSACTION_LOOKBACK_MONTHS = 6
@@ -1507,6 +1507,10 @@ function collectSyncfyRecords(value: unknown, maxDepth = 4): Array<Record<string
       'payload',
       'credential',
       'credentials',
+      'pull',
+      'pulls',
+      'job',
+      'jobs',
       'user',
       'site',
       'sites',
@@ -1798,6 +1802,42 @@ export function getSyncfyJobStatusPaths(payload: unknown): string[] {
 function getSyncfyCredentialJobStatusPaths(credential: SyncfyCredentialRow): string[] {
   if (!credential.raw_json) return []
   return getSyncfyJobStatusPaths(parseJsonUnknown(credential.raw_json))
+}
+
+function buildSyncfyCredentialPullPath(credentialId: string, syncfyUserId: string): string {
+  const params = new URLSearchParams({ id_user: syncfyUserId })
+  return `/credentials/${encodeURIComponent(credentialId)}/pulls?${params.toString()}`
+}
+
+async function storeSyncfyCredentialPullState(
+  env: Env,
+  email: string,
+  credentialId: string,
+  pullResponse: unknown
+): Promise<void> {
+  await ensureSyncfyTables(env)
+
+  const existing = await env.DB.prepare(`SELECT * FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ?`)
+    .bind(email, credentialId)
+    .first<SyncfyCredentialRow>()
+
+  if (!existing) return
+
+  const previousRaw = existing.raw_json ? parseJsonUnknown(existing.raw_json) : null
+  await env.DB.prepare(
+    `UPDATE syncfy_credentials
+     SET raw_json = ?,
+         last_pull_at = datetime("now"),
+         status = 'pending_transactions',
+         updated_at = datetime("now")
+     WHERE email = ? AND syncfy_credential_id = ?`
+  )
+    .bind(JSON.stringify({
+      previous: previousRaw,
+      pull: pullResponse,
+      response: pullResponse,
+    }), email, credentialId)
+    .run()
 }
 
 function getSyncfyTransactionLookbackMonths(env: Pick<Env, 'SYNCFY_TRANSACTION_LOOKBACK_MONTHS'>): number {
@@ -3205,17 +3245,60 @@ async function importSyncfyTransactionsFromJobStatuses(
   return result
 }
 
+async function startSyncfyCredentialPull(
+  env: Env,
+  email: string,
+  syncfyUserId: string,
+  credentialId: string
+): Promise<SyncfyTransactionImportResult> {
+  const pullPath = buildSyncfyCredentialPullPath(credentialId, syncfyUserId)
+  const pullResponse = await syncfyRequest<unknown>(env, pullPath, { method: 'PUT' })
+  await storeSyncfyCredentialPullState(env, email, credentialId, pullResponse)
+
+  let result: SyncfyTransactionImportResult = {
+    credentialId,
+    fetched: 0,
+    imported: 0,
+    skipped: 0,
+    endpoints: [pullPath],
+  }
+
+  const transactionEndpoints = getSyncfyWebhookEndpointPaths(pullResponse, 'transactions')
+  if (transactionEndpoints.length > 0) {
+    result = mergeSyncfyTransactionImportResults(result, await importSyncfyTransactionsFromEndpoints(
+      env,
+      email,
+      syncfyUserId,
+      credentialId,
+      transactionEndpoints
+    ))
+  }
+
+  const jobStatusPaths = getSyncfyJobStatusPaths(pullResponse)
+  if (jobStatusPaths.length > 0 && !isSyncfyTransactionImportComplete(result)) {
+    result = mergeSyncfyTransactionImportResults(result, await importSyncfyTransactionsFromJobStatuses(
+      env,
+      email,
+      syncfyUserId,
+      credentialId,
+      jobStatusPaths
+    ))
+  }
+
+  return result
+}
+
 async function importSyncfyTransactionsForCredential(
   env: Env,
   email: string,
   syncfyUserId: string,
   credentialId: string,
-  options: { jobStatusPaths?: string[] } = {}
+  options: { jobStatusPaths?: string[]; startPull?: boolean } = {}
 ): Promise<SyncfyTransactionImportResult> {
-  let jobStatusResult: SyncfyTransactionImportResult | null = null
+  let result: SyncfyTransactionImportResult | null = null
 
   if (options.jobStatusPaths?.length) {
-    jobStatusResult = await importSyncfyTransactionsFromJobStatuses(
+    result = await importSyncfyTransactionsFromJobStatuses(
       env,
       email,
       syncfyUserId,
@@ -3223,8 +3306,43 @@ async function importSyncfyTransactionsForCredential(
       options.jobStatusPaths
     )
 
-    if (isSyncfyTransactionImportComplete(jobStatusResult)) {
-      return jobStatusResult
+    if (isSyncfyTransactionImportComplete(result)) {
+      return result
+    }
+  }
+
+  if (options.startPull !== false) {
+    const pullPath = buildSyncfyCredentialPullPath(credentialId, syncfyUserId)
+    try {
+      const pullResult = await startSyncfyCredentialPull(env, email, syncfyUserId, credentialId)
+      result = result ? mergeSyncfyTransactionImportResults(result, pullResult) : pullResult
+
+      if (isSyncfyTransactionImportComplete(result)) {
+        return result
+      }
+    } catch (err) {
+      if (!(err instanceof SyncfyRequestError)) throw err
+
+      await storeSyncfyError(env, {
+        email,
+        syncfyUserId,
+        syncfyCredentialId: credentialId,
+        rid: err.rid,
+        statusCode: err.status,
+        errorCode: err.code,
+        message: err.message,
+        source: 'syncfy-pull',
+        payload: err.responseBody,
+      })
+
+      const failedPullResult: SyncfyTransactionImportResult = {
+        credentialId,
+        fetched: 0,
+        imported: 0,
+        skipped: 0,
+        endpoints: [pullPath],
+      }
+      result = result ? mergeSyncfyTransactionImportResults(result, failedPullResult) : failedPullResult
     }
   }
 
@@ -3238,7 +3356,7 @@ async function importSyncfyTransactionsForCredential(
     })]
   )
 
-  return jobStatusResult ? mergeSyncfyTransactionImportResults(jobStatusResult, directResult) : directResult
+  return result ? mergeSyncfyTransactionImportResults(result, directResult) : directResult
 }
 
 async function markSyncfyCredentialSyncSuccess(
@@ -7142,6 +7260,37 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
               errorCode: err.code,
               message: err.message,
               source: 'syncfy-widget-job-status',
+              payload: err.responseBody,
+            })
+          } else {
+            throw err
+          }
+        }
+      }
+
+      if (!importResult || !isSyncfyTransactionImportComplete(importResult)) {
+        try {
+          const pullImportResult = await importSyncfyTransactionsForCredential(
+            env,
+            normalizedEmail,
+            credential.syncfy_user_id,
+            credential.syncfy_credential_id,
+            { jobStatusPaths: importResult ? [] : jobStatusPaths }
+          )
+          importResult = importResult
+            ? mergeSyncfyTransactionImportResults(importResult, pullImportResult)
+            : pullImportResult
+        } catch (err) {
+          if (err instanceof SyncfyRequestError) {
+            await storeSyncfyError(env, {
+              email: normalizedEmail,
+              syncfyUserId: credential.syncfy_user_id,
+              syncfyCredentialId: credential.syncfy_credential_id,
+              rid: err.rid,
+              statusCode: err.status,
+              errorCode: err.code,
+              message: err.message,
+              source: 'syncfy-widget-pull',
               payload: err.responseBody,
             })
           } else {

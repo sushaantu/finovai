@@ -43,7 +43,7 @@ The connect experience lives in `src/components/SyncfyConnect.tsx`.
 4. The Worker creates a Syncfy widget session and returns a short-lived widget token.
 5. The browser opens `@syncfy/authentication-widget`.
 6. When the widget reports a credential, the browser calls `POST /api/syncfy/credential`.
-7. The Worker stores the credential and imports transactions immediately when Syncfy exposes transaction endpoints.
+7. The Worker stores the credential, starts a Syncfy credential pull, follows returned job-status links, and imports transactions as soon as Syncfy exposes readable rows.
 
 The browser never receives the Syncfy API key. It only receives a widget session token.
 
@@ -55,6 +55,8 @@ The Cloudflare Worker in `worker/index.ts` owns the integration:
 - Syncfy user creation and lookup.
 - Widget session creation.
 - Credential upsert and institution metadata extraction.
+- Credential pull initiation through Syncfy `/credentials/:id/pulls`.
+- Job-status following through Syncfy `/jobs/:id/status`.
 - Transaction normalization and upsert into `transactions`.
 - Webhook verification and event storage.
 - Background webhook processing with `ctx.waitUntil`.
@@ -62,6 +64,8 @@ The Cloudflare Worker in `worker/index.ts` owns the integration:
 - Admin/support diagnostics.
 
 CRUD contract details live in [SYNCFY_CRUD_OPERATIONS.md](SYNCFY_CRUD_OPERATIONS.md). That document is the guardrail for create/read/update/delete behavior across Syncfy and FinovAI local state.
+
+Vendor contract details live in [SYNCFY_VENDOR_REFERENCE.md](SYNCFY_VENDOR_REFERENCE.md). That document maps Syncfy/Paybook docs and sample code to the implementation contract.
 
 Primary routes:
 
@@ -113,7 +117,9 @@ FinovAI has three refresh paths:
 | Manual refresh | `POST /api/syncfy/refresh` | Uses a five-minute credential cooldown; support-admin can run the same endpoint for production repair. |
 | Scheduled refresh | Production cron every five minutes | Refreshes due credentials whose last pull is older than the configured interval. |
 
-The webhook path is important, but user-visible success should not depend only on webhook delivery. The app also stores credentials and can import through explicit refresh paths.
+The webhook path is important, but user-visible success must not depend only on webhook delivery. After a credential exists, FinovAI explicitly starts a Syncfy pull, persists the returned job state in `syncfy_credentials.raw_json`, follows job-status links, and falls back to direct `/transactions` reads. If Syncfy rejects a new pull as rate-limited but `/transactions` is already readable, FinovAI should still import the readable movements and store the pull error for support.
+
+The five-minute UI cooldown, `POST /api/syncfy/refresh`, and scheduled cron interval must stay aligned. If the UI says FinovAI will retry in about five minutes, the Worker must consider that credential due after the same interval.
 
 Syncfy HTTP register status is transport-level evidence only. A `200` on `/credentials/:id/pulls`, `/jobs/:id/status`, or `/transactions` means Syncfy accepted and answered the API request; it does not prove that the institution produced readable movements. FinovAI treats `200` plus zero transactions as `pending_transactions`, records `last_pull_at`, and waits for scheduled/support refresh.
 

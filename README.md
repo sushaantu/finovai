@@ -28,6 +28,8 @@ See [docs/SYNCFY_ARCHITECTURE.md](docs/SYNCFY_ARCHITECTURE.md) for the current S
 
 See [docs/SYNCFY_CRUD_OPERATIONS.md](docs/SYNCFY_CRUD_OPERATIONS.md) for the provider/local CRUD contract and delete safety rules.
 
+See [docs/SYNCFY_VENDOR_REFERENCE.md](docs/SYNCFY_VENDOR_REFERENCE.md) for the Syncfy/Paybook vendor flow and sample-code mapping.
+
 See [docs/SYNCFY_IMPLEMENTATION_CHECKLIST.md](docs/SYNCFY_IMPLEMENTATION_CHECKLIST.md) for implementation status and launch guardrails.
 
 ## Development

@@ -409,6 +409,9 @@ class MockD1 {
         (item) => item.email === email && item.syncfy_credential_id === credentialId
       )
       if (credential) {
+        if (sql.includes('raw_json = ?')) {
+          credential.raw_json = params[0]
+        }
         if (sql.includes("status = 'synced'") || sql.includes("status = COALESCE(NULLIF(status, ''), 'synced')")) {
           credential.status = 'synced'
           credential.last_pull_at = new Date().toISOString()
@@ -1802,6 +1805,202 @@ test('syncfy refresh follows saved job status when direct transactions are still
     expect(data.syncfy?.endpoints).toContain('/jobs/job-1/status?id_user=syncfy-user-1')
     expect(env.DB.syncfyCredentials[0].status).toBe('synced')
     expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy refresh starts credential pull and imports transactions from returned job', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: null,
+    site_name: null,
+    status: 'pending_transactions',
+    last_successful_sync_at: null,
+    last_pull_at: null,
+    last_rid: null,
+    raw_json: null,
+    created_at: '2026-06-07T03:11:19Z',
+    updated_at: '2026-06-07T03:11:19Z',
+  })
+  const calls: Array<{ url: string; method: string }> = []
+  const originalFetch = globalThis.fetch
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    const method = init?.method || 'GET'
+    calls.push({ url, method })
+
+    if (url.includes('/credentials/credential-1/pulls')) {
+      return new Response(JSON.stringify({
+        response: {
+          id_job: 'job-from-pull',
+          status: '/v1/jobs/job-from-pull/status',
+        },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    if (url.includes('/jobs/job-from-pull/status')) {
+      return new Response(JSON.stringify({
+        response: {
+          endpoints: {
+            transactions: ['/transactions?from_pull_job=1&id_credential=credential-1&limit=500&skip=0'],
+          },
+        },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    if (url.includes('from_pull_job=1')) {
+      return new Response(JSON.stringify({
+        response: {
+          transactions: [{
+            id_transaction: 'txn-from-pull-job',
+            id_credential: 'credential-1',
+            id_user: 'syncfy-user-1',
+            dt_transaction: 1772150400,
+            description: 'AMEX PAYMENT',
+            amount: '-1100.50',
+            currency: 'MXN',
+          }],
+        },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    if (url.includes('/transactions')) {
+      return new Response(JSON.stringify({ response: { transactions: [] } }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    return new Response(JSON.stringify({ response: {} }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env)
+    const data = await response.json() as DashboardResponse & { syncfy?: { imported: number; endpoints: string[] } }
+
+    expect(response.status).toBe(200)
+    expect(data.syncfy?.imported).toBe(1)
+    expect(data.transactions).toHaveLength(1)
+    expect(calls).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        url: expect.stringContaining('/credentials/credential-1/pulls?id_user=syncfy-user-1'),
+        method: 'PUT',
+      }),
+      expect.objectContaining({
+        url: expect.stringContaining('/jobs/job-from-pull/status?id_user=syncfy-user-1'),
+        method: 'GET',
+      }),
+    ]))
+    expect(data.syncfy?.endpoints).toContain('/credentials/credential-1/pulls?id_user=syncfy-user-1')
+    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
+    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+    expect(String(env.DB.syncfyCredentials[0].raw_json)).toContain('job-from-pull')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy refresh imports direct transactions when a new pull is rate-limited', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: null,
+    site_name: null,
+    status: 'pending_transactions',
+    last_successful_sync_at: null,
+    last_pull_at: null,
+    last_rid: null,
+    raw_json: null,
+    created_at: '2026-06-07T03:11:19Z',
+    updated_at: '2026-06-07T03:11:19Z',
+  })
+  const calls: Array<{ url: string; method: string }> = []
+  const originalFetch = globalThis.fetch
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    const method = init?.method || 'GET'
+    calls.push({ url, method })
+
+    if (url.includes('/credentials/credential-1/pulls')) {
+      return new Response(JSON.stringify({
+        status: false,
+        code: 429,
+        rid: 'pull-rate-limit-rid',
+        message: 'Too many pull requests',
+        response: null,
+      }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    if (url.includes('/transactions')) {
+      return new Response(JSON.stringify({
+        response: {
+          transactions: [{
+            id_transaction: 'txn-readable-after-rate-limit',
+            id_credential: 'credential-1',
+            id_user: 'syncfy-user-1',
+            dt_transaction: 1772150400,
+            description: 'ACME SUPERMERCADO',
+            amount: '-450.25',
+            currency: 'MXN',
+          }],
+        },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    return new Response(JSON.stringify({ response: {} }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env)
+    const data = await response.json() as DashboardResponse & { syncfy?: { imported: number; endpoints: string[] } }
+
+    expect(response.status).toBe(200)
+    expect(data.syncfy?.imported).toBe(1)
+    expect(data.transactions).toHaveLength(1)
+    expect(calls).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        url: expect.stringContaining('/credentials/credential-1/pulls?id_user=syncfy-user-1'),
+        method: 'PUT',
+      }),
+      expect.objectContaining({
+        url: expect.stringContaining('/transactions?'),
+        method: 'GET',
+      }),
+    ]))
+    expect(env.DB.syncfyErrors[0]).toMatchObject({
+      rid: 'pull-rate-limit-rid',
+      status_code: 429,
+      source: 'syncfy-pull',
+    })
+    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
   } finally {
     globalThis.fetch = originalFetch
   }

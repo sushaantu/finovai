@@ -6,6 +6,8 @@ Every Syncfy credential operation has two systems of record: Syncfy owns the pro
 
 The main guardrail: FinovAI must not perform a local-only delete after a retryable Syncfy delete failure. If Syncfy cannot confirm deletion because of a provider outage, timeout, or 5xx error, keep the local credential and transactions intact and ask the user to retry.
 
+The vendor behavior behind this contract is documented in [SYNCFY_VENDOR_REFERENCE.md](SYNCFY_VENDOR_REFERENCE.md), including the Paybook sample flow for credential pulls, job-status polling, and transaction reads.
+
 ## Source-Of-Truth Rules
 
 | Object | System of record | FinovAI storage |
@@ -24,7 +26,9 @@ The main guardrail: FinovAI must not perform a local-only delete after a retryab
 | 2 | Syncfy `/sessions` | Create a short-lived widget token for the stored Syncfy `id_user`. |
 | 3 | Browser widget | User selects and authenticates the institution. |
 | 4 | `POST /api/syncfy/credential` | Store `syncfy_credentials` after the widget returns `id_credential`. |
-| 5 | Transaction import | Import immediately if Syncfy returns transaction endpoints. |
+| 5 | Start pull | Call Syncfy `/credentials/:id_credential/pulls?id_user=:id_user` so the provider begins preparing movements. |
+| 6 | Follow job | Persist returned job state and follow `/jobs/:id/status` when Syncfy provides it. |
+| 7 | Transaction import | Import from returned transaction endpoints or direct `/transactions` reads as soon as rows are readable. |
 
 Success state:
 
@@ -57,15 +61,16 @@ Read contract:
 | Trigger | Operation | Required behavior |
 | --- | --- | --- |
 | Widget update/reconnect | `POST /api/syncfy/session` with update credential | Reuse the stored `id_user` and pass the selected credential to the widget. |
-| Credential callback | `POST /api/syncfy/credential` | Upsert credential metadata and import any returned transactions. |
-| Manual refresh | `POST /api/syncfy/refresh` | Enforce cooldown, import transactions, then mark status. Support-admin access can run this without a browser session for production repair. |
+| Credential callback | `POST /api/syncfy/credential` | Upsert credential metadata, start a pull, follow job status, and import readable transactions. |
+| Manual refresh | `POST /api/syncfy/refresh` | Enforce cooldown, follow saved job state, start/follow a new pull when allowed, read direct transactions, then mark status. Support-admin access can run this without a browser session for production repair. |
 | Webhook refresh | `POST /api/syncfy/webhook` | Store event, return `202`, process import in `ctx.waitUntil`. |
-| Production cron | Scheduled Worker | Refresh due credentials only. |
+| Production cron | Scheduled Worker | Refresh due credentials every five minutes. |
 
 Update status rules:
 
 - `synced`: transaction import succeeded or existing credential-tagged transactions prove success.
 - `pending_transactions`: credential exists but no readable transactions are available yet.
+- A new pull failure does not automatically block import. If Syncfy rate-limits `/credentials/:id/pulls` but direct `/transactions` returns rows, import those rows and log the pull error in `syncfy_errors`.
 - A `200` response with zero readable transactions is still a pull attempt. Keep the credential in `pending_transactions`, update `last_pull_at`, and apply the normal cooldown so repeated empty polls do not flood Syncfy HTTP logs.
 - A Syncfy widget `error` event is not enough to mark the FinovAI connection failed if a credential was created. Re-read credentials first; if one exists, continue refresh/import and keep the state as `pending_transactions` until transaction evidence arrives or Syncfy returns a terminal credential error.
 - `needs_reconnect`: Syncfy reports invalid/expired/failed credential state.
@@ -118,6 +123,8 @@ The worker test suite must keep these cases covered:
 - Retryable upstream delete failure preserves local credential and transactions.
 - Terminal upstream stale-state delete logs the provider error and removes local stale rows.
 - Webhook processing returns `202` before transaction import.
+- Refresh starts a Syncfy credential pull and imports transactions from the returned job status.
+- Refresh imports direct transactions when a new pull is rate-limited.
 - Refresh treats existing credential-tagged transactions as success when polling returns empty.
 
 Run:
