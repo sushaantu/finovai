@@ -1425,28 +1425,49 @@ test('syncfy credential delete removes one connection and its imported transacti
     sampleTransaction({ id: 'manual:rent', source: 'manual', description: 'Renta' })
   )
 
-  const response = await worker.fetch(new Request('http://local.test/api/syncfy/credential', {
-    method: 'DELETE',
-    body: JSON.stringify({
-      email: 'user@example.com',
-      credentialId: 'credential-1',
-    }),
-  }), env)
-  const data = await response.json() as SyncfyCredentialsApiResponse & DashboardResponse
+  const calls: Array<{ url: string; method?: string }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(input), method: init?.method })
+    return new Response(JSON.stringify({ status: true, response: true }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
 
-  expect(response.status).toBe(200)
-  expect(data.success).toBe(true)
-  expect(data.deletedTransactions).toBe(1)
-  expect(data.credentials.map((credential) => credential.syncfyCredentialId)).toEqual(['credential-2'])
-  expect(env.DB.syncfyCredentials.map((credential) => credential.syncfy_credential_id)).toEqual(['credential-2'])
-  expect(env.DB.transactions.map((transaction) => transaction.id)).toEqual([
-    'syncfy:credential-2:grocery',
-    'manual:rent',
-  ])
-  expect(data.transactions.map((transaction) => transaction.id).sort()).toEqual([
-    'manual:rent',
-    'syncfy:credential-2:grocery',
-  ].sort())
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/credential', {
+      method: 'DELETE',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env)
+    const data = await response.json() as SyncfyCredentialsApiResponse & DashboardResponse & {
+      syncfyCredentialDeleteAttempted?: boolean
+      syncfyCredentialDeleted?: boolean
+    }
+
+    expect(response.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.deletedTransactions).toBe(1)
+    expect(data.syncfyCredentialDeleteAttempted).toBe(true)
+    expect(data.syncfyCredentialDeleted).toBe(true)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].method).toBe('DELETE')
+    expect(calls[0].url).toContain('/credentials/credential-1?id_user=syncfy-user-1')
+    expect(data.credentials.map((credential) => credential.syncfyCredentialId)).toEqual(['credential-2'])
+    expect(env.DB.syncfyCredentials.map((credential) => credential.syncfy_credential_id)).toEqual(['credential-2'])
+    expect(env.DB.transactions.map((transaction) => transaction.id)).toEqual([
+      'syncfy:credential-2:grocery',
+      'manual:rent',
+    ])
+    expect(data.transactions.map((transaction) => transaction.id).sort()).toEqual([
+      'manual:rent',
+      'syncfy:credential-2:grocery',
+    ].sort())
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('syncfy refresh follows saved job status when direct transactions are still empty', async () => {

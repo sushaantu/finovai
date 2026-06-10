@@ -98,6 +98,8 @@ interface SyncfyCredentialDeleteResponse {
   credentials: SyncfyCredential[]
   message?: string
   deletedTransactions?: number
+  syncfyCredentialDeleteAttempted?: boolean
+  syncfyCredentialDeleted?: boolean
   transactions?: unknown[]
 }
 

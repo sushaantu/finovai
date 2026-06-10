@@ -1975,6 +1975,8 @@ async function deleteSyncfyCredentialForEmail(
   credential: SyncfyCredentialRow | null
   deletedTransactions: number
   credentials: SyncfyCredentialRow[]
+  syncfyCredentialDeleteAttempted: boolean
+  syncfyCredentialDeleted: boolean
 }> {
   await ensureSyncfyTables(env)
   await ensureFinanceTables(env)
@@ -1990,9 +1992,12 @@ async function deleteSyncfyCredentialForEmail(
       credential: null,
       deletedTransactions: 0,
       credentials: await loadDisplaySyncfyCredentialsForEmail(env, email),
+      syncfyCredentialDeleteAttempted: false,
+      syncfyCredentialDeleted: false,
     }
   }
 
+  const syncfyDelete = await deleteSyncfyCredentialUpstream(env, credential)
   const transactionDelete = await env.DB.prepare(
     `DELETE FROM transactions
      WHERE email = ?
@@ -2017,6 +2022,46 @@ async function deleteSyncfyCredentialForEmail(
     credential,
     deletedTransactions: Number(transactionDelete.meta?.changes || 0),
     credentials: await loadDisplaySyncfyCredentialsForEmail(env, email),
+    syncfyCredentialDeleteAttempted: syncfyDelete.attempted,
+    syncfyCredentialDeleted: syncfyDelete.deleted,
+  }
+}
+
+async function deleteSyncfyCredentialUpstream(
+  env: Env,
+  credential: SyncfyCredentialRow
+): Promise<{ attempted: boolean; deleted: boolean }> {
+  if (!env.SYNCFY_API_KEY || credential.syncfy_user_id.startsWith('local_')) {
+    return { attempted: false, deleted: false }
+  }
+
+  const params = new URLSearchParams()
+  params.set('id_user', credential.syncfy_user_id)
+  const path = `/credentials/${encodeURIComponent(credential.syncfy_credential_id)}?${params.toString()}`
+
+  try {
+    await syncfyRequest<unknown>(env, path, { method: 'DELETE' })
+    return { attempted: true, deleted: true }
+  } catch (err) {
+    if (err instanceof SyncfyRequestError) {
+      await storeSyncfyError(env, {
+        email: credential.email,
+        syncfyUserId: credential.syncfy_user_id,
+        syncfyCredentialId: credential.syncfy_credential_id,
+        rid: err.rid || credential.last_rid,
+        statusCode: err.status,
+        errorCode: err.code,
+        message: err.message,
+        source: 'syncfy-delete-credential',
+        payload: err.responseBody,
+      })
+
+      if ([400, 401, 404, 410].includes(err.status)) {
+        return { attempted: true, deleted: false }
+      }
+    }
+
+    throw err
   }
 }
 
@@ -6818,6 +6863,8 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
         credentialId,
         credentials: deletion.credentials.map(syncfyCredentialToApi),
         deletedTransactions: deletion.deletedTransactions,
+        syncfyCredentialDeleteAttempted: deletion.syncfyCredentialDeleteAttempted,
+        syncfyCredentialDeleted: deletion.syncfyCredentialDeleted,
         message: 'Institución eliminada.',
       })
     }

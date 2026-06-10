@@ -68,7 +68,7 @@ Primary routes:
 | `POST /api/syncfy/session` | Create or reuse Syncfy user, then create widget session. |
 | `GET /api/syncfy/credentials` | Return connected credentials for the signed-in user. |
 | `POST /api/syncfy/credential` | Store/update a credential after widget success and attempt import. |
-| `DELETE /api/syncfy/credential` | Disconnect a stored credential and its Syncfy transactions. |
+| `DELETE /api/syncfy/credential` | Delete the Syncfy credential upstream, then remove the stored credential and its Syncfy transactions from FinovAI. |
 | `POST /api/syncfy/refresh` | Refresh one credential with cooldown protection. |
 | `POST /api/syncfy/webhook` | Receive Syncfy webhook, acknowledge quickly, process in background. |
 | `GET /api/syncfy/status` | Internal per-user diagnostic endpoint. |
@@ -161,3 +161,5 @@ When a user says the connection did not complete:
 PM-ready support wording:
 
 > The account connection can exist before transactions are usable. For each user, confirm three things separately: Syncfy user exists, institution credential exists, and transaction data imported successfully. If the credential is `needs_reconnect`, ask the user to reconnect before relying on dashboard data.
+
+When a user wants to fully retry an institution, use the FinovAI delete action first. That now removes the upstream Syncfy credential as well as FinovAI's local rows, so the next add attempt is a clean provider-side connection attempt.
