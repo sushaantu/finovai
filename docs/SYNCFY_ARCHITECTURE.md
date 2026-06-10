@@ -169,13 +169,26 @@ Full sandbox outcome proof:
 bun run smoke:syncfy:preview-full
 ```
 
-This runs the app-facing flow against preview: signup, Syncfy session, ACME credential creation through Paybook's API, FinovAI credential callback, transaction import, and dashboard chat over the imported movements. On 2026-06-10 this passed against preview in 47 seconds with Syncfy RID `c6112c8f-e209-4275-b9f6-0a86d13bfe1f`.
+This runs the app-facing flow against preview: signup, Syncfy session, ACME credential creation through Paybook's API, FinovAI credential callback, transaction import, and dashboard chat over the imported movements. On 2026-06-10 this passed against preview in 46 seconds with Syncfy RID `f8eefb2e-1fed-4d31-9026-b59ef3ea1d20`.
 
 Current key note:
 
 - Preview Cloudflare `SYNCFY_API_KEY` can create sandbox ACME credentials.
 - Local `.dev.vars` key ending in `d79c` cannot create credentials and returns `402 Payment Required`.
 - Local testing cannot be considered representative until `.dev.vars` is updated to the same authorized sandbox account/key class as preview.
+
+Login-code proof:
+
+```sh
+# Terminal 1: run the API with production-like email auth and sandbox Syncfy labels.
+bun run dev:email-login-local
+
+# Terminal 2: request a code, read the local Miniflare email body, verify the code,
+# then prove the dashboard session can read protected APIs.
+bun run smoke:email-login:local
+```
+
+This proves the email-code leg of the target UX locally without sending a real email. It does not prove bank linking; pair it with `bun run preflight:syncfy:sandbox` and the full Syncfy smoke before release.
 
 Expected health proof:
 
