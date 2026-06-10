@@ -1643,6 +1643,15 @@ function isSyncfyRefreshEvent(eventType: string): boolean {
   return normalized === 'refresh' || normalized.includes('credentials.refresh') || normalized.includes('credential.refresh')
 }
 
+function isSyncfyDeleteEvent(eventType: string): boolean {
+  const normalized = eventType.toLowerCase()
+  return normalized === 'delete' ||
+    normalized === 'deleted' ||
+    normalized.includes('credentials.deleted') ||
+    normalized.includes('credential.deleted') ||
+    normalized.includes('credential_delete')
+}
+
 function isSyncfySuccessfulStatus(status: string | null): boolean {
   if (!status) return true
   return /success|successful|active|ok|valid|synced|refreshed/i.test(status)
@@ -1998,6 +2007,22 @@ async function deleteSyncfyCredentialForEmail(
   }
 
   const syncfyDelete = await deleteSyncfyCredentialUpstream(env, credential)
+  const localDeletion = await deleteLocalSyncfyCredentialForEmail(env, email, credentialId)
+
+  return {
+    credential,
+    deletedTransactions: localDeletion.deletedTransactions,
+    credentials: localDeletion.credentials,
+    syncfyCredentialDeleteAttempted: syncfyDelete.attempted,
+    syncfyCredentialDeleted: syncfyDelete.deleted,
+  }
+}
+
+async function deleteLocalSyncfyCredentialForEmail(
+  env: Env,
+  email: string,
+  credentialId: string
+): Promise<{ deletedTransactions: number; credentials: SyncfyCredentialRow[] }> {
   const transactionDelete = await env.DB.prepare(
     `DELETE FROM transactions
      WHERE email = ?
@@ -2019,12 +2044,28 @@ async function deleteSyncfyCredentialForEmail(
     .run()
 
   return {
-    credential,
     deletedTransactions: Number(transactionDelete.meta?.changes || 0),
     credentials: await loadDisplaySyncfyCredentialsForEmail(env, email),
-    syncfyCredentialDeleteAttempted: syncfyDelete.attempted,
-    syncfyCredentialDeleted: syncfyDelete.deleted,
   }
+}
+
+async function deleteSyncfyCredentialFromWebhook(
+  env: Env,
+  event: SyncfyWebhookEventRow
+): Promise<void> {
+  const credentialId = event.syncfy_credential_id
+  if (!credentialId) return
+
+  let email = event.syncfy_user_id ? await findEmailBySyncfyUserId(env, event.syncfy_user_id) : null
+  if (!email) {
+    const row = await env.DB.prepare(`SELECT email FROM syncfy_credentials WHERE syncfy_credential_id = ? LIMIT 1`)
+      .bind(credentialId)
+      .first<{ email: string }>()
+    email = row?.email || null
+  }
+
+  if (!email) return
+  await deleteLocalSyncfyCredentialForEmail(env, email, credentialId)
 }
 
 async function deleteSyncfyCredentialUpstream(
@@ -2056,7 +2097,7 @@ async function deleteSyncfyCredentialUpstream(
         payload: err.responseBody,
       })
 
-      if ([400, 401, 404, 410].includes(err.status)) {
+      if ([200, 400, 401, 404, 410].includes(err.status)) {
         return { attempted: true, deleted: false }
       }
     }
@@ -2391,6 +2432,12 @@ async function processSyncfyWebhookEvent(
   const webhookCredentialId = event.syncfy_credential_id || credential?.syncfy_credential_id || null
 
   try {
+    if (isSyncfyDeleteEvent(event.event_type)) {
+      await deleteSyncfyCredentialFromWebhook(env, event)
+      await markSyncfyWebhookEventProcessed(env, event.id)
+      return
+    }
+
     if (isSyncfyRefreshEvent(event.event_type) || event.event_type.toLowerCase() === 'refresh') {
       const transactionEndpoints = getSyncfyWebhookEndpointPaths(payload, 'transactions')
       webhookEmail = event.syncfy_user_id ? await findEmailBySyncfyUserId(env, event.syncfy_user_id) : credential?.email || null
@@ -7105,7 +7152,9 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
 
       const payload = await request.json() as unknown
       const event = await storeSyncfyWebhookEvent(env, payload)
-      const credential = await storeSyncfyCredential(env, payload, event.event_type)
+      const credential = isSyncfyDeleteEvent(event.event_type)
+        ? null
+        : await storeSyncfyCredential(env, payload, event.event_type)
       const processing = processSyncfyWebhookEvent(env, payload, event, credential)
       if (ctx) {
         ctx.waitUntil(processing)

@@ -1608,6 +1608,65 @@ test('syncfy credential delete cleans local stale rows when upstream credential 
   }
 })
 
+test('syncfy credential delete cleans local stale rows for Syncfy status-false 200 response', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: '572930c4784806060f8b456b',
+    site_name: 'American Express',
+    status: 'pending_transactions',
+    last_successful_sync_at: null,
+    last_pull_at: null,
+    last_rid: null,
+    raw_json: null,
+    created_at: '2026-06-10T02:48:14Z',
+    updated_at: '2026-06-10T02:48:14Z',
+  })
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    status: false,
+    rid: 'delete-rid-3',
+    code: 200,
+    message: 'Connection request failed',
+    response: null,
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/credential', {
+      method: 'DELETE',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env)
+    const data = await response.json() as SyncfyCredentialsApiResponse & DashboardResponse & {
+      syncfyCredentialDeleteAttempted?: boolean
+      syncfyCredentialDeleted?: boolean
+    }
+
+    expect(response.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.syncfyCredentialDeleteAttempted).toBe(true)
+    expect(data.syncfyCredentialDeleted).toBe(false)
+    expect(data.credentials).toEqual([])
+    expect(env.DB.syncfyCredentials).toEqual([])
+    expect(env.DB.syncfyErrors[0]).toMatchObject({
+      rid: 'delete-rid-3',
+      status_code: 200,
+      source: 'syncfy-delete-credential',
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('syncfy refresh follows saved job status when direct transactions are still empty', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
   env.DB.syncfyCredentials.push({
@@ -1883,6 +1942,92 @@ test('syncfy webhook acknowledges before importing transactions in the backgroun
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('syncfy deleted webhook removes local credential instead of recreating it', async () => {
+  const env = createEnv('test', {
+    SYNCFY_API_KEY: 'test-key',
+    SYNCFY_WEBHOOK_SECRET: 'webhook-secret',
+  })
+  env.DB.syncfyUsers.push({
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_external_id: 'finovai:user@example.com',
+    name: null,
+    mode: 'live',
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: null,
+    last_session_at: null,
+  })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: '572930c4784806060f8b456b',
+    site_name: 'American Express',
+    status: 'pending_transactions',
+    last_successful_sync_at: null,
+    last_pull_at: null,
+    last_rid: null,
+    raw_json: null,
+    created_at: '2026-06-10T02:48:14Z',
+    updated_at: '2026-06-10T02:48:14Z',
+  })
+  env.DB.transactions.push({
+    ...sampleTransaction({
+      id: 'syncfy:credential-1:expense',
+      email: 'user@example.com',
+      source: 'syncfy',
+      description: 'AMEX EXPENSE',
+      merchant: 'AMEX EXPENSE',
+    }),
+    raw_source: JSON.stringify({ _finovaiCredentialId: 'credential-1' }),
+  })
+
+  const payload = {
+    rid: 'delete-webhook-rid-1',
+    events: [{
+      header: {
+        event: { name: 'credentials.deleted' },
+        user: { id_user: 'syncfy-user-1' },
+      },
+      payload: {
+        id_credential: 'credential-1',
+      },
+    }],
+  }
+  const waitUntilPromises: Promise<unknown>[] = []
+  const ctx = {
+    waitUntil(promise: Promise<unknown>) {
+      waitUntilPromises.push(promise)
+    },
+  } as unknown as ExecutionContext
+
+  const response = await worker.fetch(new Request('http://local.test/api/syncfy/webhook', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-finovai-webhook-secret': 'webhook-secret',
+    },
+    body: JSON.stringify(payload),
+  }), env, ctx)
+  const data = await response.json() as {
+    credentialStored?: boolean
+    eventType?: string
+  }
+
+  expect(response.status).toBe(202)
+  expect(data.eventType).toBe('credentials.deleted')
+  expect(data.credentialStored).toBe(false)
+  expect(waitUntilPromises).toHaveLength(1)
+  expect(env.DB.syncfyCredentials).toHaveLength(1)
+
+  await waitUntilPromises[0]
+
+  expect(env.DB.syncfyCredentials).toEqual([])
+  expect(env.DB.transactions).toEqual([])
+  expect(env.DB.syncfyWebhookEvents[0].processed_at).toBeTruthy()
 })
 
 test('transaction category endpoint persists user category overrides', async () => {

@@ -93,7 +93,7 @@ Delete failure behavior:
 | Syncfy result | Local credential | Local transactions | API response | Error log |
 | --- | --- | --- | --- | --- |
 | 2xx success | Delete | Delete credential-scoped rows | `200` | None required |
-| 400/401/404/410 terminal stale state | Delete | Delete credential-scoped rows | `200`, `syncfyCredentialDeleted=false` | Store `syncfy-delete-credential` |
+| 200 with `status:false`, or 400/401/404/410 terminal stale state | Delete | Delete credential-scoped rows | `200`, `syncfyCredentialDeleted=false` | Store `syncfy-delete-credential` |
 | 429/5xx/network/retryable failure | Keep | Keep | `409` or `502`, `localStateDeleted=false` | Store `syncfy-delete-credential` when Syncfy returned a response |
 
 Why terminal stale states can clean local rows:
@@ -101,6 +101,12 @@ Why terminal stale states can clean local rows:
 - If Syncfy says the credential or user is already invalid/gone, FinovAI cannot repair that credential by keeping the row.
 - Local cleanup is acceptable because the provider-side connection is already unusable.
 - The cleanup must still be logged so support can see that upstream deletion was attempted but not confirmed as a normal 2xx delete.
+
+Deleted webhook rule:
+
+- `credentials.deleted` webhooks must remove the local `syncfy_credentials` row and credential-scoped `transactions`.
+- They must never upsert the deleted credential back into `syncfy_credentials`.
+- The webhook event should still be stored and marked `processed_at`.
 
 ## Regression Tests
 
