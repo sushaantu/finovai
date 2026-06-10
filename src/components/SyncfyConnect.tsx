@@ -271,6 +271,18 @@ function getCredentialStatusText(credential: SyncfyCredential) {
     : `Próximo intento disponible en ${formatCooldown(credential.cooldownSeconds)}`
 }
 
+function getDefaultConnectMessage(credentials: SyncfyCredential[]) {
+  if (credentials.some((credential) => credential.status === 'pending_transactions')) {
+    return 'Movimientos pendientes. FinovAI reintentará automáticamente.'
+  }
+
+  if (credentials.length > 0) {
+    return 'Institución conectada. Puedes sincronizar cuando esté disponible.'
+  }
+
+  return 'Ve a Conectar cuenta y sigue los pasos para vincular una institución.'
+}
+
 export function SyncfyConnect({
   email,
   initialCredentials = [],
@@ -287,7 +299,7 @@ export function SyncfyConnect({
   const [session, setSession] = useState<SyncfySessionResponse | null>(null)
   const [widgetMode, setWidgetMode] = useState<WidgetMode>('create')
   const [activeCredentialId, setActiveCredentialId] = useState<string | null>(null)
-  const [message, setMessage] = useState('Ve a Conectar cuenta y sigue los pasos para vincular una institución.')
+  const [message, setMessage] = useState(() => getDefaultConnectMessage(initialCredentials))
   const [isLoading, setIsLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [openCredentialMenuId, setOpenCredentialMenuId] = useState<string | null>(null)
@@ -415,7 +427,10 @@ export function SyncfyConnect({
 
   useEffect(() => {
     setCredentials(initialCredentials)
-  }, [initialCredentials])
+    if (!session && !isLoading && !isRefreshing && !isDeletingCredentialId) {
+      setMessage(getDefaultConnectMessage(initialCredentials))
+    }
+  }, [initialCredentials, isDeletingCredentialId, isLoading, isRefreshing, session])
 
   useEffect(() => () => {
     clearCredentialPolling()
