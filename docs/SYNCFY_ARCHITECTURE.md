@@ -1,0 +1,163 @@
+# Syncfy Architecture
+
+## PM-Ready Summary
+
+FinovAI uses Syncfy/Paybook as the embedded bank connection provider. Users connect an institution inside the Syncfy widget; FinovAI stores the resulting credential, imports transaction data into the dashboard tables, and keeps the connection fresh through webhooks, manual refresh, and production cron refresh.
+
+The active Syncfy workspace for production operations is `@finovai`. Do not use the older `@finov-ai` workspace for production configuration.
+
+## Environment Map
+
+| Environment | App URL | Worker | Syncfy mode | Webhook URL | D1 database |
+| --- | --- | --- | --- | --- | --- |
+| Production | `https://finov.ai` | `finovai` | `production` | `https://finov.ai/api/syncfy/webhook` | `finovai-db` |
+| Preview | `https://finovai-preview.my-cloudflare-711.workers.dev` | `finovai-preview` | `sandbox` | `https://finovai-preview.my-cloudflare-711.workers.dev/api/syncfy/webhook` | `finovai-preview-db` |
+| Local sandbox | `http://127.0.0.1:5173` | local Wrangler | `sandbox` | local tunnel if needed | local/selected D1 |
+
+Production and preview must stay separated. Preview uses the sandbox Syncfy API and the isolated preview D1 database, so preview validation should not touch production Syncfy credentials or production transaction rows.
+
+## Syncfy Dashboard Configuration
+
+Syncfy should send these events to the matching environment webhook:
+
+- `credentials.created`
+- `credentials.updated`
+- `credentials.deleted`
+- `credentials.refreshed`
+
+Webhook authentication is shared-secret based. Configure Syncfy to send one of:
+
+- `x-finovai-webhook-secret: <SYNCFY_WEBHOOK_SECRET>`
+- `x-syncfy-webhook-secret: <SYNCFY_WEBHOOK_SECRET>`
+- `Authorization: Bearer <SYNCFY_WEBHOOK_SECRET>`
+
+Never commit API keys or webhook secret values. Store them as Cloudflare Worker secrets.
+
+## Frontend Flow
+
+The connect experience lives in `src/components/SyncfyConnect.tsx`.
+
+1. The dashboard renders the connect page.
+2. The browser calls `POST /api/syncfy/session`.
+3. The Worker creates or reuses the Syncfy user for the signed-in FinovAI email.
+4. The Worker creates a Syncfy widget session and returns a short-lived widget token.
+5. The browser opens `@syncfy/authentication-widget`.
+6. When the widget reports a credential, the browser calls `POST /api/syncfy/credential`.
+7. The Worker stores the credential and imports transactions immediately when Syncfy exposes transaction endpoints.
+
+The browser never receives the Syncfy API key. It only receives a widget session token.
+
+## Backend Flow
+
+The Cloudflare Worker in `worker/index.ts` owns the integration:
+
+- Syncfy API auth and request wrapper.
+- Syncfy user creation and lookup.
+- Widget session creation.
+- Credential upsert and institution metadata extraction.
+- Transaction normalization and upsert into `transactions`.
+- Webhook verification and event storage.
+- Background webhook processing with `ctx.waitUntil`.
+- Manual refresh and scheduled production refresh.
+- Admin/support diagnostics.
+
+Primary routes:
+
+| Route | Purpose |
+| --- | --- |
+| `POST /api/syncfy/session` | Create or reuse Syncfy user, then create widget session. |
+| `GET /api/syncfy/credentials` | Return connected credentials for the signed-in user. |
+| `POST /api/syncfy/credential` | Store/update a credential after widget success and attempt import. |
+| `DELETE /api/syncfy/credential` | Disconnect a stored credential and its Syncfy transactions. |
+| `POST /api/syncfy/refresh` | Refresh one credential with cooldown protection. |
+| `POST /api/syncfy/webhook` | Receive Syncfy webhook, acknowledge quickly, process in background. |
+| `GET /api/syncfy/status` | Internal per-user diagnostic endpoint. |
+| `GET /api/admin/syncfy` | Support/admin overview of users, credentials, errors, and webhooks. |
+| `GET /api/health` | Environment proof, including `syncfyEnvironment`. |
+
+## Data Model
+
+Syncfy state is stored in D1:
+
+| Table | Purpose |
+| --- | --- |
+| `syncfy_users` | Maps one FinovAI email to one Syncfy `id_user` and `id_external`. |
+| `syncfy_credentials` | Stores connected institution credentials, status, site metadata, raw payload, and refresh timestamps. |
+| `syncfy_webhook_events` | Stores raw webhook events for audit and replay/debugging. |
+| `syncfy_errors` | Stores Syncfy errors, request IDs, status codes, and payloads for support escalation. |
+| `transactions` | Stores imported movements with `source = 'syncfy'`; newer imports include `_finovaiCredentialId` in `raw_source`. |
+
+Credential health is based on both credential status and imported transaction evidence. A stored credential is not considered healthy merely because it exists.
+
+## Webhook Processing Model
+
+The webhook endpoint is intentionally fast:
+
+1. Verify the shared secret.
+2. Parse and store the event.
+3. Store or update credential state when possible.
+4. Return `202 Accepted` quickly to Syncfy.
+5. Continue transaction import and credential status updates in `ctx.waitUntil`.
+
+This prevents Syncfy from timing out while FinovAI imports transactions. In Syncfy logs, healthy webhook delivery should show an HTTP `202`. Old HTTP `0` rows around 31 seconds indicate timeout behavior from before this async processing model.
+
+## Refresh Model
+
+FinovAI has three refresh paths:
+
+| Path | Trigger | Notes |
+| --- | --- | --- |
+| Immediate import | Widget success / credential callback | Gives the user fast feedback after connecting. |
+| Manual refresh | `POST /api/syncfy/refresh` | Uses a five-minute credential cooldown. |
+| Scheduled refresh | Production cron every five minutes | Refreshes due credentials whose last pull is older than the configured interval. |
+
+The webhook path is important, but user-visible success should not depend only on webhook delivery. The app also stores credentials and can import through explicit refresh paths.
+
+## Status Semantics
+
+| Status | Meaning |
+| --- | --- |
+| `synced` | Credential has successful transaction evidence and a successful sync timestamp. |
+| `pending_transactions` | Credential exists, but Syncfy has not yet yielded readable transaction data. |
+| `needs_reconnect` | Syncfy rejected refresh/import or the credential is no longer usable. User should reconnect. |
+
+For support, check transaction counts as well as credential status. Historical transaction rows can exist even when the current credential is `needs_reconnect`.
+
+## Operations
+
+Use `direnv exec` so Wrangler uses the correct Cloudflare account and secrets.
+
+Preview deploy:
+
+```sh
+direnv exec /Users/sushaantu/Developer/finovai bun run deploy:preview
+curl https://finovai-preview.my-cloudflare-711.workers.dev/api/health
+```
+
+Production deploy:
+
+```sh
+direnv exec /Users/sushaantu/Developer/finovai bun run deploy:production
+curl https://finov.ai/api/health
+```
+
+Expected health proof:
+
+- Production: `environment = production`, `syncfyEnvironment = production`
+- Preview: `environment = preview`, `syncfyEnvironment = sandbox`
+
+## Support Checklist
+
+When a user says the connection did not complete:
+
+1. Confirm the environment: production or preview/sandbox.
+2. Check `/api/admin/syncfy` or production D1 for the user's `syncfy_users` row.
+3. Check `syncfy_credentials` for institution, status, and timestamps.
+4. Check `transactions` for `source = 'syncfy'` rows for that email.
+5. Check `syncfy_errors` for recent `rid`, HTTP status, and Syncfy message.
+6. Check Syncfy HTTP logs for fresh webhook delivery status.
+7. Treat `401 Invalid user` as a reconnect/recovery state unless Syncfy confirms otherwise.
+
+PM-ready support wording:
+
+> The account connection can exist before transactions are usable. For each user, confirm three things separately: Syncfy user exists, institution credential exists, and transaction data imported successfully. If the credential is `needs_reconnect`, ask the user to reconnect before relying on dashboard data.

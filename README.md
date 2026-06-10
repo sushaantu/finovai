@@ -24,7 +24,9 @@ FinovAI helps users turn spending patterns into investment actions. A user conne
 
 ## Bank Connections
 
-See [docs/SYNCFY_IMPLEMENTATION_CHECKLIST.md](docs/SYNCFY_IMPLEMENTATION_CHECKLIST.md) for the production checklist, webhook URL, and remaining integration work.
+See [docs/SYNCFY_ARCHITECTURE.md](docs/SYNCFY_ARCHITECTURE.md) for the current Syncfy architecture, environment map, webhook model, and support runbook.
+
+See [docs/SYNCFY_IMPLEMENTATION_CHECKLIST.md](docs/SYNCFY_IMPLEMENTATION_CHECKLIST.md) for implementation status and launch guardrails.
 
 ## Development
 

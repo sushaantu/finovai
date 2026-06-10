@@ -505,6 +505,8 @@ const SYNCFY_GENERIC_INSTITUTION_NAMES = new Set([
   'USUARIO',
 ])
 const KNOWN_SYNCFY_INSTITUTION_NAMES = new Map<string, string>([
+  ['56cf5728784806f72b8b4568', 'Acme Bank'],
+  ['56cf4ff5784806152c8b4567', 'Acme Bank'],
   ['572930c4784806060f8b456a', 'American Express'],
   ['572930c4784806060f8b456b', 'American Express'],
 ])
@@ -1497,8 +1499,11 @@ function collectSyncfyRecords(value: unknown, maxDepth = 4): Array<Record<string
 
     records.push(record)
     for (const key of [
+      'events',
       'response',
       'data',
+      'header',
+      'event',
       'payload',
       'credential',
       'credentials',
@@ -1554,6 +1559,7 @@ function isUsefulSyncfyInstitutionName(value: string): boolean {
   const label = cleanText(value)
   if (!label || label.length < 2 || label.length > 120) return false
   if (/^[a-f0-9]{16,}$/i.test(label) || /^\d+$/.test(label)) return false
+  if (/^[a-z]+(?:[._-][a-z]+)+$/i.test(label)) return false
 
   const normalized = normalizeCategoryInput(label).replace(/[^A-Z0-9]+/g, ' ').trim()
   if (!normalized || SYNCFY_GENERIC_INSTITUTION_NAMES.has(normalized)) return false
@@ -1584,13 +1590,24 @@ export function extractSyncfySiteMetadata(payload: unknown): SyncfySiteMetadata 
   return {
     syncfySiteId,
     syncfySiteOrganizationId,
-    siteName: firstSyncfyInstitutionName(payload) ||
-      lookupKnownSyncfyInstitutionName(syncfySiteId, syncfySiteOrganizationId),
+    siteName: lookupKnownSyncfyInstitutionName(syncfySiteId, syncfySiteOrganizationId) ||
+      firstSyncfyInstitutionName(payload),
   }
 }
 
-function extractSyncfyEventType(payload: unknown): string {
-  const direct = firstSyncfyString(payload, ['event_type', 'event', 'webhook_event', 'type'])
+export function extractSyncfyEventType(payload: unknown): string {
+  for (const record of collectSyncfyRecords(payload)) {
+    const header = asRecord(record.header)
+    const headerEvent = asRecord(header?.event)
+    const headerName = stringFromUnknown(headerEvent?.name, 256)
+    if (headerName) return headerName
+
+    const event = asRecord(record.event)
+    const eventName = stringFromUnknown(event?.name, 256)
+    if (eventName) return eventName
+  }
+
+  const direct = firstSyncfyString(payload, ['event_type', 'webhook_event', 'type', 'event'])
   return direct || 'syncfy.webhook'
 }
 
@@ -1710,8 +1727,8 @@ async function storeSyncfyCredential(
     .first<SyncfyCredentialRow>()
 }
 
-function getSyncfyWebhookEndpointPaths(payload: unknown, key: 'accounts' | 'credential' | 'transactions'): string[] {
-  for (const record of collectSyncfyRecords(payload, 2)) {
+export function getSyncfyWebhookEndpointPaths(payload: unknown, key: 'accounts' | 'credential' | 'transactions'): string[] {
+  for (const record of collectSyncfyRecords(payload)) {
     const endpoints = asRecord(record.endpoints)
     const values = endpoints?.[key]
     if (Array.isArray(values)) {
@@ -1864,6 +1881,49 @@ function getSyncfyTransactionImportMessage(result: SyncfyTransactionImportResult
   }
 
   return 'La institución quedó conectada. Los movimientos todavía se están preparando; FinovAI reintentará en unos segundos.'
+}
+
+async function countStoredSyncfyTransactionsForCredential(
+  env: Env,
+  email: string,
+  credentialId: string
+): Promise<number> {
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM transactions
+     WHERE email = ?
+       AND source = 'syncfy'
+       AND instr(COALESCE(raw_source, ''), ?) > 0`
+  )
+    .bind(email, `"_finovaiCredentialId":"${credentialId}"`)
+    .first<{ count: number }>()
+
+  return Number(row?.count || 0)
+}
+
+async function resolveSyncfyTransactionImportState(
+  env: Env,
+  email: string,
+  credentialId: string,
+  result: SyncfyTransactionImportResult
+): Promise<{ complete: boolean; storedTransactions: number }> {
+  if (isSyncfyTransactionImportComplete(result)) {
+    return { complete: true, storedTransactions: result.imported }
+  }
+
+  const storedTransactions = await countStoredSyncfyTransactionsForCredential(env, email, credentialId)
+  return { complete: storedTransactions > 0, storedTransactions }
+}
+
+function getSyncfyTransactionImportMessageForState(
+  result: SyncfyTransactionImportResult,
+  state: { complete: boolean; storedTransactions: number }
+): string {
+  if (state.complete && !isSyncfyTransactionImportComplete(result)) {
+    return `${state.storedTransactions} movimientos sincronizados.`
+  }
+
+  return getSyncfyTransactionImportMessage(result)
 }
 
 function getSyncfyCredentialCooldownSeconds(credential: SyncfyCredentialRow): number {
@@ -2155,7 +2215,7 @@ async function storeSyncfyWebhookEvent(env: Env, payload: unknown): Promise<Sync
     `INSERT INTO syncfy_webhook_events (
       id, event_type, syncfy_user_id, syncfy_credential_id, rid, payload_json, processed_at, created_at
     )
-     VALUES (?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))`
+     VALUES (?, ?, ?, ?, ?, ?, NULL, datetime("now"))`
   )
     .bind(
       id,
@@ -2176,6 +2236,16 @@ async function storeSyncfyWebhookEvent(env: Env, payload: unknown): Promise<Sync
   }
 
   return event
+}
+
+async function markSyncfyWebhookEventProcessed(env: Env, eventId: string): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE syncfy_webhook_events
+     SET processed_at = datetime("now")
+     WHERE id = ?`
+  )
+    .bind(eventId)
+    .run()
 }
 
 async function storeSyncfyError(
@@ -2264,6 +2334,80 @@ async function verifySyncfySecret(request: Request, env: Env): Promise<boolean> 
   if (!suppliedSecret) return false
 
   return timingSafeStringEqual(suppliedSecret, env.SYNCFY_WEBHOOK_SECRET)
+}
+
+async function processSyncfyWebhookEvent(
+  env: Env,
+  payload: unknown,
+  event: SyncfyWebhookEventRow,
+  credential: SyncfyCredentialRow | null
+): Promise<void> {
+  let webhookEmail: string | null = null
+  const webhookCredentialId = event.syncfy_credential_id || credential?.syncfy_credential_id || null
+
+  try {
+    if (isSyncfyRefreshEvent(event.event_type) || event.event_type.toLowerCase() === 'refresh') {
+      const transactionEndpoints = getSyncfyWebhookEndpointPaths(payload, 'transactions')
+      webhookEmail = event.syncfy_user_id ? await findEmailBySyncfyUserId(env, event.syncfy_user_id) : credential?.email || null
+
+      if (webhookEmail && transactionEndpoints.length > 0) {
+        const importResult = await importSyncfyTransactionsFromEndpoints(
+          env,
+          webhookEmail,
+          event.syncfy_user_id || credential?.syncfy_user_id || null,
+          webhookCredentialId,
+          transactionEndpoints
+        )
+        if (webhookCredentialId) {
+          const importState = await resolveSyncfyTransactionImportState(
+            env,
+            webhookEmail,
+            webhookCredentialId,
+            importResult
+          )
+          if (importState.complete) {
+            await markSyncfyCredentialSyncSuccess(env, webhookEmail, webhookCredentialId)
+          } else {
+            await markSyncfyCredentialSyncPending(env, webhookEmail, webhookCredentialId)
+          }
+        }
+      }
+    }
+
+    await markSyncfyWebhookEventProcessed(env, event.id)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+
+    if (err instanceof SyncfyRequestError) {
+      await storeSyncfyError(env, {
+        email: webhookEmail,
+        syncfyUserId: event.syncfy_user_id,
+        syncfyCredentialId: event.syncfy_credential_id,
+        rid: err.rid || event.rid,
+        statusCode: err.status,
+        errorCode: err.code,
+        message: err.message,
+        source: 'syncfy-webhook-import',
+        payload: err.responseBody,
+      })
+    } else {
+      await storeSyncfyError(env, {
+        email: webhookEmail,
+        syncfyUserId: event.syncfy_user_id,
+        syncfyCredentialId: event.syncfy_credential_id,
+        rid: event.rid,
+        message,
+        source: 'syncfy-webhook-background',
+        payload,
+      })
+    }
+
+    console.error('Syncfy webhook background processing failed', {
+      eventId: event.id,
+      eventType: event.event_type,
+      message,
+    })
+  }
 }
 
 async function verifySupportAdminAccess(request: Request, env: Env): Promise<boolean> {
@@ -2880,7 +3024,7 @@ async function markSyncfyCredentialSyncSuccess(
     `UPDATE syncfy_credentials
      SET last_pull_at = datetime("now"),
          last_successful_sync_at = datetime("now"),
-         status = COALESCE(NULLIF(status, ''), 'synced'),
+         status = 'synced',
          updated_at = datetime("now")
      WHERE email = ? AND syncfy_credential_id = ?`
   )
@@ -2941,7 +3085,13 @@ async function refreshDueSyncfyCredentials(env: Env): Promise<{
         { jobStatusPaths: getSyncfyCredentialJobStatusPaths(credential) }
       )
       imported += result.imported
-      if (isSyncfyTransactionImportComplete(result)) {
+      const importState = await resolveSyncfyTransactionImportState(
+        env,
+        credential.email,
+        credential.syncfy_credential_id,
+        result
+      )
+      if (importState.complete) {
         await markSyncfyCredentialSyncSuccess(env, credential.email, credential.syncfy_credential_id)
       } else {
         await markSyncfyCredentialSyncPending(env, credential.email, credential.syncfy_credential_id)
@@ -5387,7 +5537,7 @@ Formato obligatorio:
 // =====================
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
 
     if (request.method === 'OPTIONS') {
@@ -5401,7 +5551,7 @@ export default {
     }
 
     if (url.pathname.startsWith('/api/')) {
-      return handleAPI(request, env, url)
+      return handleAPI(request, env, url, ctx)
     }
 
     return new Response('Not Found', { status: 404 })
@@ -5419,7 +5569,7 @@ export default {
 // API HANDLER
 // =====================
 
-async function handleAPI(request: Request, env: Env, url: URL): Promise<Response> {
+async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionContext): Promise<Response> {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json',
@@ -6753,9 +6903,26 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         }
       }
 
+      if (importResult) {
+        const importState = await resolveSyncfyTransactionImportState(
+          env,
+          normalizedEmail,
+          credential.syncfy_credential_id,
+          importResult
+        )
+        if (importState.complete) {
+          await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
+        } else {
+          await markSyncfyCredentialSyncPending(env, normalizedEmail, credential.syncfy_credential_id)
+        }
+      }
+
       const credentials = await loadDisplaySyncfyCredentialsForEmail(env, normalizedEmail)
       const displayCredential = credentials.find((item) => item.syncfy_credential_id === credential.syncfy_credential_id) || credential
       const dashboard = importResult ? await getFinanceDashboard(env, normalizedEmail) : null
+      const importState = importResult
+        ? await resolveSyncfyTransactionImportState(env, normalizedEmail, credential.syncfy_credential_id, importResult)
+        : null
       return json({
         ...(dashboard || {}),
         success: true,
@@ -6763,9 +6930,9 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         credential: syncfyCredentialToApi(displayCredential),
         credentials: credentials.map(syncfyCredentialToApi),
         syncfy: importResult,
-        pendingTransactions: importResult ? !isSyncfyTransactionImportComplete(importResult) : true,
+        pendingTransactions: importState ? !importState.complete : true,
         message: importResult
-          ? getSyncfyTransactionImportMessage(importResult)
+          ? getSyncfyTransactionImportMessageForState(importResult, importState!)
           : 'Institución guardada. Ya puedes sincronizar transacciones.',
       })
     }
@@ -6817,7 +6984,13 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
           credential.syncfy_credential_id,
           { jobStatusPaths: getSyncfyCredentialJobStatusPaths(credential) }
         )
-        const importComplete = isSyncfyTransactionImportComplete(importResult)
+        const importState = await resolveSyncfyTransactionImportState(
+          env,
+          normalizedEmail,
+          credential.syncfy_credential_id,
+          importResult
+        )
+        const importComplete = importState.complete
         if (importComplete) {
           await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
         } else {
@@ -6830,7 +7003,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
           source: 'syncfy',
           syncfy: importResult,
           pendingTransactions: !importComplete,
-          message: getSyncfyTransactionImportMessage(importResult),
+          message: getSyncfyTransactionImportMessageForState(importResult, importState),
         }, importComplete ? 200 : 202)
       } catch (err) {
         if (err instanceof SyncfyRequestError) {
@@ -6868,39 +7041,13 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       const payload = await request.json() as unknown
       const event = await storeSyncfyWebhookEvent(env, payload)
       const credential = await storeSyncfyCredential(env, payload, event.event_type)
-      let importResult: SyncfyTransactionImportResult | null = null
-
-      if (isSyncfyRefreshEvent(event.event_type) || event.event_type.toLowerCase() === 'refresh') {
-        const transactionEndpoints = getSyncfyWebhookEndpointPaths(payload, 'transactions')
-        const email = event.syncfy_user_id ? await findEmailBySyncfyUserId(env, event.syncfy_user_id) : credential?.email
-
-        if (email && transactionEndpoints.length > 0) {
-          try {
-            importResult = await importSyncfyTransactionsFromEndpoints(
-              env,
-              email,
-              event.syncfy_user_id || credential?.syncfy_user_id || null,
-              event.syncfy_credential_id || credential?.syncfy_credential_id || null,
-              transactionEndpoints
-            )
-          } catch (err) {
-            if (err instanceof SyncfyRequestError) {
-              await storeSyncfyError(env, {
-                email,
-                syncfyUserId: event.syncfy_user_id,
-                syncfyCredentialId: event.syncfy_credential_id,
-                rid: err.rid || event.rid,
-                statusCode: err.status,
-                errorCode: err.code,
-                message: err.message,
-                source: 'syncfy-webhook-import',
-                payload: err.responseBody,
-              })
-            } else {
-              throw err
-            }
-          }
-        }
+      const processing = processSyncfyWebhookEvent(env, payload, event, credential)
+      if (ctx) {
+        ctx.waitUntil(processing)
+      } else {
+        processing.catch((err) => {
+          console.error('Syncfy webhook processing failed outside Cloudflare context', err)
+        })
       }
 
       return json({
@@ -6912,8 +7059,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         syncfyCredentialId: event.syncfy_credential_id,
         credentialStored: Boolean(credential),
         refreshEvent: isSyncfyRefreshEvent(event.event_type),
-        transactionsImported: importResult?.imported || 0,
-        transactionsFetched: importResult?.fetched || 0,
+        processingQueued: true,
       }, 202)
     }
 
@@ -7009,7 +7155,13 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
               credential.syncfy_user_id,
               credential.syncfy_credential_id
             )
-            if (isSyncfyTransactionImportComplete(importResult)) {
+            const importState = await resolveSyncfyTransactionImportState(
+              env,
+              normalizedEmail,
+              credential.syncfy_credential_id,
+              importResult
+            )
+            if (importState.complete) {
               await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
             } else {
               await markSyncfyCredentialSyncPending(env, normalizedEmail, credential.syncfy_credential_id)

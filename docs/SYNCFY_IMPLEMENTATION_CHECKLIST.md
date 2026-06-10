@@ -7,10 +7,10 @@ FinovAI now has the core Syncfy operating model in place: one Syncfy user per Fi
 ## Configure In Syncfy
 
 - Production webhook URL: `https://finov.ai/api/syncfy/webhook`
-- Worker URL: `https://finovai.my-cloudflare-711.workers.dev/api/syncfy/webhook`
+- Sandbox/preview webhook URL: `https://finovai-preview.my-cloudflare-711.workers.dev/api/syncfy/webhook`
 - Production webhook is configured in Paybook/Syncfy with `credentials.created`, `credentials.updated`, `credentials.deleted`, and `credentials.refreshed`.
-- Sandbox still needs a separate webhook endpoint before sandbox-only testing.
-- Use separate Sandbox and Production webhook URLs in Syncfy.
+- Sandbox uses its own webhook endpoint before production promotion.
+- Use the authorized `@finovai` Syncfy workspace for both sandbox and production configuration.
 - If Syncfy supports custom headers, send either `Authorization: Bearer <SYNCFY_WEBHOOK_SECRET>` or `x-finovai-webhook-secret: <SYNCFY_WEBHOOK_SECRET>`.
 
 ## Wrangler Secrets
@@ -27,8 +27,8 @@ direnv exec /Users/sushaantu/Developer bunx wrangler secret put SYNCFY_WEBHOOK_S
 | User management | DONE | `/api/syncfy/session` creates one Syncfy user per email, sends `id_external`, and stores Syncfy `id_user`. |
 | Transaction storage | DONE | Syncfy transactions are normalized and upserted into `transactions` with `source = syncfy`. |
 | Credential ID storage | DONE | `syncfy_credentials` stores `syncfy_credential_id`, Syncfy user/site IDs, status, refresh timestamps, and raw payload. |
-| Webhooks | DONE | `/api/syncfy/webhook` stores raw events, verifies `SYNCFY_WEBHOOK_SECRET`, and upserts credential state. |
-| `credentials.refresh` handling | DONE | Refresh events read Syncfy-provided transaction endpoints and import new/updated movements. |
+| Webhooks | DONE | `/api/syncfy/webhook` stores raw events, verifies `SYNCFY_WEBHOOK_SECRET`, acknowledges with `202`, and processes imports in the background. |
+| `credentials.refreshed` handling | DONE | Refresh events read Syncfy-provided transaction endpoints and import new/updated movements. |
 | Historical transaction window | DONE | Default credential pulls request the last 6 months; override with `SYNCFY_TRANSACTION_LOOKBACK_MONTHS` if product needs a different baseline. |
 | Error `rid` storage | DONE | Syncfy API failures and webhook payloads store `rid` when present. |
 | Widget integration | DONE | Dashboard embeds `@syncfy/authentication-widget`, locks country to Mexico, supports credential creation/update, and handles widget events. |
@@ -38,10 +38,11 @@ direnv exec /Users/sushaantu/Developer bunx wrangler secret put SYNCFY_WEBHOOK_S
 | Email account recovery | READY | `/api/auth/request-link` and `/api/auth/verify` support passwordless codes/links through Cloudflare Email. Turn on `EMAIL_AUTH_REQUIRED` after Email Sending is enabled for `mail.finov.ai`. |
 | Legacy flow shutdown | DONE | Generic expenses, legacy chat, manual entry, and bank-statement backup imports are disabled in production unless explicitly re-enabled. |
 | Security | DONE | API key stays server-side, browser uses widget session tokens, and production Syncfy webhooks are protected with a shared-secret header. |
-| Docs/tests | PARTIAL | Unit tests cover path, transaction normalization, dashboard session auth, and production legacy-gating. ACME Bank sandbox and load testing still require Syncfy dashboard access. |
+| Docs/tests | DONE | Unit tests cover path, transaction normalization, dashboard session auth, production legacy-gating, nested webhook envelopes, webhook `waitUntil`, and stored-transaction fallback. |
 
 ## Technical Notes
 
+- Architecture doc: [SYNCFY_ARCHITECTURE.md](SYNCFY_ARCHITECTURE.md)
 - Syncfy user table: `syncfy_users`
 - Credential lifecycle table: `syncfy_credentials`
 - Webhook audit table: `syncfy_webhook_events`
@@ -52,10 +53,9 @@ direnv exec /Users/sushaantu/Developer bunx wrangler secret put SYNCFY_WEBHOOK_S
 
 ## Remaining Work
 
-1. Configure the separate sandbox Syncfy webhook endpoint before sandbox-only testing.
-2. Enable Cloudflare Email Sending for `mail.finov.ai`, then set `EMAIL_AUTH_REQUIRED = "true"`.
-3. Run ACME Bank sandbox tests across access types before changing sandbox behavior.
-4. Add load tests once expected traffic is known.
+1. Enable Cloudflare Email Sending for `mail.finov.ai`, then set `EMAIL_AUTH_REQUIRED = "true"`.
+2. Keep validating sandbox ACME Bank tests before changing production behavior.
+3. Add load tests once expected traffic is known.
 
 ## Beta Launch Guardrails
 

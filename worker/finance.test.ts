@@ -12,7 +12,10 @@ import worker, {
   buildFinancialInsights,
   buildFinancialSummary,
   classifyDashboardQuestionStage,
+  extractSyncfyEventType,
+  extractSyncfySiteMetadata,
   finalizeDashboardChatAnswer,
+  getSyncfyWebhookEndpointPaths,
   inferFinanceCategory,
   normalizeFinancialAmount,
   normalizeFinancialDate,
@@ -107,7 +110,10 @@ class MockD1 {
   dashboardSessions = new Map<string, { email: string; client_secret_hash: string }>()
   loginChallenges: Record<string, unknown>[] = []
   transactions: Record<string, unknown>[] = []
+  syncfyUsers: Record<string, unknown>[] = []
   syncfyCredentials: Record<string, unknown>[] = []
+  syncfyWebhookEvents: Record<string, unknown>[] = []
+  syncfyErrors: Record<string, unknown>[] = []
   imports: Record<string, unknown>[] = []
   invites: Record<string, unknown>[] = []
 
@@ -328,6 +334,46 @@ class MockD1 {
       return { success: true, meta: { changes: before - this.syncfyCredentials.length } }
     }
 
+    if (sql.includes('INSERT INTO syncfy_credentials')) {
+      const [
+        id,
+        email,
+        syncfyUserId,
+        syncfyCredentialId,
+        syncfySiteId,
+        siteName,
+        status,
+        lastSuccessfulSyncAt,
+        lastPullAt,
+        lastRid,
+        rawJson,
+      ] = params
+      const existing = this.syncfyCredentials.find(
+        (item) => item.email === email && item.syncfy_credential_id === syncfyCredentialId
+      )
+      const next = {
+        id,
+        email,
+        syncfy_user_id: syncfyUserId,
+        syncfy_credential_id: syncfyCredentialId,
+        syncfy_site_id: syncfySiteId,
+        site_name: siteName,
+        status,
+        last_successful_sync_at: lastSuccessfulSyncAt,
+        last_pull_at: lastPullAt,
+        last_rid: lastRid,
+        raw_json: rawJson,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+      if (existing) {
+        Object.assign(existing, next)
+      } else {
+        this.syncfyCredentials.push(next)
+      }
+      return { success: true, meta: { last_row_id: 1 } }
+    }
+
     if (sql.includes('UPDATE syncfy_credentials')) {
       const credentialId = String(params.at(-1))
       const email = String(params.at(-2))
@@ -335,8 +381,8 @@ class MockD1 {
         (item) => item.email === email && item.syncfy_credential_id === credentialId
       )
       if (credential) {
-        if (sql.includes("status = COALESCE(NULLIF(status, ''), 'synced')")) {
-          credential.status = credential.status || 'synced'
+        if (sql.includes("status = 'synced'") || sql.includes("status = COALESCE(NULLIF(status, ''), 'synced')")) {
+          credential.status = 'synced'
           credential.last_pull_at = new Date().toISOString()
           credential.last_successful_sync_at = new Date().toISOString()
         } else if (sql.includes("status = 'pending_transactions'")) {
@@ -345,6 +391,46 @@ class MockD1 {
         credential.updated_at = new Date().toISOString()
       }
       return { success: true, meta: { changes: credential ? 1 : 0 } }
+    }
+
+    if (sql.includes('INSERT INTO syncfy_webhook_events')) {
+      const [id, eventType, syncfyUserId, syncfyCredentialId, rid, payloadJson] = params
+      this.syncfyWebhookEvents.push({
+        id,
+        event_type: eventType,
+        syncfy_user_id: syncfyUserId,
+        syncfy_credential_id: syncfyCredentialId,
+        rid,
+        payload_json: payloadJson,
+        processed_at: null,
+        created_at: new Date().toISOString(),
+      })
+      return { success: true, meta: { last_row_id: 1 } }
+    }
+
+    if (sql.includes('UPDATE syncfy_webhook_events')) {
+      const [eventId] = params
+      const event = this.syncfyWebhookEvents.find((item) => item.id === eventId)
+      if (event) event.processed_at = new Date().toISOString()
+      return { success: true, meta: { changes: event ? 1 : 0 } }
+    }
+
+    if (sql.includes('INSERT INTO syncfy_errors')) {
+      const [id, email, syncfyUserId, syncfyCredentialId, rid, statusCode, errorCode, message, source, payloadJson] = params
+      this.syncfyErrors.push({
+        id,
+        email,
+        syncfy_user_id: syncfyUserId,
+        syncfy_credential_id: syncfyCredentialId,
+        rid,
+        status_code: statusCode,
+        error_code: errorCode,
+        message,
+        source,
+        payload_json: payloadJson,
+        created_at: new Date().toISOString(),
+      })
+      return { success: true, meta: { last_row_id: 1 } }
     }
 
     if (sql.includes('INSERT INTO transactions')) {
@@ -461,6 +547,16 @@ class MockD1 {
       return (this.profiles.get(String(email)) || null) as T | null
     }
 
+    if (sql.includes('SELECT COUNT(*) AS count') && sql.includes('FROM transactions') && sql.includes("source = 'syncfy'")) {
+      const [email, rawNeedle] = params
+      const count = this.transactions.filter((item) => (
+        item.email === email &&
+        item.source === 'syncfy' &&
+        String(item.raw_source || item.rawSource || '').includes(rawNeedle)
+      )).length
+      return ({ count } as T)
+    }
+
     if (sql.includes('SELECT * FROM transactions WHERE id = ? AND email = ?')) {
       const [id, email] = params
       return (this.transactions.find((item) => item.id === id && item.email === email) || null) as T | null
@@ -471,11 +567,27 @@ class MockD1 {
       return (this.leads.get(String(email)) || null) as T | null
     }
 
+    if (sql.includes('SELECT email FROM syncfy_users WHERE syncfy_user_id = ?')) {
+      const [syncfyUserId] = params
+      const user = this.syncfyUsers.find((item) => item.syncfy_user_id === syncfyUserId)
+      return (user ? { email: user.email } : null) as T | null
+    }
+
+    if (sql.includes('SELECT * FROM syncfy_users WHERE email = ?')) {
+      const [email] = params
+      return (this.syncfyUsers.find((item) => item.email === email) || null) as T | null
+    }
+
     if (sql.includes('SELECT * FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ?')) {
       const [email, credentialId] = params
       return (this.syncfyCredentials.find(
         (item) => item.email === email && item.syncfy_credential_id === credentialId
       ) || null) as T | null
+    }
+
+    if (sql.includes('SELECT id, event_type, syncfy_user_id, syncfy_credential_id, rid, processed_at, created_at FROM syncfy_webhook_events WHERE id = ?')) {
+      const [id] = params
+      return (this.syncfyWebhookEvents.find((item) => item.id === id) || null) as T | null
     }
 
     if (sql.includes('SELECT client_secret_hash FROM dashboard_sessions WHERE email = ?')) {
@@ -1423,6 +1535,192 @@ test('syncfy refresh follows saved job status when direct transactions are still
     expect(calls.some((url) => url.includes('/jobs/job-1/status') && url.includes('id_user=syncfy-user-1'))).toBe(true)
     expect(calls.find((url) => url.includes('from_job=1'))).not.toContain('id_user=')
     expect(data.syncfy?.endpoints).toContain('/jobs/job-1/status?id_user=syncfy-user-1')
+    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
+    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy refresh treats webhook-imported transactions as complete when polling is empty', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: '56cf5728784806f72b8b4568',
+    site_name: 'Acme Bank',
+    status: 'pending_transactions',
+    last_successful_sync_at: null,
+    last_pull_at: null,
+    last_rid: null,
+    raw_json: null,
+    created_at: '2026-06-07T03:11:19Z',
+    updated_at: '2026-06-07T03:11:19Z',
+  })
+  env.DB.transactions.push({
+    ...sampleTransaction({
+      id: 'syncfy:txn-from-webhook',
+      email: 'user@example.com',
+      source: 'syncfy',
+      description: 'ACME Checking Expense Transaction',
+      merchant: 'ACME Checking Expense Transaction',
+    }),
+    raw_source: JSON.stringify({ _finovaiCredentialId: 'credential-1' }),
+  })
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({ response: { transactions: [] } }), {
+    headers: { 'Content-Type': 'application/json' },
+  })) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env)
+    const data = await response.json() as DashboardResponse & {
+      pendingTransactions?: boolean
+      message?: string
+    }
+
+    expect(response.status).toBe(200)
+    expect(data.pendingTransactions).toBe(false)
+    expect(data.message).toBe('1 movimientos sincronizados.')
+    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
+    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy webhook helpers read nested Syncfy event envelopes', () => {
+  const payload = {
+    rid: 'request-1',
+    events: [{
+      header: {
+        event: {
+          name: 'credentials.refreshed',
+        },
+        user: {
+          id_user: 'syncfy-user-1',
+        },
+      },
+      payload: {
+        event: 'refresh',
+        id_credential: 'credential-1',
+        id_user: 'syncfy-user-1',
+        id_site: '56cf5728784806f72b8b4568',
+        id_site_organization: '56cf4ff5784806152c8b4567',
+        endpoints: {
+          transactions: [
+            '/v1/transactions?id_credential=credential-1&limit=5000&skip=0&wbhk=1',
+          ],
+        },
+      },
+    }],
+  }
+
+  expect(extractSyncfyEventType(payload)).toBe('credentials.refreshed')
+  expect(getSyncfyWebhookEndpointPaths(payload, 'transactions')).toEqual([
+    '/v1/transactions?id_credential=credential-1&limit=5000&skip=0&wbhk=1',
+  ])
+  expect(extractSyncfySiteMetadata(payload).siteName).toBe('Acme Bank')
+})
+
+test('syncfy webhook acknowledges before importing transactions in the background', async () => {
+  const env = createEnv('test', {
+    SYNCFY_API_KEY: 'test-key',
+    SYNCFY_WEBHOOK_SECRET: 'webhook-secret',
+  })
+  env.DB.syncfyUsers.push({
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_external_id: 'finovai:user@example.com',
+    name: null,
+    mode: 'live',
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: null,
+    last_session_at: null,
+  })
+  const payload = {
+    rid: 'request-1',
+    events: [{
+      header: {
+        event: { name: 'credentials.refreshed' },
+        user: { id_user: 'syncfy-user-1' },
+      },
+      payload: {
+        status: 'SUCCESS',
+        id_credential: 'credential-1',
+        id_user: 'syncfy-user-1',
+        id_site: '56cf5728784806f72b8b4568',
+        endpoints: {
+          transactions: ['/v1/transactions?id_credential=credential-1&limit=5000&skip=0&wbhk=1'],
+        },
+      },
+    }],
+  }
+  const waitUntilPromises: Promise<unknown>[] = []
+  const ctx = {
+    waitUntil(promise: Promise<unknown>) {
+      waitUntilPromises.push(promise)
+    },
+  } as unknown as ExecutionContext
+  let releaseTransactions!: () => void
+  const transactionsResponse = new Promise<Response>((resolve) => {
+    releaseTransactions = () => resolve(new Response(JSON.stringify({
+      response: {
+        transactions: [{
+          id_transaction: 'txn-from-webhook',
+          id_credential: 'credential-1',
+          id_user: 'syncfy-user-1',
+          dt_transaction: 1772150400,
+          description: 'ACME Checking Expense Transaction',
+          amount: -251.81,
+          currency: 'MXN',
+        }],
+      },
+    }), { headers: { 'Content-Type': 'application/json' } }))
+  })
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.includes('/transactions')) return transactionsResponse
+
+    return new Response(JSON.stringify({ response: {} }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-finovai-webhook-secret': 'webhook-secret',
+      },
+      body: JSON.stringify(payload),
+    }), env, ctx)
+    const data = await response.json() as { processingQueued?: boolean }
+
+    expect(response.status).toBe(202)
+    expect(data.processingQueued).toBe(true)
+    expect(waitUntilPromises).toHaveLength(1)
+    expect(env.DB.syncfyWebhookEvents).toHaveLength(1)
+    expect(env.DB.syncfyWebhookEvents[0].processed_at).toBeNull()
+    expect(env.DB.transactions).toHaveLength(0)
+
+    releaseTransactions()
+    await waitUntilPromises[0]
+
+    expect(env.DB.syncfyWebhookEvents[0].processed_at).toBeTruthy()
+    expect(env.DB.transactions).toHaveLength(1)
+    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
   } finally {
     globalThis.fetch = originalFetch
   }
