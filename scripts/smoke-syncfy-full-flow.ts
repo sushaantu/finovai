@@ -85,7 +85,7 @@ const createResponse = await fetch('https://opendata-api.syncfy.com/v1/credentia
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
+    Authorization: `TOKEN token=${token}`,
   },
   body: JSON.stringify({
     id_site: ACME_NORMAL_SITE_ID,

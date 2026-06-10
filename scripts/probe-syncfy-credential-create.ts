@@ -139,7 +139,7 @@ async function pollJob(baseUrl: string, token: string, statusUrl: string, second
     await Bun.sleep(3000)
     const status = await requestJson(baseUrl, path, {
       method: 'GET',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `TOKEN token=${token}` },
     })
     const response = status.response
     const responseArray = Array.isArray(response) ? response : Array.isArray(response?.response) ? response.response : []
@@ -179,7 +179,7 @@ async function runProbe(options: {
   const token = getString(session?.response, 'token')
   const credential = token ? await requestJson(options.baseUrl, '/credentials/pulls?pretty=1', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `TOKEN token=${token}` },
     body: JSON.stringify({
       id_site: options.site.idSite,
       credentials: options.site.credentials,
@@ -194,7 +194,7 @@ async function runProbe(options: {
   const transactions = token && idCredential && (job.length === 0 || job.some((item) => item.code !== null && item.code >= 200))
     ? await requestJson(options.baseUrl, `/transactions?pretty=1&id_credential=${encodeURIComponent(idCredential)}&limit=10&skip=0`, {
       method: 'GET',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `TOKEN token=${token}` },
     })
     : null
   const transactionResponse = transactions?.response

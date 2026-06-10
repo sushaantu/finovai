@@ -169,7 +169,7 @@ Full sandbox outcome proof:
 bun run smoke:syncfy:preview-full
 ```
 
-This runs the app-facing flow against preview: signup, Syncfy session, ACME credential creation through Paybook's API, FinovAI credential callback, transaction import, and dashboard chat over the imported movements. On 2026-06-10 this passed against preview in 46 seconds with Syncfy RID `f8eefb2e-1fed-4d31-9026-b59ef3ea1d20`.
+This runs the app-facing flow against preview: signup, Syncfy session, ACME credential creation through Paybook's API, FinovAI credential callback, transaction import, and dashboard chat over the imported movements. On 2026-06-10 this passed against preview in 47 seconds with Syncfy RID `52705c33-39af-494d-975a-83d0f2a7eaf3` and 27 imported transactions.
 
 Current key note:
 
