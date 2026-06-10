@@ -426,7 +426,30 @@ export function SyncfyConnect({
       })
       widget.on('error', () => {
         const rid = widget.getLastRid?.()
-        setMessage(rid ? `La conexión reportó un error. RID: ${rid}` : 'La conexión reportó un error.')
+        const fallbackMessage = rid ? `La conexión reportó un error. RID: ${rid}` : 'La conexión reportó un error.'
+        setMessage(rid
+          ? `Syncfy reportó una incidencia. RID: ${rid}. Verificando la conexión.`
+          : 'Syncfy reportó una incidencia. Verificando la conexión.')
+
+        window.setTimeout(() => {
+          void loadCredentials()
+            .then((nextCredentials) => {
+              const nextCredential = nextCredentials[0]
+              if (nextCredential?.syncfyCredentialId) {
+                const nextMessage = 'Institución detectada. Buscando movimientos.'
+                setMessage(nextMessage)
+                onStatus?.(nextMessage)
+                void refreshTransactions(nextCredential.syncfyCredentialId, 0)
+                return
+              }
+
+              pollForCredential(true)
+            })
+            .catch(() => {
+              setMessage(fallbackMessage)
+              onStatus?.(fallbackMessage)
+            })
+        }, 1500)
       })
       widget.on('closed', () => {
         clearCredentialPolling()
@@ -479,7 +502,7 @@ export function SyncfyConnect({
       clearTransactionRetry()
       setMessage(mode === 'update'
         ? 'Abriendo el formulario para actualizar el acceso.'
-        : 'Abriendo el formulario. Después del éxito, los movimientos pueden tardar unos segundos en llegar.')
+        : 'Abriendo el formulario. Después del éxito, los movimientos pueden tardar unos minutos en llegar.')
       closeWidget()
       setSession(null)
     }
@@ -536,11 +559,8 @@ export function SyncfyConnect({
       const pendingTransactions = Boolean(response.pendingTransactions)
       const nextMessage = response.message || 'Movimientos sincronizados.'
       if (pendingTransactions && credentialId && retryAttempt < 6) {
-        setMessage(`${nextMessage} Reintento automático en unos segundos.`)
+        setMessage(`${nextMessage} FinovAI reintentará automáticamente.`)
         onStatus?.(nextMessage)
-        retryTimeoutRef.current = window.setTimeout(() => {
-          void refreshTransactions(credentialId, retryAttempt + 1)
-        }, 8000)
       } else {
         setMessage(nextMessage)
         onStatus?.(nextMessage)

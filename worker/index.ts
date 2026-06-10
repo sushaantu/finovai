@@ -1889,7 +1889,7 @@ function getSyncfyTransactionImportMessage(result: SyncfyTransactionImportResult
     return 'La conexión devolvió movimientos, pero FinovAI todavía no pudo leer el formato de esa institución. El equipo debe revisar esa respuesta.'
   }
 
-  return 'La institución quedó conectada. Los movimientos todavía se están preparando; FinovAI reintentará en unos segundos.'
+  return 'La institución quedó conectada. Los movimientos todavía se están preparando; FinovAI reintentará automáticamente.'
 }
 
 async function countStoredSyncfyTransactionsForCredential(
