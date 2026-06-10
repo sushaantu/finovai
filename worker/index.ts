@@ -7193,7 +7193,7 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
       if (!normalizedEmail) {
         return error('Correo inválido')
       }
-      const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
+      const access = await verifyDashboardEmailAccessOrSupportAdmin(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
 
       const credentials = await loadSyncfyCredentialsForEmail(env, normalizedEmail)

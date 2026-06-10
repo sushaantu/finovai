@@ -1860,6 +1860,72 @@ test('syncfy refresh recovers stale needs_reconnect when transactions are readab
   }
 })
 
+test('syncfy refresh allows support admin to recover a production credential without browser session', async () => {
+  const env = createEnv('production', {
+    SUPPORT_ADMIN_SECRET: 'admin-secret',
+    SYNCFY_API_KEY: 'test-key',
+  })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: '572930c4784806060f8b456b',
+    site_name: 'American Express',
+    status: 'needs_reconnect',
+    last_successful_sync_at: null,
+    last_pull_at: null,
+    last_rid: 'stale-rid',
+    raw_json: null,
+    created_at: '2026-06-02T03:09:33Z',
+    updated_at: '2026-06-10T03:25:53Z',
+  })
+
+  const blocked = await worker.fetch(new Request('http://local.test/api/syncfy/refresh', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'user@example.com',
+      credentialId: 'credential-1',
+    }),
+  }), env)
+  expect(blocked.status).toBe(401)
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    response: {
+      transactions: [{
+        id_transaction: 'txn-readable-with-support-admin',
+        id_credential: 'credential-1',
+        id_user: 'syncfy-user-1',
+        dt_transaction: 1772150400,
+        description: 'AMEX GASOLINA',
+        amount: '-801.35',
+        currency: 'MXN',
+      }],
+    },
+  }), { headers: { 'Content-Type': 'application/json' } })) as typeof fetch
+
+  try {
+    const allowed = await worker.fetch(new Request('http://local.test/api/syncfy/refresh', {
+      method: 'POST',
+      headers: { 'x-finovai-admin-secret': 'admin-secret' },
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env)
+    const data = await allowed.json() as DashboardResponse & { pendingTransactions?: boolean }
+
+    expect(allowed.status).toBe(200)
+    expect(data.pendingTransactions).toBe(false)
+    expect(data.transactions).toHaveLength(1)
+    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
+    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('syncfy refresh records pending pull attempts when Syncfy returns no transactions', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
   env.DB.syncfyCredentials.push({
