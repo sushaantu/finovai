@@ -61,6 +61,8 @@ The Cloudflare Worker in `worker/index.ts` owns the integration:
 - Manual refresh and scheduled production refresh.
 - Admin/support diagnostics.
 
+CRUD contract details live in [SYNCFY_CRUD_OPERATIONS.md](SYNCFY_CRUD_OPERATIONS.md). That document is the guardrail for create/read/update/delete behavior across Syncfy and FinovAI local state.
+
 Primary routes:
 
 | Route | Purpose |

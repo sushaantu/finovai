@@ -6850,7 +6850,25 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
 
-      const deletion = await deleteSyncfyCredentialForEmail(env, normalizedEmail, credentialId)
+      let deletion: Awaited<ReturnType<typeof deleteSyncfyCredentialForEmail>>
+      try {
+        deletion = await deleteSyncfyCredentialForEmail(env, normalizedEmail, credentialId)
+      } catch (err) {
+        if (err instanceof SyncfyRequestError) {
+          return json({
+            success: false,
+            email: normalizedEmail,
+            credentialId,
+            error: buildSyncfyUserMessage(err),
+            rid: err.rid,
+            localStateDeleted: false,
+            message: 'No pudimos confirmar la eliminación en Syncfy. La conexión local no fue eliminada; intenta de nuevo.',
+          }, err.status >= 500 ? 502 : 409)
+        }
+
+        throw err
+      }
+
       if (!deletion.credential) {
         return error('No encontramos esa institución conectada.', 404)
       }

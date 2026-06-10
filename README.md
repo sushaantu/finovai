@@ -26,6 +26,8 @@ FinovAI helps users turn spending patterns into investment actions. A user conne
 
 See [docs/SYNCFY_ARCHITECTURE.md](docs/SYNCFY_ARCHITECTURE.md) for the current Syncfy architecture, environment map, webhook model, and support runbook.
 
+See [docs/SYNCFY_CRUD_OPERATIONS.md](docs/SYNCFY_CRUD_OPERATIONS.md) for the provider/local CRUD contract and delete safety rules.
+
 See [docs/SYNCFY_IMPLEMENTATION_CHECKLIST.md](docs/SYNCFY_IMPLEMENTATION_CHECKLIST.md) for implementation status and launch guardrails.
 
 ## Development

@@ -1470,6 +1470,144 @@ test('syncfy credential delete removes one connection and its imported transacti
   }
 })
 
+test('syncfy credential delete preserves local state when upstream delete has retryable failure', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: 'bank-1',
+    site_name: 'BBVA México',
+    status: 'synced',
+    last_successful_sync_at: '2026-06-02T00:00:00Z',
+    last_pull_at: '2026-06-02T00:00:00Z',
+    last_rid: null,
+    raw_json: null,
+    created_at: '2026-06-02T00:00:00Z',
+    updated_at: '2026-06-02T00:00:00Z',
+  })
+  env.DB.transactions.push({
+    ...sampleTransaction({
+      id: 'syncfy:credential-1:restaurant',
+      source: 'syncfy',
+      description: 'RESTAURANTE UNO',
+      merchant: 'RESTAURANTE UNO',
+    }),
+    raw_source: JSON.stringify({ _finovaiCredentialId: 'credential-1', description: 'RESTAURANTE UNO' }),
+  })
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    status: false,
+    rid: 'delete-rid-1',
+    code: 503,
+    message: 'Syncfy unavailable',
+    response: null,
+  }), {
+    status: 503,
+    headers: { 'Content-Type': 'application/json' },
+  })) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/credential', {
+      method: 'DELETE',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env)
+    const data = await response.json() as { success?: boolean; localStateDeleted?: boolean; rid?: string }
+
+    expect(response.status).toBe(502)
+    expect(data.success).toBe(false)
+    expect(data.localStateDeleted).toBe(false)
+    expect(data.rid).toBe('delete-rid-1')
+    expect(env.DB.syncfyCredentials.map((credential) => credential.syncfy_credential_id)).toEqual(['credential-1'])
+    expect(env.DB.transactions.map((transaction) => transaction.id)).toEqual(['syncfy:credential-1:restaurant'])
+    expect(env.DB.syncfyErrors).toHaveLength(1)
+    expect(env.DB.syncfyErrors[0]).toMatchObject({
+      email: 'user@example.com',
+      syncfy_credential_id: 'credential-1',
+      rid: 'delete-rid-1',
+      status_code: 503,
+      source: 'syncfy-delete-credential',
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy credential delete cleans local stale rows when upstream credential is already gone', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: 'bank-1',
+    site_name: 'BBVA México',
+    status: 'needs_reconnect',
+    last_successful_sync_at: null,
+    last_pull_at: '2026-06-02T00:00:00Z',
+    last_rid: null,
+    raw_json: null,
+    created_at: '2026-06-02T00:00:00Z',
+    updated_at: '2026-06-02T00:00:00Z',
+  })
+  env.DB.transactions.push({
+    ...sampleTransaction({
+      id: 'syncfy:credential-1:restaurant',
+      source: 'syncfy',
+      description: 'RESTAURANTE UNO',
+      merchant: 'RESTAURANTE UNO',
+    }),
+    raw_source: JSON.stringify({ _finovaiCredentialId: 'credential-1', description: 'RESTAURANTE UNO' }),
+  })
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    status: false,
+    rid: 'delete-rid-2',
+    code: 404,
+    message: 'Credential not found',
+    response: null,
+  }), {
+    status: 404,
+    headers: { 'Content-Type': 'application/json' },
+  })) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/credential', {
+      method: 'DELETE',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env)
+    const data = await response.json() as SyncfyCredentialsApiResponse & DashboardResponse & {
+      syncfyCredentialDeleteAttempted?: boolean
+      syncfyCredentialDeleted?: boolean
+    }
+
+    expect(response.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.syncfyCredentialDeleteAttempted).toBe(true)
+    expect(data.syncfyCredentialDeleted).toBe(false)
+    expect(data.credentials).toEqual([])
+    expect(env.DB.syncfyCredentials).toEqual([])
+    expect(env.DB.transactions).toEqual([])
+    expect(env.DB.syncfyErrors).toHaveLength(1)
+    expect(env.DB.syncfyErrors[0]).toMatchObject({
+      rid: 'delete-rid-2',
+      status_code: 404,
+      source: 'syncfy-delete-credential',
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('syncfy refresh follows saved job status when direct transactions are still empty', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
   env.DB.syncfyCredentials.push({
