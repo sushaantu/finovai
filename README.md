@@ -30,6 +30,8 @@ See [docs/SYNCFY_CRUD_OPERATIONS.md](docs/SYNCFY_CRUD_OPERATIONS.md) for the pro
 
 See [docs/SYNCFY_VENDOR_REFERENCE.md](docs/SYNCFY_VENDOR_REFERENCE.md) for the Syncfy/Paybook vendor flow and sample-code mapping.
 
+See [docs/SYNCFY_QUICKSTART_NOTES.md](docs/SYNCFY_QUICKSTART_NOTES.md) for sanitized Syncfy quickstart/entity notes captured from vendor docs.
+
 See [docs/SYNCFY_IMPLEMENTATION_CHECKLIST.md](docs/SYNCFY_IMPLEMENTATION_CHECKLIST.md) for implementation status and launch guardrails.
 
 ## Development

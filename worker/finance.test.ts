@@ -311,6 +311,13 @@ class MockD1 {
     }
 
     if (sql.includes('DELETE FROM transactions') && sql.includes("source = 'syncfy'")) {
+      if (params.length === 1) {
+        const [email] = params
+        const before = this.transactions.length
+        this.transactions = this.transactions.filter((item) => item.email !== email || item.source !== 'syncfy')
+        return { success: true, meta: { changes: before - this.transactions.length } }
+      }
+
       const [email, rawPattern, idPattern] = params
       const rawNeedle = String(rawPattern).replaceAll('%', '')
       const idNeedle = String(idPattern).replaceAll('%', '')
@@ -1717,6 +1724,98 @@ test('syncfy credential delete cleans local stale rows for Syncfy status-false 2
   }
 })
 
+test('syncfy sandbox sessions enable Syncfy widget test mode', async () => {
+  const env = createEnv('test', {
+    SYNCFY_API_KEY: 'test-key',
+    SYNCFY_ENV: 'sandbox',
+  })
+  const calls: Array<{ url: string; body?: string }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(input), body: String(init?.body || '') })
+    if (String(input).includes('/users')) {
+      return new Response(JSON.stringify({
+        status: true,
+        response: { id_user: 'syncfy-user-1' },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+    return new Response(JSON.stringify({
+      status: true,
+      response: { token: 'widget-token-1' },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/session', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'sandbox-user@example.com',
+        name: 'Sandbox User',
+        mode: 'create',
+      }),
+    }), env)
+    const data = await response.json() as {
+      success?: boolean
+      widgetEnabled?: boolean
+      widgetEnableTestMode?: boolean
+      token?: string
+    }
+
+    expect(response.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.widgetEnabled).toBe(true)
+    expect(data.widgetEnableTestMode).toBe(true)
+    expect(data.token).toBe('widget-token-1')
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://sync.paybook.com/v1/users',
+      'https://sync.paybook.com/v1/sessions',
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy production sessions do not enable Syncfy widget test mode', async () => {
+  const env = createEnv('test', {
+    SYNCFY_API_KEY: 'test-key',
+    SYNCFY_ENV: 'production',
+  })
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    if (String(input).includes('/users')) {
+      return new Response(JSON.stringify({
+        status: true,
+        response: { id_user: 'syncfy-user-1' },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+    return new Response(JSON.stringify({
+      status: true,
+      response: { token: 'widget-token-1' },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/session', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'prod-user@example.com',
+        name: 'Prod User',
+        mode: 'create',
+      }),
+    }), env)
+    const data = await response.json() as {
+      success?: boolean
+      widgetEnableTestMode?: boolean
+    }
+
+    expect(response.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.widgetEnableTestMode).toBe(false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('syncfy refresh follows saved job status when direct transactions are still empty', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
   env.DB.syncfyCredentials.push({
@@ -2558,6 +2657,28 @@ test('syncfy reset allows support admin to recreate a stale user without browser
     created_at: '2026-06-10T02:49:34Z',
     updated_at: '2026-06-10T02:49:34Z',
   })
+  env.DB.transactions.push(
+    sampleTransaction({
+      id: 'syncfy:credential-1:txn-1',
+      email: 'user@example.com',
+      source: 'syncfy',
+      rawSource: '{"_finovaiCredentialId":"credential-1"}',
+      description: 'American Express charge',
+    }),
+    sampleTransaction({
+      id: 'syncfy:old-key:txn-2',
+      email: 'user@example.com',
+      source: 'syncfy',
+      rawSource: '{"_finovaiCredentialId":"old-key-credential"}',
+      description: 'Old key transaction',
+    }),
+    sampleTransaction({
+      id: 'manual:rent',
+      email: 'user@example.com',
+      source: 'manual',
+      description: 'Renta',
+    })
+  )
 
   const blocked = await worker.fetch(new Request('http://local.test/api/syncfy/reset', {
     method: 'POST',
@@ -2583,6 +2704,8 @@ test('syncfy reset allows support admin to recreate a stale user without browser
       success?: boolean
       syncfyUserId?: string
       recreated?: boolean
+      deletedTransactions?: number
+      deletedCredentials?: number
       credentials?: unknown[]
     }
 
@@ -2590,10 +2713,120 @@ test('syncfy reset allows support admin to recreate a stale user without browser
     expect(data.success).toBe(true)
     expect(data.recreated).toBe(true)
     expect(data.syncfyUserId).toBe('fresh-user')
+    expect(data.deletedTransactions).toBe(2)
+    expect(data.deletedCredentials).toBe(1)
     expect(data.credentials).toEqual([])
     expect(env.DB.syncfyCredentials).toEqual([])
+    expect(env.DB.transactions.map((item) => item.id)).toEqual(['manual:rent'])
     expect(env.DB.syncfyUsers.find((item) => item.email === 'user@example.com')?.syncfy_user_id)
       .toBe('fresh-user')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy session stale-user recovery clears old local syncfy state', async () => {
+  const env = createEnv('test', {
+    SYNCFY_API_KEY: 'test-key',
+  })
+  env.DB.syncfyUsers.push({
+    email: 'user@example.com',
+    syncfy_user_id: 'stale-user',
+    syncfy_external_id: 'finovai:user@example.com',
+    name: 'User',
+    mode: 'live',
+    created_at: '2026-06-10T02:49:34Z',
+    updated_at: null,
+    last_session_at: null,
+  })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'stale-user',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: '572930c4784806060f8b456b',
+    site_name: 'American Express',
+    status: 'pending_transactions',
+    last_successful_sync_at: null,
+    last_pull_at: null,
+    last_rid: 'rid-1',
+    raw_json: null,
+    created_at: '2026-06-10T02:49:34Z',
+    updated_at: '2026-06-10T02:49:34Z',
+  })
+  env.DB.transactions.push(
+    sampleTransaction({
+      id: 'syncfy:credential-1:txn-1',
+      email: 'user@example.com',
+      source: 'syncfy',
+      rawSource: '{"_finovaiCredentialId":"credential-1"}',
+    }),
+    sampleTransaction({
+      id: 'manual:rent',
+      email: 'user@example.com',
+      source: 'manual',
+      description: 'Renta',
+    })
+  )
+
+  let sessionAttempts = 0
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.includes('/sessions')) {
+      sessionAttempts += 1
+      if (sessionAttempts === 1) {
+        return new Response(JSON.stringify({
+          rid: 'stale-rid',
+          status: false,
+          code: 401,
+          message: 'Invalid user',
+          response: null,
+        }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      return new Response(JSON.stringify({
+        status: true,
+        response: { token: 'fresh-token' },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    return new Response(JSON.stringify({
+      status: true,
+      response: { id_user: 'fresh-user' },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/session', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        name: 'User',
+        mode: 'create',
+      }),
+    }), env)
+    const data = await response.json() as {
+      success?: boolean
+      syncfyUserId?: string
+      token?: string
+    }
+
+    expect(response.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.syncfyUserId).toBe('fresh-user')
+    expect(data.token).toBe('fresh-token')
+    expect(sessionAttempts).toBe(2)
+    expect(env.DB.syncfyCredentials).toEqual([])
+    expect(env.DB.transactions.map((item) => item.id)).toEqual(['manual:rent'])
+    expect(env.DB.syncfyErrors[0]).toMatchObject({
+      rid: 'stale-rid',
+      source: 'syncfy-session-stale-user',
+      syncfy_user_id: 'stale-user',
+    })
   } finally {
     globalThis.fetch = originalFetch
   }

@@ -1009,6 +1009,10 @@ function isProductionEnv(env: Env): boolean {
   return env.ENVIRONMENT === 'production'
 }
 
+function isSyncfySandboxEnv(env: Pick<Env, 'SYNCFY_ENV'>): boolean {
+  return env.SYNCFY_ENV?.toLowerCase() === 'sandbox'
+}
+
 function isFeatureEnabled(value: string | undefined): boolean {
   return value === 'true' || value === '1'
 }
@@ -2089,6 +2093,34 @@ async function deleteLocalSyncfyCredentialForEmail(
   }
 }
 
+async function deleteLocalSyncfyStateForEmail(
+  env: Env,
+  email: string
+): Promise<{ deletedTransactions: number; deletedCredentials: number; credentials: SyncfyCredentialRow[] }> {
+  await ensureSyncfyTables(env)
+  await ensureFinanceTables(env)
+
+  const transactionDelete = await env.DB.prepare(
+    `DELETE FROM transactions
+     WHERE email = ?
+       AND source = 'syncfy'`
+  )
+    .bind(email)
+    .run()
+
+  const credentialDelete = await env.DB.prepare(
+    `DELETE FROM syncfy_credentials WHERE email = ?`
+  )
+    .bind(email)
+    .run()
+
+  return {
+    deletedTransactions: Number(transactionDelete.meta?.changes || 0),
+    deletedCredentials: Number(credentialDelete.meta?.changes || 0),
+    credentials: await loadDisplaySyncfyCredentialsForEmail(env, email),
+  }
+}
+
 async function deleteSyncfyCredentialFromWebhook(
   env: Env,
   event: SyncfyWebhookEventRow
@@ -2805,21 +2837,26 @@ async function resetSyncfyConnectionForEmail(
   env: Env,
   email: string,
   name?: string
-): Promise<{ syncfyUser: SyncfyUserRow | null; recreated: boolean }> {
+): Promise<{ syncfyUser: SyncfyUserRow | null; recreated: boolean; deletedTransactions: number; deletedCredentials: number }> {
   await ensureSyncfyTables(env)
 
-  await env.DB.prepare(`DELETE FROM syncfy_credentials WHERE email = ?`)
-    .bind(email)
-    .run()
+  const localState = await deleteLocalSyncfyStateForEmail(env, email)
 
   if (!env.SYNCFY_API_KEY) {
-    return { syncfyUser: await findSyncfyUserByEmail(env, email), recreated: false }
+    return {
+      syncfyUser: await findSyncfyUserByEmail(env, email),
+      recreated: false,
+      deletedTransactions: localState.deletedTransactions,
+      deletedCredentials: localState.deletedCredentials,
+    }
   }
 
   try {
     return {
       syncfyUser: await recreateSyncfyUser(env, email, name),
       recreated: true,
+      deletedTransactions: localState.deletedTransactions,
+      deletedCredentials: localState.deletedCredentials,
     }
   } catch (err) {
     if (err instanceof SyncfyRequestError) {
@@ -2838,6 +2875,8 @@ async function resetSyncfyConnectionForEmail(
           return {
             syncfyUser: await recreateSyncfyUser(env, email, name, buildSyncfyRecoveryExternalId(email)),
             recreated: true,
+            deletedTransactions: localState.deletedTransactions,
+            deletedCredentials: localState.deletedCredentials,
           }
         } catch (fallbackErr) {
           if (fallbackErr instanceof SyncfyRequestError) {
@@ -2850,13 +2889,23 @@ async function resetSyncfyConnectionForEmail(
               source: 'syncfy-reset-recovery',
               payload: fallbackErr.responseBody,
             })
-            return { syncfyUser: await findSyncfyUserByEmail(env, email), recreated: false }
+            return {
+              syncfyUser: await findSyncfyUserByEmail(env, email),
+              recreated: false,
+              deletedTransactions: localState.deletedTransactions,
+              deletedCredentials: localState.deletedCredentials,
+            }
           }
           throw fallbackErr
         }
       }
 
-      return { syncfyUser: await findSyncfyUserByEmail(env, email), recreated: false }
+      return {
+        syncfyUser: await findSyncfyUserByEmail(env, email),
+        recreated: false,
+        deletedTransactions: localState.deletedTransactions,
+        deletedCredentials: localState.deletedCredentials,
+      }
     }
     throw err
   }
@@ -7046,6 +7095,7 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
             payload: err.responseBody,
           })
 
+          await deleteLocalSyncfyStateForEmail(env, normalizedEmail)
           syncfyUser = await recreateSyncfyUser(env, normalizedEmail, name)
           session = await createSyncfyWidgetSession(env, syncfyUser)
         }
@@ -7080,6 +7130,7 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
         mode: session.mode,
         widgetEnabled: session.mode === 'live' && Boolean(session.token),
         token: session.token,
+        widgetEnableTestMode: isSyncfySandboxEnv(env),
         widgetConfig: {
           ...SYNCFY_WIDGET_CONFIG,
           entrypoint: {
@@ -7127,6 +7178,8 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
         email: normalizedEmail,
         syncfyUserId: reset.syncfyUser?.syncfy_user_id || null,
         recreated: reset.recreated,
+        deletedTransactions: reset.deletedTransactions,
+        deletedCredentials: reset.deletedCredentials,
         credentials: credentials.map(syncfyCredentialToApi),
         message: reset.recreated
           ? 'Conexión anterior limpiada. Puedes elegir institución de nuevo.'

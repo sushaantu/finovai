@@ -24,7 +24,8 @@ The vendor behavior behind this contract is documented in [SYNCFY_VENDOR_REFEREN
 | --- | --- | --- |
 | 1 | `POST /api/syncfy/session` | Create or reuse `syncfy_users` for the FinovAI email. |
 | 2 | Syncfy `/sessions` | Create a short-lived widget token for the stored Syncfy `id_user`. |
-| 3 | Browser widget | User selects and authenticates the institution. |
+| 3 | Browser widget | User selects and authenticates the institution. Sandbox must pass Syncfy `enableTestMode`. |
+| 3a | Syncfy new credential | Syncfy creates the provider credential through `POST /v1/credentials/pulls`. A `402 Payment Required` here means the Syncfy key/account cannot create credentials. |
 | 4 | `POST /api/syncfy/credential` | Store `syncfy_credentials` after the widget returns `id_credential`. |
 | 5 | Start pull | Call Syncfy `/credentials/:id_credential/pulls?id_user=:id_user` so the provider begins preparing movements. |
 | 6 | Follow job | Persist returned job state and follow `/jobs/:id/status` when Syncfy provides it. |
@@ -39,6 +40,7 @@ Success state:
 Failure state:
 
 - Widget-only errors may have a Syncfy RID but no FinovAI backend row.
+- If Syncfy rejects `POST /v1/credentials/pulls` with `402 Payment Required`, no FinovAI backend import can run because no provider credential exists.
 - FinovAI API failures must store RID/source in `syncfy_errors` when Syncfy returned one.
 
 ## Read
@@ -115,6 +117,12 @@ Deleted webhook rule:
 - They must never upsert the deleted credential back into `syncfy_credentials`.
 - The webhook event should still be stored and marked `processed_at`.
 
+Reset rule:
+
+- `POST /api/syncfy/reset` and automatic `401 Invalid user` recovery delete all local `syncfy_credentials` and all `transactions` with `source = 'syncfy'` for that email before creating a fresh Syncfy user.
+- Manual transactions are preserved.
+- This is intentionally stronger than a single-credential delete because it is used for key/account mismatch or stale-user recovery where old provider IDs are no longer trustworthy.
+
 ## Regression Tests
 
 The worker test suite must keep these cases covered:
@@ -126,6 +134,8 @@ The worker test suite must keep these cases covered:
 - Refresh starts a Syncfy credential pull and imports transactions from the returned job status.
 - Refresh imports direct transactions when a new pull is rate-limited.
 - Refresh treats existing credential-tagged transactions as success when polling returns empty.
+- Sandbox sessions return `widgetEnableTestMode = true`; production sessions return `false`.
+- Reset/stale-user recovery removes old Syncfy transactions while preserving manual transactions.
 
 Run:
 

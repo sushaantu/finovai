@@ -38,7 +38,7 @@ direnv exec /Users/sushaantu/Developer bunx wrangler secret put SYNCFY_WEBHOOK_S
 | Email account recovery | READY | `/api/auth/request-link` and `/api/auth/verify` support passwordless codes/links through Cloudflare Email. Turn on `EMAIL_AUTH_REQUIRED` after Email Sending is enabled for `mail.finov.ai`. |
 | Legacy flow shutdown | DONE | Generic expenses, legacy chat, manual entry, and bank-statement backup imports are disabled in production unless explicitly re-enabled. |
 | Security | DONE | API key stays server-side, browser uses widget session tokens, and production Syncfy webhooks are protected with a shared-secret header. |
-| Docs/tests | DONE | Unit tests cover path, transaction normalization, dashboard session auth, production legacy-gating, nested webhook envelopes, webhook `waitUntil`, and stored-transaction fallback. |
+| Docs/tests | DONE | Unit tests cover path, transaction normalization, dashboard session auth, production legacy-gating, nested webhook envelopes, webhook `waitUntil`, stored-transaction fallback, sandbox widget test mode, and stale Syncfy-state cleanup. |
 
 ## Technical Notes
 
@@ -53,9 +53,10 @@ direnv exec /Users/sushaantu/Developer bunx wrangler secret put SYNCFY_WEBHOOK_S
 
 ## Remaining Work
 
-1. Enable Cloudflare Email Sending for `mail.finov.ai`, then set `EMAIL_AUTH_REQUIRED = "true"`.
-2. Keep validating sandbox ACME Bank tests before changing production behavior.
-3. Add load tests once expected traffic is known.
+1. Resolve Syncfy account/API-key entitlement for new credential creation. Local sandbox and direct API verification must pass `POST /v1/credentials/pulls`; `402 Payment Required` blocks bank linking before FinovAI can import movements.
+2. Enable Cloudflare Email Sending for `mail.finov.ai`, then set `EMAIL_AUTH_REQUIRED = "true"`.
+3. Keep validating sandbox ACME Bank tests before changing production behavior.
+4. Add load tests once expected traffic is known.
 
 ## Beta Launch Guardrails
 

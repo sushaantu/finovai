@@ -47,6 +47,8 @@ The connect experience lives in `src/components/SyncfyConnect.tsx`.
 
 The browser never receives the Syncfy API key. It only receives a widget session token.
 
+Sandbox widget sessions must return `widgetEnableTestMode = true` and pass `enableTestMode: true` into `SyncfyWidget`. This is required for the Paybook ACME test catalog and is disabled in production.
+
 ## Backend Flow
 
 The Cloudflare Worker in `worker/index.ts` owns the integration:
@@ -123,6 +125,8 @@ The five-minute UI cooldown, `POST /api/syncfy/refresh`, and scheduled cron inte
 
 Syncfy HTTP register status is transport-level evidence only. A `200` on `/credentials/:id/pulls`, `/jobs/:id/status`, or `/transactions` means Syncfy accepted and answered the API request; it does not prove that the institution produced readable movements. FinovAI treats `200` plus zero transactions as `pending_transactions`, records `last_pull_at`, and waits for scheduled/support refresh.
 
+New institution connection has an earlier hard gate: Syncfy must allow `POST /v1/credentials/pulls`. If Syncfy returns `402 Payment Required` there, the account/API key cannot create the credential at all. No webhook, transaction import, or chat behavior can fix that because no usable provider credential exists yet.
+
 ## Status Semantics
 
 | Status | Meaning |
@@ -167,7 +171,8 @@ When a user says the connection did not complete:
 5. Check `syncfy_errors` for recent `rid`, HTTP status, and Syncfy message.
 6. Check Syncfy HTTP logs for fresh webhook delivery status.
 7. If Syncfy HTTP logs show `200`, still verify whether `/transactions` returned rows; `200` with zero rows is pending/provider data, not app success.
-8. Treat `401 Invalid user` as a reconnect/recovery state unless Syncfy confirms otherwise.
+8. For a user who cannot add a new bank, verify `POST /v1/credentials/pulls` directly or through a fresh widget run. `402 Payment Required` is a Syncfy account/key entitlement blocker.
+9. Treat `401 Invalid user` as a reconnect/recovery state unless Syncfy confirms otherwise.
 
 PM-ready support wording:
 

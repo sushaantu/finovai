@@ -78,6 +78,7 @@ interface SyncfySessionResponse {
   success: boolean
   token: string | null
   widgetEnabled: boolean
+  widgetEnableTestMode?: boolean
   widgetConfig: Record<string, unknown>
   credentialId: string | null
   error?: string
@@ -109,6 +110,7 @@ type SyncfyWidgetConstructor = new (params: {
   token: string
   element: string | HTMLElement
   config?: Record<string, unknown>
+  enableTestMode?: boolean
   refreshTokenFunction?: () => Promise<{ token: string }>
 }) => SyncfyWidgetInstance
 
@@ -451,6 +453,7 @@ export function SyncfyConnect({
         token,
         element: '#syncfy-widget',
         config: session.widgetConfig,
+        enableTestMode: Boolean(session.widgetEnableTestMode),
         refreshTokenFunction: async () => {
           const refreshed = await createSession(widgetMode, activeCredentialId, false)
           return { token: refreshed.token || '' }
