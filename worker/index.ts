@@ -3131,7 +3131,8 @@ async function markSyncfyCredentialSyncPending(
 ): Promise<void> {
   await env.DB.prepare(
     `UPDATE syncfy_credentials
-     SET status = 'pending_transactions',
+     SET last_pull_at = datetime("now"),
+         status = 'pending_transactions',
          updated_at = datetime("now")
      WHERE email = ? AND syncfy_credential_id = ?`
   )

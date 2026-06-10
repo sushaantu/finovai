@@ -387,6 +387,9 @@ class MockD1 {
           credential.last_successful_sync_at = new Date().toISOString()
         } else if (sql.includes("status = 'pending_transactions'")) {
           credential.status = 'pending_transactions'
+          if (sql.includes('last_pull_at')) {
+            credential.last_pull_at = new Date().toISOString()
+          }
         }
         credential.updated_at = new Date().toISOString()
       }
@@ -1755,6 +1758,55 @@ test('syncfy refresh follows saved job status when direct transactions are still
     expect(data.syncfy?.endpoints).toContain('/jobs/job-1/status?id_user=syncfy-user-1')
     expect(env.DB.syncfyCredentials[0].status).toBe('synced')
     expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy refresh records pending pull attempts when Syncfy returns no transactions', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: '572930c4784806060f8b456b',
+    site_name: 'American Express',
+    status: 'pending_transactions',
+    last_successful_sync_at: null,
+    last_pull_at: null,
+    last_rid: 'rid-1',
+    raw_json: null,
+    created_at: '2026-06-10T02:49:34Z',
+    updated_at: '2026-06-10T02:49:34Z',
+  })
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    response: { transactions: [] },
+  }), {
+    headers: { 'Content-Type': 'application/json' },
+  })) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env)
+    const data = await response.json() as DashboardResponse & {
+      pendingTransactions?: boolean
+      message?: string
+    }
+
+    expect(response.status).toBe(202)
+    expect(data.pendingTransactions).toBe(true)
+    expect(data.message).toContain('movimientos todavía se están preparando')
+    expect(env.DB.syncfyCredentials[0].status).toBe('pending_transactions')
+    expect(env.DB.syncfyCredentials[0].last_pull_at).toBeTruthy()
+    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeNull()
   } finally {
     globalThis.fetch = originalFetch
   }

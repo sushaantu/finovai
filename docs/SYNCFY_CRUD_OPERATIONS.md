@@ -66,6 +66,7 @@ Update status rules:
 
 - `synced`: transaction import succeeded or existing credential-tagged transactions prove success.
 - `pending_transactions`: credential exists but no readable transactions are available yet.
+- A `200` response with zero readable transactions is still a pull attempt. Keep the credential in `pending_transactions`, update `last_pull_at`, and apply the normal cooldown so repeated empty polls do not flood Syncfy HTTP logs.
 - `needs_reconnect`: Syncfy reports invalid/expired/failed credential state.
 
 ## Delete
