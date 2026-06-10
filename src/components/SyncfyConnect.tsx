@@ -88,6 +88,7 @@ interface SyncfyRefreshResponse {
   message?: string
   error?: string
   retryAfterSeconds?: number
+  credential?: SyncfyCredential
   transactions?: unknown[]
   pendingTransactions?: boolean
   syncfy?: SyncfyImportSummary | null
@@ -229,15 +230,21 @@ function getCredentialLogoText(credential: SyncfyCredential) {
 }
 
 function getCredentialStatusText(credential: SyncfyCredential) {
+  if (credential.status === 'pending_transactions') {
+    return credential.ready
+      ? 'Movimientos pendientes; FinovAI reintentará automáticamente.'
+      : `Movimientos pendientes; próximo intento automático en ${formatCooldown(credential.cooldownSeconds)}.`
+  }
+
   if (credential.needsReconnect || credential.status === 'needs_reconnect') {
     return credential.ready
       ? 'Reintenta sincronizar; si falla, actualiza el acceso.'
-      : `Próxima sincronización en ${formatCooldown(credential.cooldownSeconds)}`
+      : `Próximo intento en ${formatCooldown(credential.cooldownSeconds)}`
   }
 
   return credential.ready
     ? 'Lista para sincronizar'
-    : `Próxima sincronización en ${formatCooldown(credential.cooldownSeconds)}`
+    : `Próximo intento disponible en ${formatCooldown(credential.cooldownSeconds)}`
 }
 
 export function SyncfyConnect({
@@ -302,6 +309,11 @@ export function SyncfyConnect({
     }
   }
 
+  const dismissWidgetSession = () => {
+    closeWidget()
+    setSession(null)
+  }
+
   const pollForCredential = (attemptRefresh: boolean) => {
     clearCredentialPolling()
     let attempts = 0
@@ -312,6 +324,7 @@ export function SyncfyConnect({
       const nextCredential = nextCredentials[0]
 
       if (nextCredential) {
+        dismissWidgetSession()
         setMessage(attemptRefresh
           ? 'Institución detectada. Buscando movimientos.'
           : 'Institución detectada.')
@@ -359,6 +372,7 @@ export function SyncfyConnect({
 
       const nextCredential = response.credential || response.credentials[0]
       if (nextCredential?.syncfyCredentialId) {
+        dismissWidgetSession()
         window.setTimeout(() => {
           void refreshTransactions(nextCredential.syncfyCredentialId, response.pendingTransactions ? 1 : 0)
         }, 1200)
@@ -436,6 +450,7 @@ export function SyncfyConnect({
             .then((nextCredentials) => {
               const nextCredential = nextCredentials[0]
               if (nextCredential?.syncfyCredentialId) {
+                dismissWidgetSession()
                 const nextMessage = 'Institución detectada. Buscando movimientos.'
                 setMessage(nextMessage)
                 onStatus?.(nextMessage)
@@ -544,7 +559,7 @@ export function SyncfyConnect({
     setOpenCredentialMenuId(null)
     setIsRefreshing(true)
     setMessage(retryAttempt > 0
-      ? `Los movimientos siguen preparándose. Reintentando (${retryAttempt}/6).`
+      ? 'Verificando si los movimientos ya están disponibles.'
       : 'Buscando movimientos nuevos.')
 
     try {
@@ -559,7 +574,7 @@ export function SyncfyConnect({
       const pendingTransactions = Boolean(response.pendingTransactions)
       const nextMessage = response.message || 'Movimientos sincronizados.'
       if (pendingTransactions && credentialId && retryAttempt < 6) {
-        setMessage(`${nextMessage} FinovAI reintentará automáticamente.`)
+        setMessage('Movimientos pendientes. FinovAI reintentará automáticamente.')
         onStatus?.(nextMessage)
       } else {
         setMessage(nextMessage)
@@ -568,10 +583,13 @@ export function SyncfyConnect({
       onSynced?.(response)
       await loadCredentials()
     } catch (error) {
-      const data = (error as Error & { data?: { retryAfterSeconds?: number } }).data
-      const nextMessage = data?.retryAfterSeconds
-        ? `Puedes volver a sincronizar en ${formatCooldown(data.retryAfterSeconds)}.`
-        : error instanceof Error ? error.message : 'No pudimos sincronizar movimientos.'
+      const data = (error as Error & { data?: { credential?: SyncfyCredential; retryAfterSeconds?: number } }).data
+      const isPendingCredential = data?.credential?.status === 'pending_transactions'
+      const nextMessage = isPendingCredential
+        ? 'Movimientos pendientes. FinovAI reintentará automáticamente.'
+        : data?.retryAfterSeconds
+          ? `Puedes volver a sincronizar en ${formatCooldown(data.retryAfterSeconds)}.`
+          : error instanceof Error ? error.message : 'No pudimos sincronizar movimientos.'
       setMessage(nextMessage)
       onStatus?.(nextMessage)
       await loadCredentials()
@@ -664,7 +682,10 @@ export function SyncfyConnect({
             {credentials.map((credential) => {
               const menuId = `credential-menu-${credential.syncfyCredentialId}`
               const needsReconnect = credential.needsReconnect || credential.status === 'needs_reconnect'
-              const primaryActionLabel = 'Sincronizar'
+              const isPendingTransactions = credential.status === 'pending_transactions'
+              const primaryActionLabel = isPendingTransactions
+                ? credential.ready ? 'Verificar ahora' : 'Esperando'
+                : 'Sincronizar'
               const primaryActionDisabled = isBusy || !credential.ready
 
               return (
