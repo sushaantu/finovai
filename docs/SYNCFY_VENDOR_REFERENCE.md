@@ -21,6 +21,40 @@ The local investigation also used the Syncfy quickstart/docs snippets supplied i
 
 Local validation script: `bun run probe:syncfy:credential --site all`. It follows the same sequence as the Paybook samples: `POST /users`, `POST /sessions`, `POST /credentials/pulls`, optional job polling, then `/transactions`.
 
+## 2026-06-10 Sandbox Entitlement Verification
+
+The current local sandbox key is configured and reaches Syncfy, but it cannot create ACME credentials.
+
+Verified directly against Paybook's official sample repository:
+
+```sh
+git clone https://github.com/Paybook/sync-code-samples /tmp/sync-code-samples
+cd /tmp/sync-code-samples/nodejs
+bun install
+bun examples/user/create.js --api_key "$SYNCFY_API_KEY"
+bun examples/session/create.js --api_key "$SYNCFY_API_KEY" --id_user "$SYNCFY_ID_USER"
+bun examples/credential/create.js \
+  --token "$SYNCFY_TOKEN" \
+  --id_site "56cf5728784806f72b8b4568" \
+  --credentials '{"username":"test","password":"test"}'
+```
+
+Observed result with the sandbox key ending in `d79c`:
+
+- `POST /v1/users`: `200`
+- `POST /v1/sessions`: `200`
+- `POST /v1/credentials/pulls`: `402 Payment Required`
+- Official sample RID: `c1a401b7-4be5-4afa-9e1d-12e692e76554`
+
+Additional checks:
+
+- `Bearer <token>` and `TOKEN token=<token>` both return `402 Payment Required`.
+- `API_KEY api_key=<key>, id_user=<id_user>` also returns `402 Payment Required`.
+- Adding `is_test=1` as query/body does not change the result.
+- The same failure occurs on both `https://opendata-api.syncfy.com/v1` and `https://sync.paybook.com/v1`.
+
+Conclusion: this is not a FinovAI wrapper bug, widget flag bug, ACME site ID bug, or auth-header-format bug. The Syncfy account/API key must be enabled for credential pulls, or FinovAI must be switched to a sandbox key from the authorized account that passes this exact create-credential call.
+
 ## Entity Lifecycle
 
 | Step | Syncfy object | Endpoint | FinovAI responsibility |
