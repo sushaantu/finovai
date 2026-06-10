@@ -1407,7 +1407,7 @@ test('syncfy credentials endpoint returns cached rows without external catalogue
     expect(data.credentials[0]).toMatchObject({
       syncfyCredentialId: 'credential-1',
       siteName: null,
-      ready: false,
+      ready: true,
       needsReconnect: true,
     })
     expect(externalFetches).toBe(0)
@@ -1800,6 +1800,59 @@ test('syncfy refresh follows saved job status when direct transactions are still
     expect(calls.some((url) => url.includes('/jobs/job-1/status') && url.includes('id_user=syncfy-user-1'))).toBe(true)
     expect(calls.find((url) => url.includes('from_job=1'))).not.toContain('id_user=')
     expect(data.syncfy?.endpoints).toContain('/jobs/job-1/status?id_user=syncfy-user-1')
+    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
+    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy refresh recovers stale needs_reconnect when transactions are readable', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: '572930c4784806060f8b456b',
+    site_name: 'American Express',
+    status: 'needs_reconnect',
+    last_successful_sync_at: '2026-06-08T01:01:54Z',
+    last_pull_at: null,
+    last_rid: 'stale-rid',
+    raw_json: null,
+    created_at: '2026-06-02T03:09:33Z',
+    updated_at: '2026-06-10T03:25:53Z',
+  })
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    response: {
+      transactions: [{
+        id_transaction: 'txn-readable-after-reconnect-error',
+        id_credential: 'credential-1',
+        id_user: 'syncfy-user-1',
+        dt_transaction: 1772150400,
+        description: 'AMEX SUPERMERCADO',
+        amount: '-251.81',
+        currency: 'MXN',
+      }],
+    },
+  }), { headers: { 'Content-Type': 'application/json' } })) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env)
+    const data = await response.json() as DashboardResponse & { pendingTransactions?: boolean }
+
+    expect(response.status).toBe(200)
+    expect(data.pendingTransactions).toBe(false)
+    expect(data.transactions).toHaveLength(1)
     expect(env.DB.syncfyCredentials[0].status).toBe('synced')
     expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
   } finally {

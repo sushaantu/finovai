@@ -1957,7 +1957,7 @@ function syncfyCredentialToApi(credential: SyncfyCredentialRow): SyncfyCredentia
     lastSuccessfulSyncAt: credential.last_successful_sync_at,
     lastPullAt: credential.last_pull_at,
     cooldownSeconds,
-    ready: !needsReconnect && cooldownSeconds === 0,
+    ready: cooldownSeconds === 0,
     needsReconnect,
   }
 }
@@ -2278,11 +2278,8 @@ async function loadDueSyncfyCredentials(env: Env): Promise<SyncfyCredentialRow[]
 
   const result = await env.DB.prepare(
     `SELECT * FROM syncfy_credentials
-     WHERE COALESCE(status, '') <> 'needs_reconnect'
-       AND (
-         last_pull_at IS NULL
-         OR unixepoch(last_pull_at) <= unixepoch('now') - ?
-       )
+     WHERE last_pull_at IS NULL
+        OR unixepoch(last_pull_at) <= unixepoch('now') - ?
      ORDER BY COALESCE(last_pull_at, created_at) ASC
      LIMIT ?`
   )
@@ -7206,14 +7203,6 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
 
       if (!credential) {
         return error('Ve a Conectar cuenta y sigue los pasos primero.', 404)
-      }
-
-      if (isSyncfyReconnectRequiredStatus(credential.status)) {
-        return json({
-          success: false,
-          error: 'Ve a Conectar cuenta y sigue los pasos para reconectar esta institución antes de volver a sincronizar.',
-          credential: syncfyCredentialToApi(credential),
-        }, 409)
       }
 
       const cooldownSeconds = getSyncfyCredentialCooldownSeconds(credential)

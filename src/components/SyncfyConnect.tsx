@@ -230,7 +230,9 @@ function getCredentialLogoText(credential: SyncfyCredential) {
 
 function getCredentialStatusText(credential: SyncfyCredential) {
   if (credential.needsReconnect || credential.status === 'needs_reconnect') {
-    return 'Reconecta el acceso para volver a sincronizar.'
+    return credential.ready
+      ? 'Reintenta sincronizar; si falla, actualiza el acceso.'
+      : `Próxima sincronización en ${formatCooldown(credential.cooldownSeconds)}`
   }
 
   return credential.ready
@@ -642,8 +644,8 @@ export function SyncfyConnect({
             {credentials.map((credential) => {
               const menuId = `credential-menu-${credential.syncfyCredentialId}`
               const needsReconnect = credential.needsReconnect || credential.status === 'needs_reconnect'
-              const primaryActionLabel = needsReconnect ? 'Reconectar' : 'Sincronizar'
-              const primaryActionDisabled = isBusy || (!needsReconnect && !credential.ready)
+              const primaryActionLabel = 'Sincronizar'
+              const primaryActionDisabled = isBusy || !credential.ready
 
               return (
                 <div
@@ -667,12 +669,10 @@ export function SyncfyConnect({
                       type="button"
                       variant={needsReconnect ? 'outline' : 'ghost'}
                       size="sm"
-                      onClick={() => needsReconnect
-                        ? void createSession('update', credential.syncfyCredentialId)
-                        : void refreshTransactions(credential.syncfyCredentialId, 0)}
+                      onClick={() => void refreshTransactions(credential.syncfyCredentialId, 0)}
                       disabled={primaryActionDisabled}
                     >
-                      {isRefreshing && !needsReconnect
+                      {isRefreshing
                         ? <Loader2 className="size-4 animate-spin" />
                         : <RefreshCw data-icon="inline-start" />}
                       {primaryActionLabel}
