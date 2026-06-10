@@ -155,6 +155,28 @@ direnv exec /Users/sushaantu/Developer/finovai bun run deploy:production
 curl https://finov.ai/api/health
 ```
 
+Both deploy scripts first run:
+
+```sh
+bun run preflight:syncfy:sandbox
+```
+
+This must pass before any Syncfy-related release. It creates a sandbox Syncfy user/session and then verifies ACME credential creation with `POST /v1/credentials/pulls`. If it returns `402 Payment Required`, stop: the active sandbox Syncfy key/account cannot link banks, so production should not be changed.
+
+Full sandbox outcome proof:
+
+```sh
+bun run smoke:syncfy:preview-full
+```
+
+This runs the app-facing flow against preview: signup, Syncfy session, ACME credential creation through Paybook's API, FinovAI credential callback, transaction import, and dashboard chat over the imported movements. On 2026-06-10 this passed against preview in 47 seconds with Syncfy RID `c6112c8f-e209-4275-b9f6-0a86d13bfe1f`.
+
+Current key note:
+
+- Preview Cloudflare `SYNCFY_API_KEY` can create sandbox ACME credentials.
+- Local `.dev.vars` key ending in `d79c` cannot create credentials and returns `402 Payment Required`.
+- Local testing cannot be considered representative until `.dev.vars` is updated to the same authorized sandbox account/key class as preview.
+
 Expected health proof:
 
 - Production: `environment = production`, `syncfyEnvironment = production`
