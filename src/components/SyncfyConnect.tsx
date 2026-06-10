@@ -123,6 +123,14 @@ declare global {
 }
 
 let syncfyWidgetLoader: Promise<SyncfyWidgetConstructor> | null = null
+const SYNCFY_FLOATING_NOTIFICATION_SELECTORS = [
+  '.el-notification',
+  '.pb-w-sync_notification-form',
+  '.pb-w-sync_notification-loader',
+  '.pb-w-sync_twofa-notification',
+  '.pb-w-sync_unauthorized-notification',
+  '.pb-w-sync_widget-notification-show-more-container',
+].join(',')
 
 function getLoadedSyncfyWidget() {
   return window.SyncfyWidget
@@ -179,6 +187,22 @@ function loadSyncfyWidget() {
   })
 
   return syncfyWidgetLoader
+}
+
+function removeSyncfyFloatingNotifications() {
+  if (typeof document === 'undefined') return
+
+  document
+    .querySelectorAll(SYNCFY_FLOATING_NOTIFICATION_SELECTORS)
+    .forEach((element) => element.remove())
+}
+
+function scheduleSyncfyNotificationCleanup() {
+  if (typeof window === 'undefined') return
+
+  removeSyncfyFloatingNotifications()
+  window.setTimeout(removeSyncfyFloatingNotifications, 100)
+  window.setTimeout(removeSyncfyFloatingNotifications, 750)
 }
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -307,6 +331,7 @@ export function SyncfyConnect({
     if (widgetContainerRef.current) {
       widgetContainerRef.current.innerHTML = ''
     }
+    scheduleSyncfyNotificationCleanup()
   }
 
   const dismissWidgetSession = () => {
@@ -419,6 +444,7 @@ export function SyncfyConnect({
       widgetRef.current = widget
 
       widget.on('success', (...args: unknown[]) => {
+        scheduleSyncfyNotificationCleanup()
         clearCredentialPolling()
         setMessage('Institución conectada. Guardando credencial y esperando movimientos.')
         onStatus?.('Institución conectada. Esperando movimientos.')
@@ -427,6 +453,7 @@ export function SyncfyConnect({
         })
       })
       widget.on('updated', (...args: unknown[]) => {
+        scheduleSyncfyNotificationCleanup()
         clearCredentialPolling()
         setMessage('Acceso actualizado. Buscando movimientos nuevos.')
         onStatus?.('Acceso actualizado.')
@@ -439,6 +466,7 @@ export function SyncfyConnect({
         })
       })
       widget.on('error', () => {
+        scheduleSyncfyNotificationCleanup()
         const rid = widget.getLastRid?.()
         const fallbackMessage = rid ? `La conexión reportó un error. RID: ${rid}` : 'La conexión reportó un error.'
         setMessage(rid

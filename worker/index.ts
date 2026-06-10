@@ -516,9 +516,9 @@ const SYNCFY_WIDGET_CONFIG = {
     country: 'MX',
   },
   navigation: {
-    displayErrorsInToast: true,
+    displayErrorsInToast: false,
     displayPrivacyScreen: true,
-    displayStatusInToast: true,
+    displayStatusInToast: false,
     hideSelectCountry: true,
     socketTimeout: 600_000,
     toastDuration: 7000,
