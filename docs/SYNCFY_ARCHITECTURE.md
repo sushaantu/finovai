@@ -148,6 +148,8 @@ direnv exec /Users/sushaantu/Developer/finovai bun run deploy:preview
 curl https://finovai-preview.my-cloudflare-711.workers.dev/api/health
 ```
 
+Preview deploy runs `bun run verify`, applies preview D1 migrations, deploys `env.preview`, then runs `bun run preflight:syncfy:preview`. That final smoke uses the deployed preview Worker and its Cloudflare `SYNCFY_API_KEY` secret, so a broken local `.dev.vars` key does not block deploying source fixes to the sandbox preview.
+
 Production deploy:
 
 ```sh
@@ -155,13 +157,13 @@ direnv exec /Users/sushaantu/Developer/finovai bun run deploy:production
 curl https://finov.ai/api/health
 ```
 
-Both deploy scripts first run:
+Production deploy first runs:
 
 ```sh
 bun run preflight:syncfy:sandbox
 ```
 
-This must pass before any Syncfy-related release. It creates a sandbox Syncfy user/session and then verifies ACME credential creation with `POST /v1/credentials/pulls`. If it returns `402 Payment Required`, stop: the active sandbox Syncfy key/account cannot link banks, so production should not be changed.
+This must pass before any Syncfy-related production release. It creates a sandbox Syncfy user/session from the local `.dev.vars` key and then verifies ACME credential creation with `POST /v1/credentials/pulls`. If it returns `402 Payment Required`, stop: the active local sandbox Syncfy key/account cannot link banks, so production should not be changed. Production deploy also runs the preview full-flow smoke before deploying production.
 
 Full sandbox outcome proof:
 
