@@ -102,6 +102,7 @@ interface SyncfyCredentialRow {
   status: string | null
   last_successful_sync_at: string | null
   last_pull_at: string | null
+  last_pull_attempt_at: string | null
   last_rid: string | null
   raw_json: string | null
   created_at: string
@@ -461,6 +462,8 @@ const DEFAULT_CLOUDFLARE_ACCOUNT_ID = '711cb78717605db93e601e6a06e7eeec'
 const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
 const ANTHROPIC_API_VERSION = '2023-06-01'
 const SYNCFY_REFRESH_COOLDOWN_SECONDS = 5 * 60
+// Backoff for re-running provider pulls after Syncfy-side scrape failures (code 5xx).
+const SYNCFY_PROVIDER_RETRY_INTERVAL_SECONDS = 30 * 60
 const SYNCFY_BACKGROUND_REFRESH_INTERVAL_SECONDS = SYNCFY_REFRESH_COOLDOWN_SECONDS
 const SYNCFY_BACKGROUND_REFRESH_LIMIT = 25
 const SYNCFY_DEFAULT_TRANSACTION_LIMIT = 500
@@ -935,6 +938,7 @@ async function ensureSyncfyTables(env: Env): Promise<void> {
       status TEXT,
       last_successful_sync_at TEXT,
       last_pull_at TEXT,
+      last_pull_attempt_at TEXT,
       last_rid TEXT,
       raw_json TEXT,
       created_at TEXT NOT NULL,
@@ -942,6 +946,11 @@ async function ensureSyncfyTables(env: Env): Promise<void> {
       UNIQUE(email, syncfy_credential_id)
     )`
   ).run()
+
+  // Self-migrate older databases created before last_pull_attempt_at existed.
+  await env.DB.prepare(`ALTER TABLE syncfy_credentials ADD COLUMN last_pull_attempt_at TEXT`)
+    .run()
+    .catch(() => {})
 
   await env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS syncfy_webhook_events (
@@ -1994,6 +2003,33 @@ function getSyncfyCredentialCooldownSeconds(credential: SyncfyCredentialRow): nu
 
   const elapsedSeconds = Math.floor((Date.now() - lastPullMs) / 1000)
   return Math.max(SYNCFY_REFRESH_COOLDOWN_SECONDS - elapsedSeconds, 0)
+}
+
+export function isSyncfyProviderPullRetryDue(
+  lastPullAttemptAt: string | null,
+  nowMs = Date.now()
+): boolean {
+  if (!lastPullAttemptAt) return true
+
+  const attemptMs = Date.parse(lastPullAttemptAt)
+  if (!Number.isFinite(attemptMs)) return true
+
+  return nowMs - attemptMs >= SYNCFY_PROVIDER_RETRY_INTERVAL_SECONDS * 1000
+}
+
+async function recordSyncfyCredentialPullAttempt(
+  env: Env,
+  email: string,
+  credentialId: string
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE syncfy_credentials
+     SET last_pull_attempt_at = datetime("now"),
+         updated_at = datetime("now")
+     WHERE email = ? AND syncfy_credential_id = ?`
+  )
+    .bind(email, credentialId)
+    .run()
 }
 
 export interface SyncfyCredentialHealth {
@@ -3399,6 +3435,7 @@ async function startSyncfyCredentialPull(
   credentialId: string
 ): Promise<SyncfyTransactionImportResult> {
   const pullPath = buildSyncfyCredentialPullPath(credentialId, syncfyUserId)
+  await recordSyncfyCredentialPullAttempt(env, email, credentialId)
   const pullResponse = await syncfyRequest<unknown>(env, pullPath, { method: 'PUT' })
   await storeSyncfyCredentialPullState(env, email, credentialId, pullResponse)
 
@@ -3604,9 +3641,11 @@ async function refreshDueSyncfyCredentials(env: Env): Promise<{
         credential.syncfy_credential_id,
         {
           jobStatusPaths: getSyncfyCredentialJobStatusPaths(credential),
-          // Pulls cannot succeed while the institution login is failing; skip them
-          // to avoid Syncfy 400/429 noise and rely on cheap reads until it recovers.
-          startPull: blocker !== 'provider_pending',
+          // Provider-side scrape failures (5xx) only recover through a new pull, but
+          // retrying every cron cycle just hits Syncfy throttles. Back off to one
+          // pull attempt per SYNCFY_PROVIDER_RETRY_INTERVAL_SECONDS.
+          startPull: blocker !== 'provider_pending'
+            || isSyncfyProviderPullRetryDue(credential.last_pull_attempt_at),
         }
       )
       imported += result.imported
@@ -7715,7 +7754,9 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
           credential.syncfy_credential_id,
           {
             jobStatusPaths,
-            startPull: cooldownSeconds > 0 || blocker === 'provider_pending' ? false : true,
+            // Manual refreshes may retry provider pulls (rate-limited by the 5-minute
+            // cooldown); only skip starting a new pull while still cooling down.
+            startPull: cooldownSeconds > 0 ? false : true,
           }
         )
         const importState = await resolveSyncfyTransactionImportState(

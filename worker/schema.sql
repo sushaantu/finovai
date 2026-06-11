@@ -154,6 +154,7 @@ CREATE TABLE IF NOT EXISTS syncfy_credentials (
   status TEXT,
   last_successful_sync_at TEXT,
   last_pull_at TEXT,
+  last_pull_attempt_at TEXT,
   last_rid TEXT,
   raw_json TEXT,
   created_at TEXT NOT NULL,

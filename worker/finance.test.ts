@@ -20,6 +20,7 @@ import worker, {
   getSyncfyWebhookEndpointPaths,
   parseSyncfyCredentialHealth,
   inferFinanceCategory,
+  isSyncfyProviderPullRetryDue,
   normalizeFinancialAmount,
   normalizeFinancialDate,
   parseCsvCartola,
@@ -3345,6 +3346,14 @@ test('classifySyncfyCredentialBlocker does not block healthy or in-progress cred
   expect(classifySyncfyCredentialBlocker({ found: false, code: null, isAuthorized: null, isTwofa: false }))
     .toBe(null)
   expect(classifySyncfyCredentialBlocker(null)).toBe(null)
+})
+
+test('isSyncfyProviderPullRetryDue backs off provider retries to 30 minutes', () => {
+  const now = Date.parse('2026-06-11T03:00:00Z')
+  expect(isSyncfyProviderPullRetryDue(null, now)).toBe(true)
+  expect(isSyncfyProviderPullRetryDue('not-a-date', now)).toBe(true)
+  expect(isSyncfyProviderPullRetryDue('2026-06-11T02:50:00Z', now)).toBe(false)
+  expect(isSyncfyProviderPullRetryDue('2026-06-11T02:29:00Z', now)).toBe(true)
 })
 
 test('getSyncfyCredentialBlockerMessage points users at the reconnect flow', () => {
