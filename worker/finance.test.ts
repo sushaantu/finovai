@@ -12,10 +12,13 @@ import worker, {
   buildFinancialInsights,
   buildFinancialSummary,
   classifyDashboardQuestionStage,
+  classifySyncfyCredentialBlocker,
   extractSyncfyEventType,
   extractSyncfySiteMetadata,
   finalizeDashboardChatAnswer,
+  getSyncfyCredentialBlockerMessage,
   getSyncfyWebhookEndpointPaths,
+  parseSyncfyCredentialHealth,
   inferFinanceCategory,
   normalizeFinancialAmount,
   normalizeFinancialDate,
@@ -3289,4 +3292,66 @@ test('household invite endpoint sends partner email when email binding is config
   expect(sentEmails[0].text).toContain('owner@example.com')
   expect(sentEmails[0].text).toContain('https://finov.ai/settings?')
   expect(sentEmails[0].text).toContain('household_invite=')
+})
+
+test('parseSyncfyCredentialHealth normalizes numeric and boolean provider flags', () => {
+  expect(parseSyncfyCredentialHealth({ code: 401, is_authorized: 0, is_twofa: 0 })).toEqual({
+    found: true,
+    code: 401,
+    isAuthorized: false,
+    isTwofa: false,
+  })
+  expect(parseSyncfyCredentialHealth({ code: 200, is_authorized: true, is_twofa: true })).toEqual({
+    found: true,
+    code: 200,
+    isAuthorized: true,
+    isTwofa: true,
+  })
+  expect(parseSyncfyCredentialHealth({})).toEqual({
+    found: true,
+    code: null,
+    isAuthorized: null,
+    isTwofa: false,
+  })
+})
+
+test('classifySyncfyCredentialBlocker flags rejected bank logins as needs_reconnect', () => {
+  expect(classifySyncfyCredentialBlocker({ found: true, code: 401, isAuthorized: false, isTwofa: false }))
+    .toBe('needs_reconnect')
+  expect(classifySyncfyCredentialBlocker({ found: true, code: 405, isAuthorized: false, isTwofa: false }))
+    .toBe('needs_reconnect')
+  expect(classifySyncfyCredentialBlocker({ found: true, code: 410, isAuthorized: false, isTwofa: false }))
+    .toBe('needs_reconnect')
+})
+
+test('classifySyncfyCredentialBlocker flags unauthorized 2FA credentials as needs_reconnect', () => {
+  expect(classifySyncfyCredentialBlocker({ found: true, code: 501, isAuthorized: false, isTwofa: true }))
+    .toBe('needs_reconnect')
+})
+
+test('classifySyncfyCredentialBlocker treats unauthorized provider failures as provider_pending', () => {
+  expect(classifySyncfyCredentialBlocker({ found: true, code: 501, isAuthorized: false, isTwofa: false }))
+    .toBe('provider_pending')
+  expect(classifySyncfyCredentialBlocker({ found: true, code: 500, isAuthorized: false, isTwofa: false }))
+    .toBe('provider_pending')
+})
+
+test('classifySyncfyCredentialBlocker does not block healthy or in-progress credentials', () => {
+  expect(classifySyncfyCredentialBlocker({ found: true, code: 200, isAuthorized: true, isTwofa: false }))
+    .toBe(null)
+  // 102 = sync in progress; the institution has not accepted or rejected the login yet.
+  expect(classifySyncfyCredentialBlocker({ found: true, code: 102, isAuthorized: false, isTwofa: false }))
+    .toBe(null)
+  expect(classifySyncfyCredentialBlocker({ found: false, code: null, isAuthorized: null, isTwofa: false }))
+    .toBe(null)
+  expect(classifySyncfyCredentialBlocker(null)).toBe(null)
+})
+
+test('getSyncfyCredentialBlockerMessage points users at the reconnect flow', () => {
+  expect(getSyncfyCredentialBlockerMessage('needs_reconnect', { found: true, code: 401, isAuthorized: false, isTwofa: false }))
+    .toContain('Actualizar acceso')
+  expect(getSyncfyCredentialBlockerMessage('needs_reconnect', { found: true, code: 501, isAuthorized: false, isTwofa: true }))
+    .toContain('código de seguridad')
+  expect(getSyncfyCredentialBlockerMessage('provider_pending', null))
+    .toContain('reintentando')
 })

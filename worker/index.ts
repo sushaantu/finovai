@@ -1996,6 +1996,91 @@ function getSyncfyCredentialCooldownSeconds(credential: SyncfyCredentialRow): nu
   return Math.max(SYNCFY_REFRESH_COOLDOWN_SECONDS - elapsedSeconds, 0)
 }
 
+export interface SyncfyCredentialHealth {
+  found: boolean
+  code: number | null
+  isAuthorized: boolean | null
+  isTwofa: boolean
+}
+
+export type SyncfyCredentialBlocker = 'needs_reconnect' | 'provider_pending' | null
+
+// Paybook credential codes that require the user to redo/complete institution login:
+// 401 invalid credentials, 403 forbidden, 405 locked account, 410-413 token/2FA states.
+const SYNCFY_CREDENTIAL_RECONNECT_CODES = new Set([401, 403, 405, 410, 411, 412, 413])
+
+async function fetchSyncfyCredentialHealth(
+  env: Env,
+  syncfyUserId: string | null,
+  credentialId: string | null
+): Promise<SyncfyCredentialHealth | null> {
+  if (!env.SYNCFY_API_KEY || !syncfyUserId || !credentialId) return null
+
+  try {
+    const response = await syncfyRequest<unknown>(
+      env,
+      `/credentials?id_user=${encodeURIComponent(syncfyUserId)}`,
+      { method: 'GET' }
+    )
+    const records = Array.isArray(response) ? response : []
+
+    for (const entry of records) {
+      const record = asRecord(entry)
+      if (!record) continue
+      if (stringFromUnknown(record.id_credential, 256) !== credentialId) continue
+      return parseSyncfyCredentialHealth(record)
+    }
+
+    return { found: false, code: null, isAuthorized: null, isTwofa: false }
+  } catch {
+    // Health checks must never break the import path; fall back to legacy behavior.
+    return null
+  }
+}
+
+export function parseSyncfyCredentialHealth(record: Record<string, unknown>): SyncfyCredentialHealth {
+  const rawCode = record.code
+  const code = typeof rawCode === 'number' && Number.isFinite(rawCode) ? rawCode : null
+  const rawAuthorized = record.is_authorized
+  const isAuthorized = typeof rawAuthorized === 'boolean'
+    ? rawAuthorized
+    : typeof rawAuthorized === 'number'
+      ? rawAuthorized === 1
+      : null
+  const rawTwofa = record.is_twofa
+
+  return {
+    found: true,
+    code,
+    isAuthorized,
+    isTwofa: rawTwofa === 1 || rawTwofa === true,
+  }
+}
+
+export function classifySyncfyCredentialBlocker(health: SyncfyCredentialHealth | null): SyncfyCredentialBlocker {
+  if (!health || !health.found) return null
+  if (health.isAuthorized !== false) return null
+
+  if (health.code !== null && SYNCFY_CREDENTIAL_RECONNECT_CODES.has(health.code)) return 'needs_reconnect'
+  if (health.isTwofa) return 'needs_reconnect'
+  if (health.code !== null && health.code >= 500) return 'provider_pending'
+
+  return null
+}
+
+export function getSyncfyCredentialBlockerMessage(
+  blocker: Exclude<SyncfyCredentialBlocker, null>,
+  health: SyncfyCredentialHealth | null
+): string {
+  if (blocker === 'needs_reconnect') {
+    return health?.isTwofa
+      ? 'La institución pide una verificación adicional. Usa "Actualizar acceso" para completar el código de seguridad.'
+      : 'La institución rechazó el acceso guardado. Usa "Actualizar acceso" para volver a conectar tu banco.'
+  }
+
+  return 'La institución está fallando al iniciar sesión. FinovAI seguirá reintentando automáticamente.'
+}
+
 function syncfyCredentialToApi(credential: SyncfyCredentialRow): SyncfyCredentialsResponse['credentials'][number] {
   const cooldownSeconds = getSyncfyCredentialCooldownSeconds(credential)
   const needsReconnect = isSyncfyReconnectRequiredStatus(credential.status)
@@ -2355,10 +2440,12 @@ async function loadDisplaySyncfyCredentialsForEmail(env: Env, email: string): Pr
 async function loadDueSyncfyCredentials(env: Env): Promise<SyncfyCredentialRow[]> {
   await ensureSyncfyTables(env)
 
+  // needs_reconnect requires user action (new login/2FA in the widget); polling cannot fix it.
   const result = await env.DB.prepare(
     `SELECT * FROM syncfy_credentials
-     WHERE last_pull_at IS NULL
-        OR unixepoch(last_pull_at) <= unixepoch('now') - ?
+     WHERE (last_pull_at IS NULL
+        OR unixepoch(last_pull_at) <= unixepoch('now') - ?)
+       AND COALESCE(status, '') <> 'needs_reconnect'
      ORDER BY COALESCE(last_pull_at, created_at) ASC
      LIMIT ?`
   )
@@ -3482,12 +3569,45 @@ async function refreshDueSyncfyCredentials(env: Env): Promise<{
 
   for (const credential of dueCredentials) {
     try {
+      const health = await fetchSyncfyCredentialHealth(
+        env,
+        credential.syncfy_user_id,
+        credential.syncfy_credential_id
+      )
+      const blocker = classifySyncfyCredentialBlocker(health)
+
+      if (blocker === 'needs_reconnect') {
+        failed += 1
+        await storeSyncfyError(env, {
+          email: credential.email,
+          syncfyUserId: credential.syncfy_user_id,
+          syncfyCredentialId: credential.syncfy_credential_id,
+          statusCode: health?.code ?? null,
+          message: health?.isTwofa
+            ? 'Syncfy credential requires user 2FA; waiting for reconnect.'
+            : 'Syncfy credential login rejected by institution; waiting for reconnect.',
+          source: 'syncfy-credential-state',
+        })
+        await markSyncfyCredentialSyncError(
+          env,
+          credential.email,
+          credential.syncfy_credential_id,
+          'needs_reconnect'
+        )
+        continue
+      }
+
       const result = await importSyncfyTransactionsForCredential(
         env,
         credential.email,
         credential.syncfy_user_id,
         credential.syncfy_credential_id,
-        { jobStatusPaths: getSyncfyCredentialJobStatusPaths(credential) }
+        {
+          jobStatusPaths: getSyncfyCredentialJobStatusPaths(credential),
+          // Pulls cannot succeed while the institution login is failing; skip them
+          // to avoid Syncfy 400/429 noise and rely on cheap reads until it recovers.
+          startPull: blocker !== 'provider_pending',
+        }
       )
       imported += result.imported
       const importState = await resolveSyncfyTransactionImportState(
@@ -7470,6 +7590,46 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
       const jobStatusPaths = getSyncfyCredentialJobStatusPaths(credential)
       const canPollPendingCredential = credential.status === 'pending_transactions'
 
+      if (cooldownSeconds > 0 && !canPollPendingCredential && credential.status === 'synced') {
+        return json({
+          success: false,
+          error: 'Puedes hacer una sincronización exitosa por institución cada 5 minutos.',
+          retryAfterSeconds: cooldownSeconds,
+          credential: syncfyCredentialToApi(credential),
+        }, 429)
+      }
+
+      const health = await fetchSyncfyCredentialHealth(
+        env,
+        credential.syncfy_user_id,
+        credential.syncfy_credential_id
+      )
+      const blocker = classifySyncfyCredentialBlocker(health)
+
+      if (blocker === 'needs_reconnect') {
+        await markSyncfyCredentialSyncError(
+          env,
+          normalizedEmail,
+          credential.syncfy_credential_id,
+          'needs_reconnect'
+        )
+        const updatedCredentials = await loadSyncfyCredentialsForEmail(env, normalizedEmail)
+        const updatedCredential = updatedCredentials.find(
+          (item) => item.syncfy_credential_id === credential.syncfy_credential_id
+        ) || credential
+
+        return json({
+          success: false,
+          error: getSyncfyCredentialBlockerMessage('needs_reconnect', health),
+          credential: syncfyCredentialToApi(updatedCredential),
+          needsReconnect: true,
+        }, 409)
+      }
+
+      const pendingMessage = blocker === 'provider_pending'
+        ? getSyncfyCredentialBlockerMessage('provider_pending', health)
+        : 'Movimientos todavía no disponibles. FinovAI seguirá verificando.'
+
       if (ctx && cooldownSeconds > 0 && canPollPendingCredential) {
         ctx.waitUntil((async () => {
           try {
@@ -7534,7 +7694,7 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
           pendingTransactions: true,
           retryAfterSeconds: cooldownSeconds,
           credential: syncfyCredentialToApi(credential),
-          message: 'Movimientos todavía no disponibles. FinovAI seguirá verificando.',
+          message: pendingMessage,
         }, 202)
       }
 
@@ -7555,7 +7715,7 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
           credential.syncfy_credential_id,
           {
             jobStatusPaths,
-            startPull: cooldownSeconds > 0 ? false : true,
+            startPull: cooldownSeconds > 0 || blocker === 'provider_pending' ? false : true,
           }
         )
         const importState = await resolveSyncfyTransactionImportState(
@@ -7577,7 +7737,9 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
           source: 'syncfy',
           syncfy: importResult,
           pendingTransactions: !importComplete,
-          message: getSyncfyTransactionImportMessageForState(importResult, importState),
+          message: !importComplete && blocker === 'provider_pending'
+            ? pendingMessage
+            : getSyncfyTransactionImportMessageForState(importResult, importState),
         }, importComplete ? 200 : 202)
       } catch (err) {
         if (err instanceof SyncfyRequestError) {
