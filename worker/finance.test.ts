@@ -20,6 +20,7 @@ import worker, {
   getSyncfyWebhookEndpointPaths,
   parseSyncfyCredentialHealth,
   inferFinanceCategory,
+  isSyncfyBackgroundRefreshDue,
   isSyncfyProviderPullRetryDue,
   normalizeFinancialAmount,
   normalizeFinancialDate,
@@ -2084,8 +2085,8 @@ test('syncfy synced refresh still respects provider pull cooldown', async () => 
     const data = await response.json() as { retryAfterSeconds?: number; error?: string }
 
     expect(response.status).toBe(429)
-    expect(data.retryAfterSeconds).toBeGreaterThan(0)
-    expect(data.error).toContain('5 minutos')
+    expect(data.retryAfterSeconds).toBeGreaterThan(25 * 60)
+    expect(data.error).toContain('30 minutos')
     expect(externalFetches).toBe(0)
   } finally {
     globalThis.fetch = originalFetch
@@ -3348,12 +3349,22 @@ test('classifySyncfyCredentialBlocker does not block healthy or in-progress cred
   expect(classifySyncfyCredentialBlocker(null)).toBe(null)
 })
 
-test('isSyncfyProviderPullRetryDue backs off provider retries to 30 minutes', () => {
+test('isSyncfyProviderPullRetryDue backs off provider retries to 24 hours', () => {
   const now = Date.parse('2026-06-11T03:00:00Z')
   expect(isSyncfyProviderPullRetryDue(null, now)).toBe(true)
   expect(isSyncfyProviderPullRetryDue('not-a-date', now)).toBe(true)
   expect(isSyncfyProviderPullRetryDue('2026-06-11T02:50:00Z', now)).toBe(false)
-  expect(isSyncfyProviderPullRetryDue('2026-06-11T02:29:00Z', now)).toBe(true)
+  expect(isSyncfyProviderPullRetryDue('2026-06-10T03:01:00Z', now)).toBe(false)
+  expect(isSyncfyProviderPullRetryDue('2026-06-10T02:59:00Z', now)).toBe(true)
+})
+
+test('isSyncfyBackgroundRefreshDue keeps scheduled refreshes daily', () => {
+  const now = Date.parse('2026-06-11T03:00:00Z')
+  expect(isSyncfyBackgroundRefreshDue(null, now)).toBe(true)
+  expect(isSyncfyBackgroundRefreshDue('not-a-date', now)).toBe(true)
+  expect(isSyncfyBackgroundRefreshDue('2026-06-11T02:50:00Z', now)).toBe(false)
+  expect(isSyncfyBackgroundRefreshDue('2026-06-10T03:01:00Z', now)).toBe(false)
+  expect(isSyncfyBackgroundRefreshDue('2026-06-10T02:59:00Z', now)).toBe(true)
 })
 
 test('getSyncfyCredentialBlockerMessage points users at the reconnect flow', () => {

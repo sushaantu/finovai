@@ -32,7 +32,7 @@ direnv exec /Users/sushaantu/Developer bunx wrangler secret put SYNCFY_WEBHOOK_S
 | Historical transaction window | DONE | Default credential pulls request the last 6 months; override with `SYNCFY_TRANSACTION_LOOKBACK_MONTHS` if product needs a different baseline. |
 | Error `rid` storage | DONE | Syncfy API failures and webhook payloads store `rid` when present. |
 | Widget integration | DONE | Dashboard embeds `@syncfy/authentication-widget`, locks country to Mexico, supports credential creation/update, and handles widget events. |
-| Pull/rate-limit behavior | DONE | Backend enforces a 5-minute cooldown before starting another provider pull, but pending credentials can still poll saved job status/direct transactions during that cooldown. |
+| Pull/rate-limit behavior | DONE | Backend enforces a 30-minute manual cooldown before starting another provider pull, refreshes healthy credentials daily in the background, and retries provider-side failures at most daily. Pending credentials can still poll saved job status/direct transactions during cooldown without starting a new pull. |
 | API-change tolerance | DONE | Payload extraction is flexible around nested `response`, `data`, `credential`, `credentials`, `extra`, and variable field names. |
 | Dashboard access control | DONE | Production dashboard APIs require a browser-held client secret created during email signup, so email-only reads are blocked. |
 | Email account recovery | READY | `/api/auth/request-link` and `/api/auth/verify` support passwordless codes/links through Cloudflare Email. Turn on `EMAIL_AUTH_REQUIRED` after Email Sending is enabled for `mail.finov.ai`. |

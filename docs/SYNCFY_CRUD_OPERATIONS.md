@@ -66,7 +66,7 @@ Read contract:
 | Credential callback | `POST /api/syncfy/credential` | Upsert credential metadata, start a pull, follow job status, and import readable transactions. |
 | Manual refresh | `POST /api/syncfy/refresh` | Enforce cooldown, follow saved job state, start/follow a new pull when allowed, read direct transactions, then mark status. Support-admin access can run this without a browser session for production repair. |
 | Webhook refresh | `POST /api/syncfy/webhook` | Store event, return `202`, process import in `ctx.waitUntil`. |
-| Production cron | Scheduled Worker | Refresh due credentials every five minutes. |
+| Production cron | Scheduled Worker | Refresh due credentials on the daily background interval. |
 
 Update status rules:
 

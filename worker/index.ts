@@ -461,10 +461,10 @@ const DEFAULT_COMPAT_CHAT_MODEL = 'anthropic/claude-opus-4-7'
 const DEFAULT_CLOUDFLARE_ACCOUNT_ID = '711cb78717605db93e601e6a06e7eeec'
 const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
 const ANTHROPIC_API_VERSION = '2023-06-01'
-const SYNCFY_REFRESH_COOLDOWN_SECONDS = 5 * 60
+const SYNCFY_REFRESH_COOLDOWN_SECONDS = 30 * 60
 // Backoff for re-running provider pulls after Syncfy-side scrape failures (code 5xx).
-const SYNCFY_PROVIDER_RETRY_INTERVAL_SECONDS = 30 * 60
-const SYNCFY_BACKGROUND_REFRESH_INTERVAL_SECONDS = SYNCFY_REFRESH_COOLDOWN_SECONDS
+const SYNCFY_PROVIDER_RETRY_INTERVAL_SECONDS = 24 * 60 * 60
+const SYNCFY_BACKGROUND_REFRESH_INTERVAL_SECONDS = 24 * 60 * 60
 const SYNCFY_BACKGROUND_REFRESH_LIMIT = 25
 const SYNCFY_DEFAULT_TRANSACTION_LIMIT = 500
 const SYNCFY_DEFAULT_TRANSACTION_LOOKBACK_MONTHS = 6
@@ -2015,6 +2015,18 @@ export function isSyncfyProviderPullRetryDue(
   if (!Number.isFinite(attemptMs)) return true
 
   return nowMs - attemptMs >= SYNCFY_PROVIDER_RETRY_INTERVAL_SECONDS * 1000
+}
+
+export function isSyncfyBackgroundRefreshDue(
+  lastPullAt: string | null,
+  nowMs = Date.now()
+): boolean {
+  if (!lastPullAt) return true
+
+  const lastPullMs = Date.parse(lastPullAt)
+  if (!Number.isFinite(lastPullMs)) return true
+
+  return nowMs - lastPullMs >= SYNCFY_BACKGROUND_REFRESH_INTERVAL_SECONDS * 1000
 }
 
 async function recordSyncfyCredentialPullAttempt(
@@ -7632,7 +7644,7 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
       if (cooldownSeconds > 0 && !canPollPendingCredential && credential.status === 'synced') {
         return json({
           success: false,
-          error: 'Puedes hacer una sincronización exitosa por institución cada 5 minutos.',
+          error: 'Puedes hacer una sincronización exitosa por institución cada 30 minutos.',
           retryAfterSeconds: cooldownSeconds,
           credential: syncfyCredentialToApi(credential),
         }, 429)
@@ -7740,7 +7752,7 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
       if (cooldownSeconds > 0 && !canPollPendingCredential) {
         return json({
           success: false,
-          error: 'Puedes hacer una sincronización exitosa por institución cada 5 minutos.',
+          error: 'Puedes hacer una sincronización exitosa por institución cada 30 minutos.',
           retryAfterSeconds: cooldownSeconds,
           credential: syncfyCredentialToApi(credential),
         }, 429)
@@ -7754,7 +7766,7 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
           credential.syncfy_credential_id,
           {
             jobStatusPaths,
-            // Manual refreshes may retry provider pulls (rate-limited by the 5-minute
+            // Manual refreshes may retry provider pulls (rate-limited by the 30-minute
             // cooldown); only skip starting a new pull while still cooling down.
             startPull: cooldownSeconds > 0 ? false : true,
           }
