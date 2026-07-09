@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Calculator, Clock3, Sparkles, TrendingUp } from 'lucide-react'
+import { useRevealOnce } from '@/lib/use-reveal-once'
 
 export type ToolSlug = 'compound' | 'rule72' | 'opportunity'
 
@@ -155,29 +156,11 @@ function getMilestones(points: ProjectionPoint[]) {
 }
 
 export default function ToolPage({ tool }: ToolPageProps) {
-  const sectionRef = useRef<HTMLElement>(null)
-  const [isVisible, setIsVisible] = useState(false)
+  const { ref: sectionRef, isVisible } = useRevealOnce<HTMLElement>(0.15)
   const [principal, setPrincipal] = useState(10000)
   const [annualRate, setAnnualRate] = useState(8)
   const [years, setYears] = useState(20)
   const [monthlyContribution, setMonthlyContribution] = useState(500)
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true)
-        }
-      },
-      { threshold: 0.15 }
-    )
-
-    if (sectionRef.current) {
-      observer.observe(sectionRef.current)
-    }
-
-    return () => observer.disconnect()
-  }, [])
 
   useEffect(() => {
     const titleMap: Record<ToolSlug, string> = {

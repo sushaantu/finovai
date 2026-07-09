@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Clock3, Sparkles, TrendingUp } from 'lucide-react'
+import { useRevealOnce } from '@/lib/use-reveal-once'
 
 const toolCards = [
   {
@@ -35,25 +35,7 @@ const toolCards = [
 ]
 
 export default function Tools() {
-  const sectionRef = useRef<HTMLElement>(null)
-  const [isVisible, setIsVisible] = useState(false)
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true)
-        }
-      },
-      { threshold: 0.15 }
-    )
-
-    if (sectionRef.current) {
-      observer.observe(sectionRef.current)
-    }
-
-    return () => observer.disconnect()
-  }, [])
+  const { ref: sectionRef, isVisible } = useRevealOnce<HTMLElement>(0.15)
 
   return (
     <section

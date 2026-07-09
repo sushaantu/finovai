@@ -1,36 +1,13 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-
-type JsonRecord = Record<string, unknown>
-
-function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
-}
-
-function stringField(record: JsonRecord, key: string) {
-  return typeof record[key] === 'string' ? record[key] : ''
-}
-
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(message)
-}
-
-async function requestJson<T extends JsonRecord>(
-  apiBaseUrl: string,
-  path: string,
-  init?: RequestInit,
-): Promise<{ status: number; data: T }> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
-  })
-  const data = await response.json().catch(() => ({})) as T
-  return { status: response.status, data }
-}
+import {
+  assert,
+  asRecord,
+  requestJson,
+  stringField,
+  type JsonRecord,
+} from './smoke-utils'
 
 function walkFiles(root: string, suffix: string, deadlineMs: number): string[] {
   if (Date.now() > deadlineMs || !existsSync(root)) return []

@@ -1,48 +1,15 @@
+import {
+  assert,
+  asRecord,
+  booleanField,
+  numberField,
+  requestJson as requestJsonWithTimeout,
+  stringField,
+  type JsonRecord,
+} from './smoke-utils'
+
 const DEFAULT_API_BASE_URL = 'https://finovai-preview.my-cloudflare-711.workers.dev'
 const ACME_NORMAL_SITE_ID = '56cf5728784806f72b8b4568'
-
-type JsonRecord = Record<string, unknown>
-
-function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
-}
-
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(message)
-}
-
-async function requestJson<T extends JsonRecord>(
-  apiBaseUrl: string,
-  path: string,
-  init?: RequestInit,
-): Promise<{ status: number; data: T }> {
-  try {
-    const response = await fetch(`${apiBaseUrl}${path}`, {
-      ...init,
-      signal: init?.signal || AbortSignal.timeout(requestTimeoutMs),
-      headers: {
-        'Content-Type': 'application/json',
-        ...init?.headers,
-      },
-    })
-    const data = await response.json().catch(() => ({})) as T
-    return { status: response.status, data }
-  } catch (err) {
-    throw new Error(`Request failed for ${path}: ${err instanceof Error ? err.message : String(err)}`)
-  }
-}
-
-function booleanField(record: JsonRecord, key: string) {
-  return Boolean(record[key])
-}
-
-function stringField(record: JsonRecord, key: string) {
-  return typeof record[key] === 'string' ? record[key] : ''
-}
-
-function numberField(record: JsonRecord, key: string) {
-  return typeof record[key] === 'number' ? record[key] : null
-}
 
 function transactionCount(data: JsonRecord) {
   return Array.isArray(data.transactions) ? data.transactions.length : 0
@@ -53,6 +20,10 @@ const pollAttempts = Number(process.env.SYNCFY_FULL_FLOW_POLL_ATTEMPTS || 12)
 const pollDelayMs = Number(process.env.SYNCFY_FULL_FLOW_POLL_DELAY_MS || 5000)
 const requestTimeoutMs = Number(process.env.FINOVAI_SMOKE_REQUEST_TIMEOUT_MS || 20_000)
 const started = Date.now()
+
+function requestJson<T extends JsonRecord>(baseUrl: string, path: string, init?: RequestInit) {
+  return requestJsonWithTimeout<T>(baseUrl, path, init, requestTimeoutMs)
+}
 
 function logStep(step: string) {
   console.error(`[smoke-syncfy-full-flow] ${step}`)
