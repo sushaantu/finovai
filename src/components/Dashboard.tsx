@@ -1423,6 +1423,10 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [dashboardTheme, setDashboardTheme] = useState<DashboardTheme>(() => getStoredDashboardTheme())
   const [syncfyCredentials, setSyncfyCredentials] = useState<SyncfyCredential[]>(() => previewEnabled ? createPreviewSyncfyCredentials() : [])
   const [isLoadingCredentials, setIsLoadingCredentials] = useState(() => Boolean(getStoredEmail(email)) && !previewEnabled && !loadingPreviewEnabled)
+  const [credentialsReadyForEmail, setCredentialsReadyForEmail] = useState<string | null>(() => (
+    previewEnabled ? (getStoredEmail(email) || previewEmail || 'preview@finov.ai') : null
+  ))
+  const [credentialsFetchFailed, setCredentialsFetchFailed] = useState(false)
   const [spouseEmail, setSpouseEmail] = useState('')
   const [householdInvites, setHouseholdInvites] = useState<HouseholdInvite[]>([])
   const [isInvitingSpouse, setIsInvitingSpouse] = useState(false)
@@ -1433,6 +1437,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [updatingCategoryId, setUpdatingCategoryId] = useState<string | null>(null)
   const [showIncomePrompt, setShowIncomePrompt] = useState(false)
   const [incomePromptValue, setIncomePromptValue] = useState('')
+  const [incomePromptError, setIncomePromptError] = useState('')
   const [isSavingIncomePrompt, setIsSavingIncomePrompt] = useState(false)
   const chatAnswerTimeoutRef = useRef<number | null>(null)
   const chatMessagesEndRef = useRef<HTMLDivElement | null>(null)
@@ -1533,26 +1538,41 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     if (loadingPreviewEnabled) {
       setSyncfyCredentials([])
       setIsLoadingCredentials(false)
+      setCredentialsReadyForEmail(null)
+      setCredentialsFetchFailed(false)
       return
     }
     if (previewEnabled) {
+      const nextEmail = activeEmail || previewEmail || 'preview@finov.ai'
       setSyncfyCredentials(createPreviewSyncfyCredentials())
       setIsLoadingCredentials(false)
+      setCredentialsReadyForEmail(nextEmail)
+      setCredentialsFetchFailed(false)
       return
     }
     if (!activeEmail) {
       setSyncfyCredentials([])
       setIsLoadingCredentials(false)
+      setCredentialsReadyForEmail(null)
+      setCredentialsFetchFailed(false)
       return
     }
 
     setIsLoadingCredentials(true)
+    setCredentialsReadyForEmail(null)
+    setCredentialsFetchFailed(false)
     apiJson<SyncfyCredentialsResponse>(`/api/syncfy/credentials?email=${encodeURIComponent(activeEmail)}`)
       .then((response) => {
-        if (!cancelled) setSyncfyCredentials(response.credentials)
+        if (cancelled) return
+        setSyncfyCredentials(response.credentials)
+        setCredentialsReadyForEmail(activeEmail)
+        setCredentialsFetchFailed(false)
       })
       .catch(() => {
-        if (!cancelled) setSyncfyCredentials([])
+        if (cancelled) return
+        setSyncfyCredentials([])
+        setCredentialsReadyForEmail(null)
+        setCredentialsFetchFailed(true)
       })
       .finally(() => {
         if (!cancelled) setIsLoadingCredentials(false)
@@ -1561,10 +1581,12 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     return () => {
       cancelled = true
     }
-  }, [activeEmail, loadingPreviewEnabled, previewEnabled])
+  }, [activeEmail, loadingPreviewEnabled, previewEmail, previewEnabled])
 
   useEffect(() => {
-    if (previewEnabled || loadingPreviewEnabled || !activeEmail || isLoadingCredentials) return
+    if (previewEnabled || loadingPreviewEnabled || !activeEmail) return
+    if (isLoadingCredentials || credentialsFetchFailed) return
+    if (credentialsReadyForEmail !== activeEmail) return
     if (activePage !== 'inicio') return
     if (hasConnectedInstitution) return
 
@@ -1572,6 +1594,8 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   }, [
     activeEmail,
     activePage,
+    credentialsFetchFailed,
+    credentialsReadyForEmail,
     hasConnectedInstitution,
     isLoadingCredentials,
     loadingPreviewEnabled,
@@ -1625,13 +1649,16 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
 
   useEffect(() => {
     if (previewEnabled || loadingPreviewEnabled || !activeEmail) return
-    if (isLoading || isLoadingCredentials) return
+    if (isLoading || isLoadingCredentials || credentialsFetchFailed) return
+    if (credentialsReadyForEmail !== activeEmail) return
     if (!hasTransactions) return
     if (profile.monthlyIncome && profile.monthlyIncome > 0) return
     if (isIncomePromptDismissed(activeEmail)) return
     setShowIncomePrompt(true)
   }, [
     activeEmail,
+    credentialsFetchFailed,
+    credentialsReadyForEmail,
     hasTransactions,
     isLoading,
     isLoadingCredentials,
@@ -1960,21 +1987,23 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     if (activeEmail) dismissIncomePrompt(activeEmail)
     setShowIncomePrompt(false)
     setIncomePromptValue('')
+    setIncomePromptError('')
   }
 
   const handleIncomePromptSave = async () => {
     if (!activeEmail) {
-      setStatus('Primero identifica el correo del usuario.')
+      setIncomePromptError('Primero identifica el correo del usuario.')
       return
     }
 
     const monthlyIncome = parseMoneyInput(incomePromptValue)
     if (!monthlyIncome || monthlyIncome <= 0) {
-      setStatus('Agrega tu ingreso mensual para continuar.')
+      setIncomePromptError('Agrega tu ingreso mensual para continuar.')
       return
     }
 
     setIsSavingIncomePrompt(true)
+    setIncomePromptError('')
     try {
       if (previewEnabled) {
         const nextProfile: FinancialProfile = {
@@ -1994,6 +2023,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
         dismissIncomePrompt(activeEmail)
         setShowIncomePrompt(false)
         setIncomePromptValue('')
+        setIncomePromptError('')
         setStatus('Ingreso mensual guardado.')
         return
       }
@@ -2016,9 +2046,10 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
       dismissIncomePrompt(activeEmail)
       setShowIncomePrompt(false)
       setIncomePromptValue('')
+      setIncomePromptError('')
       setStatus(response.message || 'Ingreso mensual guardado.')
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'No pudimos guardar el ingreso mensual.')
+      setIncomePromptError(error instanceof Error ? error.message : 'No pudimos guardar el ingreso mensual.')
     } finally {
       setIsSavingIncomePrompt(false)
     }
@@ -4432,10 +4463,19 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                 id="onboarding-income"
                 inputMode="decimal"
                 value={incomePromptValue}
-                onChange={(event) => setIncomePromptValue(event.target.value)}
+                onChange={(event) => {
+                  setIncomePromptValue(event.target.value)
+                  if (incomePromptError) setIncomePromptError('')
+                }}
                 placeholder="Ej. 45000"
                 autoComplete="off"
+                aria-invalid={Boolean(incomePromptError)}
               />
+              {incomePromptError ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {incomePromptError}
+                </p>
+              ) : null}
             </div>
             <DialogFooter>
               <Button
