@@ -66,6 +66,14 @@ import {
   type ChartConfig,
 } from '@/components/ui/chart'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -111,6 +119,10 @@ import {
   getStoredDashboardEmail,
   setDashboardSession,
 } from '@/lib/dashboard-session'
+import {
+  dismissIncomePrompt,
+  isIncomePromptDismissed,
+} from '@/lib/onboarding'
 import {
   DEFAULT_FINANCE_CURRENCY,
   DEFAULT_INVESTMENT_ASSUMPTION,
@@ -1399,7 +1411,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [draftRows, setDraftRows] = useState<CartolaDraftRow[]>([])
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set())
   const [currentImport, setCurrentImport] = useState<CartolaImportResponse | null>(null)
-  const [status, setStatus] = useState(initialNotice || 'Identifícate con tu correo. Después ve a Conectar cuenta y sigue los pasos.')
+  const [status, setStatus] = useState(initialNotice || 'Entra con tu correo para conectar tu banco y analizar tus movimientos.')
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -1419,6 +1431,9 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [categoryPeriodFilter, setCategoryPeriodFilter] = useState<CategoryPeriodFilter>('current')
   const [updatingCategoryId, setUpdatingCategoryId] = useState<string | null>(null)
+  const [showIncomePrompt, setShowIncomePrompt] = useState(false)
+  const [incomePromptValue, setIncomePromptValue] = useState('')
+  const [isSavingIncomePrompt, setIsSavingIncomePrompt] = useState(false)
   const chatAnswerTimeoutRef = useRef<number | null>(null)
   const chatMessagesEndRef = useRef<HTMLDivElement | null>(null)
   const activeSyncfyCredentials = syncfyCredentials.filter((credential) => !syncfyCredentialNeedsReconnect(credential))
@@ -1549,6 +1564,21 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   }, [activeEmail, loadingPreviewEnabled, previewEnabled])
 
   useEffect(() => {
+    if (previewEnabled || loadingPreviewEnabled || !activeEmail || isLoadingCredentials) return
+    if (activePage !== 'inicio') return
+    if (hasConnectedInstitution) return
+
+    setActivePage('syncfy')
+  }, [
+    activeEmail,
+    activePage,
+    hasConnectedInstitution,
+    isLoadingCredentials,
+    loadingPreviewEnabled,
+    previewEnabled,
+  ])
+
+  useEffect(() => {
     let cancelled = false
     if (loadingPreviewEnabled) {
       setHouseholdInvites([])
@@ -1592,6 +1622,23 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     () => draftRows.filter((row) => selectedDraftIds.has(row.id)),
     [draftRows, selectedDraftIds]
   )
+
+  useEffect(() => {
+    if (previewEnabled || loadingPreviewEnabled || !activeEmail) return
+    if (isLoading || isLoadingCredentials) return
+    if (!hasTransactions) return
+    if (profile.monthlyIncome && profile.monthlyIncome > 0) return
+    if (isIncomePromptDismissed(activeEmail)) return
+    setShowIncomePrompt(true)
+  }, [
+    activeEmail,
+    hasTransactions,
+    isLoading,
+    isLoadingCredentials,
+    loadingPreviewEnabled,
+    previewEnabled,
+    profile.monthlyIncome,
+  ])
   const draftAnalysisTransactions = useMemo(
     () => selectedRows.map(draftRowToAnalysisTransaction),
     [selectedRows]
@@ -1906,6 +1953,74 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
       setStatus(error instanceof Error ? error.message : 'No pudimos guardar el perfil financiero.')
     } finally {
       setIsSavingProfile(false)
+    }
+  }
+
+  const dismissOnboardingIncomePrompt = () => {
+    if (activeEmail) dismissIncomePrompt(activeEmail)
+    setShowIncomePrompt(false)
+    setIncomePromptValue('')
+  }
+
+  const handleIncomePromptSave = async () => {
+    if (!activeEmail) {
+      setStatus('Primero identifica el correo del usuario.')
+      return
+    }
+
+    const monthlyIncome = parseMoneyInput(incomePromptValue)
+    if (!monthlyIncome || monthlyIncome <= 0) {
+      setStatus('Agrega tu ingreso mensual para continuar.')
+      return
+    }
+
+    setIsSavingIncomePrompt(true)
+    try {
+      if (previewEnabled) {
+        const nextProfile: FinancialProfile = {
+          ...profile,
+          email: activeEmail || profile.email || 'preview@finov.ai',
+          currency: chatCurrency,
+          monthlyIncome,
+        }
+        const nextData: DashboardResponse = {
+          ...(data || createPreviewDashboardResponse(nextProfile.email)),
+          profile: nextProfile,
+          categoryAnalysis: buildCategoryAnalysis(chatTransactions, chatSummary, nextProfile),
+          message: 'Ingreso mensual guardado.',
+        }
+        setData(nextData)
+        setProfileForm((current) => ({ ...current, monthlyIncome: moneyInputValue(monthlyIncome) }))
+        dismissIncomePrompt(activeEmail)
+        setShowIncomePrompt(false)
+        setIncomePromptValue('')
+        setStatus('Ingreso mensual guardado.')
+        return
+      }
+
+      const response = await apiJson<DashboardResponse>('/api/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          email: activeEmail,
+          currency: chatCurrency,
+          monthlyIncome,
+          monthlyBudget: profile.monthlyBudget,
+          categoryBudgets: profile.categoryBudgets,
+        }),
+      })
+      setData(response)
+      setProfileForm((current) => ({
+        ...current,
+        monthlyIncome: moneyInputValue(response.profile?.monthlyIncome ?? monthlyIncome),
+      }))
+      dismissIncomePrompt(activeEmail)
+      setShowIncomePrompt(false)
+      setIncomePromptValue('')
+      setStatus(response.message || 'Ingreso mensual guardado.')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'No pudimos guardar el ingreso mensual.')
+    } finally {
+      setIsSavingIncomePrompt(false)
     }
   }
 
@@ -3120,6 +3235,15 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                     }
                     if (Array.isArray(nextData.transactions)) {
                       setData(nextData)
+                      const nextIncome = nextData.profile?.monthlyIncome
+                      if (
+                        activeEmail &&
+                        nextData.transactions.length > 0 &&
+                        !(nextIncome && nextIncome > 0) &&
+                        !isIncomePromptDismissed(activeEmail)
+                      ) {
+                        setShowIncomePrompt(true)
+                      }
                     }
                   }}
                 />
@@ -4288,6 +4412,51 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
 
           </div>
         </div>
+
+        <Dialog
+          open={showIncomePrompt}
+          onOpenChange={(open) => {
+            if (!open) dismissOnboardingIncomePrompt()
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>¿Cuál es tu ingreso mensual?</DialogTitle>
+              <DialogDescription>
+                Ya tienes movimientos. Con tu ingreso FinovAI compara gasto, ahorro y presupuestos con más precisión.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-2">
+              <Label htmlFor="onboarding-income">Ingreso mensual ({chatCurrency})</Label>
+              <Input
+                id="onboarding-income"
+                inputMode="decimal"
+                value={incomePromptValue}
+                onChange={(event) => setIncomePromptValue(event.target.value)}
+                placeholder="Ej. 45000"
+                autoComplete="off"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={dismissOnboardingIncomePrompt}
+                disabled={isSavingIncomePrompt}
+              >
+                Ahora no
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleIncomePromptSave()}
+                disabled={isSavingIncomePrompt}
+              >
+                {isSavingIncomePrompt ? <Loader2 className="size-4 animate-spin" /> : null}
+                Guardar ingreso
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
     )
   }
@@ -4336,7 +4505,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                 <div>
                   <h1 className="text-3xl font-medium tracking-normal sm:text-4xl">Finanzas</h1>
                   <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                    Entra para conectar bancos, SAT, Bitso, American Express y fuentes compatibles.
+                    Entra para conectar tu banco y analizar fugas, patrones y ahorro.
                   </p>
                 </div>
               </header>
@@ -4346,7 +4515,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                   <CardHeader>
                     <CardTitle>Entrar a FinovAI</CardTitle>
                     <CardDescription>
-                      Usa tu correo para activar el análisis de fugas, patrones y ahorro invertible.
+                      Entra para conectar tu banco. Después FinovAI trae movimientos y te ayuda a ahorrar.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
