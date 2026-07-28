@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test'
 import {
   buildCategoryAnalysis,
   buildDashboardDebtGate,
+  buildFinancialInsights,
   buildFinancialSummary,
   DEFAULT_FINANCE_CURRENCY,
   EXPENSE_CATEGORIES,
@@ -47,6 +48,30 @@ test('finance core computes summary, budget analysis, and debt gate from one sou
   })
   expect(debtGate.active).toBe(true)
   expect(debtGate.debtShareOfIncome).toBe(43)
+})
+
+test('financial insights prefer profile income over transaction income', () => {
+  const transactions = [
+    transaction('2026-05-01', 'income', 40000, 'Sueldo', 'Nomina parcial'),
+    transaction('2026-05-02', 'expense', 10000, 'Comida fuera', 'Restaurante'),
+  ]
+  const summary = buildFinancialSummary(transactions)
+  const insights = buildFinancialInsights(summary, transactions, {
+    email: 'user@example.com',
+    currency: 'MXN',
+    monthlyIncome: 80000,
+    monthlyBudget: 50000,
+    categoryBudgets: {},
+  })
+
+  expect(summary.monthlyIncome).toBe(40000)
+  expect(insights[0]).toMatchObject({
+    id: 'net-balance',
+    tone: 'good',
+  })
+  expect(insights[0].value).toContain('70')
+  expect(insights[0].body).toContain('80')
+  expect(insights[0].body).toContain('10')
 })
 
 function transaction(

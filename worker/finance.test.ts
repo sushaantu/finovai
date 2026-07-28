@@ -424,16 +424,11 @@ class MockD1 {
         if (sql.includes('raw_json = ?')) {
           credential.raw_json = params[0]
         }
-        if (sql.includes('syncfy_site_id = COALESCE') && sql.includes('site_name = CASE')) {
+        if (sql.includes('site_name = COALESCE') || sql.includes('site_name = CASE')) {
           const nextSiteId = params[0]
           const nextSiteName = params[1]
-          const clearUselessName = Number(params[3]) === 1
           if (nextSiteId != null) credential.syncfy_site_id = nextSiteId
           if (nextSiteName != null) credential.site_name = nextSiteName
-          else if (clearUselessName) credential.site_name = null
-        } else if (sql.includes('site_name = COALESCE')) {
-          if (params[0] != null) credential.syncfy_site_id = params[0]
-          if (params[1] != null) credential.site_name = params[1]
         }
         if (sql.includes("status = 'synced'") || sql.includes("status = COALESCE(NULLIF(status, ''), 'synced')")) {
           credential.status = 'synced'
@@ -1507,6 +1502,50 @@ test('syncfy credentials endpoint replaces auth-channel labels with organization
     expect(env.DB.syncfyCredentials[0].site_name).toBe('BBVA México')
     expect(calls.some((url) => url.includes('/catalogues/site_organizations'))).toBe(true)
     expect(calls.some((url) => url.includes('/catalogues/organizations/sites'))).toBe(false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy credentials endpoint keeps channel labels when catalogue enrichment fails', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: 'mx-site-1',
+    site_name: 'Personal',
+    status: 'synced',
+    last_successful_sync_at: '2026-06-02T00:00:00Z',
+    last_pull_at: '2026-06-02T00:00:00Z',
+    last_rid: null,
+    raw_json: JSON.stringify({
+      id_credential: 'credential-1',
+      id_site: 'mx-site-1',
+      id_site_organization: 'mx-org-1',
+      site: { name: 'Personal' },
+    }),
+    created_at: '2026-06-02T00:00:00Z',
+    updated_at: '2026-06-02T00:00:00Z',
+  })
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response('{}', {
+    status: 500,
+    headers: { 'Content-Type': 'application/json' },
+  })) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/credentials?email=user@example.com'), env)
+    const data = await response.json() as SyncfyCredentialsApiResponse
+
+    expect(response.status).toBe(200)
+    expect(data.credentials[0]).toMatchObject({
+      syncfyCredentialId: 'credential-1',
+      siteName: 'Personal',
+    })
+    expect(env.DB.syncfyCredentials[0].site_name).toBe('Personal')
   } finally {
     globalThis.fetch = originalFetch
   }

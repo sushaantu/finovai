@@ -2407,30 +2407,20 @@ async function enrichSyncfyCredentialInstitution(
     : metadata.siteName || await fetchSyncfyInstitutionName(env, metadata)
   const nextSiteId = !credential.syncfy_site_id ? metadata.syncfySiteId : null
   const nextSiteName = siteName && isUsefulSyncfyInstitutionName(siteName) ? siteName : null
-  const clearUselessName = !currentNameIsUseful && Boolean(credential.site_name) && !nextSiteName
 
-  if (!nextSiteId && !nextSiteName && !clearUselessName) return false
+  // Keep channel labels like "Personal" until a real organization name is resolved.
+  // Clearing them made Conectar cuenta fall back to raw Syncfy credential IDs.
+  if (!nextSiteId && !nextSiteName) return false
 
   await env.DB.prepare(
     `UPDATE syncfy_credentials
      SET syncfy_site_id = COALESCE(?, syncfy_site_id),
-         site_name = CASE
-           WHEN ? IS NOT NULL THEN ?
-           WHEN ? = 1 THEN NULL
-           ELSE site_name
-         END,
+         site_name = COALESCE(?, site_name),
          updated_at = datetime("now")
      WHERE email = ?
        AND syncfy_credential_id = ?`
   )
-    .bind(
-      nextSiteId,
-      nextSiteName,
-      nextSiteName,
-      clearUselessName ? 1 : 0,
-      credential.email,
-      credential.syncfy_credential_id
-    )
+    .bind(nextSiteId, nextSiteName, credential.email, credential.syncfy_credential_id)
     .run()
 
   return true

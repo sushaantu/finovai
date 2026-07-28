@@ -553,7 +553,8 @@ export function buildFinancialInsights(
     ]
   }
 
-  const effectiveIncome = summary.monthlyIncome || profile?.monthlyIncome || 0
+  const incomeGuidance = buildDashboardIncomeGuidance(summary, profile)
+  const effectiveIncome = incomeGuidance.effectiveMonthlyIncome || 0
   const effectiveNetBalance = roundMoney(effectiveIncome - summary.monthlySpending)
   const insights: FinanceInsight[] = effectiveIncome > 0
     ? [{
