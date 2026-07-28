@@ -258,8 +258,8 @@ function getCredentialLogoText(credential: SyncfyCredential) {
 function getCredentialStatusText(credential: SyncfyCredential) {
   if (credential.status === 'pending_transactions') {
     return credential.ready
-      ? 'Movimientos pendientes; verificando disponibilidad.'
-      : `Movimientos pendientes; siguiente verificación en ${formatCooldown(credential.cooldownSeconds)}.`
+      ? 'FinovAI está trayendo movimientos; puedes verificar ahora.'
+      : `FinovAI está trayendo movimientos; siguiente verificación en ${formatCooldown(credential.cooldownSeconds)}.`
   }
 
   if (credential.needsReconnect || credential.status === 'needs_reconnect') {
@@ -275,14 +275,18 @@ function getCredentialStatusText(credential: SyncfyCredential) {
 
 function getDefaultConnectMessage(credentials: SyncfyCredential[]) {
   if (credentials.some((credential) => credential.status === 'pending_transactions')) {
-    return 'Credencial creada. Movimientos todavía no importados.'
+    return 'FinovAI está trayendo movimientos. Puedes ir a Chat; el análisis estará listo cuando lleguen.'
+  }
+
+  if (credentials.some((credential) => credential.needsReconnect || credential.status === 'needs_reconnect')) {
+    return 'Hay una institución que necesita reconexión. Usa Actualizar acceso o vuelve a conectar.'
   }
 
   if (credentials.length > 0) {
     return 'Institución conectada. Puedes sincronizar cuando esté disponible.'
   }
 
-  return 'Ve a Conectar cuenta y sigue los pasos para vincular una institución.'
+  return 'Conecta tu banco para traer movimientos reales. Empieza con Conectar institución.'
 }
 
 export function SyncfyConnect({
@@ -312,6 +316,10 @@ export function SyncfyConnect({
 
   const hasCredentials = credentials.length > 0
   const isBusy = isLoading || isRefreshing || Boolean(isDeletingCredentialId)
+  const hasPendingTransactions = credentials.some((credential) => credential.status === 'pending_transactions')
+  const hasReconnectRequired = credentials.some((credential) => (
+    credential.needsReconnect || credential.status === 'needs_reconnect'
+  ))
 
   const applyCredentials = (nextCredentials: SyncfyCredential[]) => {
     setCredentials(nextCredentials)
@@ -717,17 +725,31 @@ export function SyncfyConnect({
     <Card className={FINANCE_CONNECT_CARD_CLASS}>
       <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <CardTitle>{hasCredentials ? 'Instituciones conectadas' : 'Conecta una institución'}</CardTitle>
+          <CardTitle>
+            {hasPendingTransactions
+              ? 'Preparando movimientos'
+              : hasCredentials
+                ? 'Instituciones conectadas'
+                : 'Conecta una institución'}
+          </CardTitle>
           <CardDescription>
-            Bancos, SAT, Bitso, American Express y fuentes compatibles en México.
+            {hasPendingTransactions
+              ? 'La institución ya está vinculada. FinovAI está trayendo movimientos; puedes seguir en Chat mientras llegan.'
+              : hasReconnectRequired
+                ? 'Actualiza el acceso de la institución para volver a leer movimientos.'
+                : hasCredentials
+                  ? 'Bancos, SAT, Bitso, American Express y fuentes compatibles en México.'
+                  : 'Conecta tu banco para traer movimientos. Empieza con Conectar institución.'}
           </CardDescription>
         </div>
         <Badge variant={credentials.length > 0 ? 'secondary' : 'outline'}>
           {isLoadingCredentials
             ? 'Cargando'
-            : credentials.length > 0
-              ? `${credentials.length} credencial${credentials.length === 1 ? '' : 'es'}`
-              : 'Sin conexión'}
+            : hasPendingTransactions
+              ? 'Preparando'
+              : credentials.length > 0
+                ? `${credentials.length} credencial${credentials.length === 1 ? '' : 'es'}`
+                : 'Sin conexión'}
         </Badge>
       </CardHeader>
       <CardContent className="grid gap-4">
@@ -779,7 +801,7 @@ export function SyncfyConnect({
                       <p className="truncate text-sm font-medium">{getCredentialLabel(credential)}</p>
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">
                         {isPendingTransactions
-                          ? 'Credencial creada; movimientos pendientes'
+                          ? 'Institución conectada; movimientos en camino'
                           : needsReconnect
                             ? 'Acceso requiere actualización'
                             : 'Movimientos importados'}
