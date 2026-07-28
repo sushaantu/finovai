@@ -111,6 +111,33 @@ import {
   getStoredDashboardEmail,
   setDashboardSession,
 } from '@/lib/dashboard-session'
+import {
+  DEFAULT_FINANCE_CURRENCY,
+  DEFAULT_INVESTMENT_ASSUMPTION,
+  DISCRETIONARY_CATEGORIES,
+  EXPENSE_CATEGORIES,
+  INVESTMENT_CATEGORY,
+  buildCategoryAnalysis,
+  buildDashboardDebtGate,
+  buildDashboardIncomeGuidance,
+  buildFinanceDataCoverage,
+  buildFinancialSummary,
+  finalizeDashboardChatAnswer,
+  getBudgetStatus,
+  getFinanceCategoriesForType,
+  projectInvestmentContribution,
+  roundMoney,
+  type CategoryAnalysis,
+  type CategoryBudgetStatus,
+  type FinanceActionPlan,
+  type FinanceAnalysisTransaction,
+  type FinanceInsight,
+  type FinanceSummary,
+  type FinanceTransaction,
+  type FinanceTransactionSource,
+  type FinanceTransactionType,
+  type FinancialProfile,
+} from '../../shared/finance-core'
 
 interface DashboardProps {
   email: string | null
@@ -120,29 +147,11 @@ interface DashboardProps {
   onLogout: () => void
 }
 
-type TransactionType = 'income' | 'expense'
-type TransactionSource = 'manual' | 'cartola' | 'syncfy'
+type TransactionType = FinanceTransactionType
+type TransactionSource = FinanceTransactionSource
 type DashboardPage = 'inicio' | 'syncfy' | 'cartola' | 'movimientos' | 'categorias' | 'analisis' | 'ajustes'
 type DashboardTheme = 'light' | 'dark'
 type CategoryPeriodFilter = 'current' | 'previous' | 'all'
-
-interface FinanceTransaction {
-  id: string
-  email: string
-  date: string
-  type: TransactionType
-  amount: number
-  currency: string
-  category: string
-  description: string
-  merchant: string | null
-  notes: string | null
-  source: TransactionSource
-  confidence: number
-  rawSource: string | null
-  cartolaImportId: string | null
-  created_at: string
-}
 
 interface CartolaDraftRow {
   id: string
@@ -157,110 +166,8 @@ interface CartolaDraftRow {
   rawSource: string
 }
 
-interface FinanceSummary {
-  month: string
-  monthlyIncome: number
-  monthlySpending: number
-  netBalance: number
-  transactionCount: number
-  dataCoverage: {
-    firstDate: string | null
-    lastDate: string | null
-    firstMonth: string | null
-    lastMonth: string | null
-    monthCount: number
-    transactionCount: number
-    preliminary: boolean
-  }
-  topSpendingCategory: string
-  topSpendingCategoryAmount: number
-  unusualHighSpendDay: { date: string; amount: number } | null
-  recurringExpenses: Array<{ key: string; description: string; amount: number; count: number }>
-  estimatedSavingsOpportunity: number
-}
 
-interface FinancialProfile {
-  email: string
-  currency: string
-  monthlyIncome: number | null
-  monthlyBudget: number | null
-  categoryBudgets: Record<string, number>
-}
-
-type BudgetStatus = 'under' | 'near' | 'over' | 'unset'
-
-interface CategoryBudgetComparison {
-  category: string
-  amount: number
-  share: number
-  previousAmount: number
-  deltaFromPrevious: number
-  budget: number | null
-  budgetUsage: number | null
-  budgetStatus: BudgetStatus
-  advice: string
-}
-
-interface CategoryMonthRow {
-  month: string
-  spendingTotal: number
-  incomeTotal: number
-  topCategory: string
-  deltaFromPrevious: number | null
-  budgetTotal: number | null
-  status: BudgetStatus
-}
-
-interface CategoryAnalysis {
-  period: string
-  periodLabel: string
-  previousPeriod: string | null
-  spendingTotal: number
-  incomeTotal: number
-  budgetTotal: number | null
-  budgetSource: 'user' | 'income_rule' | 'missing'
-  fixedExpenseShare: number | null
-  fixedExpenseLimit: number | null
-  summaryAdvice: string
-  categories: CategoryBudgetComparison[]
-  monthRows: CategoryMonthRow[]
-}
-
-interface FinanceInsight {
-  id: string
-  title: string
-  value: string
-  body: string
-  tone: 'good' | 'watch' | 'urgent'
-}
-
-interface FinanceOpportunity {
-  id: string
-  kind: 'recurring' | 'merchant_leak' | 'category_leak' | 'unusual_day'
-  title: string
-  body: string
-  sourceLabel: string
-  estimatedMonthlySavings: number
-}
-
-interface FinanceActionPlan {
-  monthlySavingsTarget: number
-  topOpportunities: FinanceOpportunity[]
-  investmentProjection: {
-    monthlyContribution: number
-    years: number
-    annualReturn: number
-    totalContributed: number
-    tenYearValue: number
-    potentialGrowth: number
-  }
-  nextActions: Array<{
-    id: string
-    label: string
-    body: string
-    target: 'movements' | 'categories' | 'chat' | 'connect' | 'partner'
-  }>
-}
+type BudgetStatus = CategoryBudgetStatus
 
 interface DashboardResponse {
   success: boolean
@@ -367,29 +274,7 @@ interface HouseholdResponse {
   message?: string
 }
 
-type AnalysisTransaction = Pick<FinanceTransaction, 'date' | 'type' | 'amount' | 'currency' | 'category' | 'description'>
-
-const INVESTMENT_CATEGORY = 'Inversión'
-const EXPENSE_CATEGORIES = [
-  'Comida fuera',
-  'Supermercado',
-  'Transporte',
-  'Suscripciones',
-  'Hogar',
-  'Salud',
-  'Educación',
-  'Ocio',
-  'Compras',
-  'Transferencias',
-  'Retiros',
-  'Deuda',
-  INVESTMENT_CATEGORY,
-  'Impuestos',
-  'Otro',
-]
-
-const INCOME_CATEGORIES = ['Sueldo', 'Freelance', INVESTMENT_CATEGORY, 'Reembolso', 'Venta', 'Otro ingreso']
-const DISCRETIONARY_CATEGORIES = new Set(['Comida fuera', 'Suscripciones', 'Ocio', 'Transporte'])
+type AnalysisTransaction = FinanceAnalysisTransaction
 const DASHBOARD_CHAT_SUGGESTIONS = [
   '¿Dónde está mi fuga principal?',
   '¿Qué puedo ahorrar esta semana?',
@@ -504,10 +389,6 @@ const SINGLE_VALUE_CHART_CONFIG = {
     color: 'var(--chart-1)',
   },
 } satisfies ChartConfig
-const DEFAULT_INVESTMENT_ASSUMPTION = {
-  years: 10,
-  annualReturn: 0.08,
-}
 const CHAT_TOOLTIP_POSITION = { x: 8, y: 8 }
 const CHAT_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
   maxWidth: 'calc(100% - 16px)',
@@ -542,7 +423,7 @@ const EMPTY_TRANSACTIONS: FinanceTransaction[] = []
 const EMPTY_INSIGHTS: FinanceInsight[] = []
 const EMPTY_PROFILE: FinancialProfile = {
   email: '',
-  currency: 'MXN',
+  currency: DEFAULT_FINANCE_CURRENCY,
   monthlyIncome: null,
   monthlyBudget: null,
   categoryBudgets: {},
@@ -591,7 +472,7 @@ function createManualForm(): ManualForm {
   }
 }
 
-function formatCurrency(value: number, currency = 'MXN') {
+function formatCurrency(value: number, currency = DEFAULT_FINANCE_CURRENCY) {
   return new Intl.NumberFormat('es-CL', {
     style: 'currency',
     currency,
@@ -599,7 +480,7 @@ function formatCurrency(value: number, currency = 'MXN') {
   }).format(value)
 }
 
-function formatCardCurrency(value: number, currency = 'MXN') {
+function formatCardCurrency(value: number, currency = DEFAULT_FINANCE_CURRENCY) {
   const formatted = new Intl.NumberFormat('es-CL', {
     style: 'currency',
     currency,
@@ -659,24 +540,6 @@ function getMonthRange(firstMonth: string | null, lastMonth: string | null) {
   }
 
   return months
-}
-
-function buildDataCoverage(transactions: Array<Pick<AnalysisTransaction, 'date'>>): FinanceSummary['dataCoverage'] {
-  const dates = transactions
-    .map((transaction) => transaction.date)
-    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
-    .sort()
-  const months = [...new Set(dates.map((date) => date.slice(0, 7)))]
-
-  return {
-    firstDate: dates[0] || null,
-    lastDate: dates.at(-1) || null,
-    firstMonth: months[0] || null,
-    lastMonth: months.at(-1) || null,
-    monthCount: months.length,
-    transactionCount: transactions.length,
-    preliminary: months.length < 3 || transactions.length < 30,
-  }
 }
 
 function formatDataCoverage(coverage: FinanceSummary['dataCoverage']) {
@@ -861,10 +724,6 @@ function getCategoryIcon(category: string): LucideIcon {
   return match?.icon || CircleDollarSign
 }
 
-function getFinanceCategoriesForType(type: TransactionType) {
-  return type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES
-}
-
 function getExpenseBreakdown(transactions: AnalysisTransaction[], month?: string | null) {
   const totals = new Map<string, number>()
 
@@ -897,10 +756,6 @@ function getBreakdownTotal(breakdown: Array<{ total: number }>) {
   return Math.round(breakdown.reduce((sum, item) => sum + item.total, 0) * 100) / 100
 }
 
-function roundUiMoney(value: number) {
-  return Math.round(value * 100) / 100
-}
-
 function parseMoneyInput(value: string): number | null {
   const normalized = value.replace(/[^\d.,-]/g, '').trim()
   if (!normalized) return null
@@ -909,18 +764,11 @@ function parseMoneyInput(value: string): number | null {
     ? normalized.replace(/\./g, '').replace(',', '.')
     : normalized.replace(/,/g, '')
   const number = Number(clean)
-  return Number.isFinite(number) && number >= 0 ? roundUiMoney(number) : null
+  return Number.isFinite(number) && number >= 0 ? roundMoney(number) : null
 }
 
 function moneyInputValue(value: number | null | undefined) {
   return value && value > 0 ? String(value) : ''
-}
-
-function getBudgetStatus(amount: number, budget: number | null | undefined): BudgetStatus {
-  if (!budget || budget <= 0) return 'unset'
-  if (amount > budget) return 'over'
-  if (amount / budget >= 0.85) return 'near'
-  return 'under'
 }
 
 function getBudgetStatusLabel(status: BudgetStatus) {
@@ -935,137 +783,6 @@ function getBudgetStatusClass(status: BudgetStatus) {
   if (status === 'near') return 'border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300'
   if (status === 'under') return 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
   return 'border-border/70 bg-secondary text-muted-foreground'
-}
-
-function getMonthTotalsForAnalysis(transactions: AnalysisTransaction[], month: string) {
-  const categoryTotals = new Map<string, number>()
-  let spendingTotal = 0
-  let incomeTotal = 0
-
-  for (const transaction of transactions) {
-    if (!transaction.date.startsWith(month)) continue
-    if (transaction.type === 'income') {
-      incomeTotal += transaction.amount
-      continue
-    }
-    spendingTotal += transaction.amount
-    categoryTotals.set(transaction.category, (categoryTotals.get(transaction.category) || 0) + transaction.amount)
-  }
-
-  const topCategory = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'Sin datos'
-  return {
-    categoryTotals,
-    spendingTotal: roundUiMoney(spendingTotal),
-    incomeTotal: roundUiMoney(incomeTotal),
-    topCategory,
-  }
-}
-
-function getAvailableMonths(transactions: AnalysisTransaction[]) {
-  return [...new Set(transactions.map((transaction) => transaction.date.slice(0, 7)).filter(Boolean))]
-    .sort()
-    .reverse()
-}
-
-function getProfileIncome(profile: FinancialProfile, fallbackIncome: number) {
-  return profile.monthlyIncome && profile.monthlyIncome > 0 ? profile.monthlyIncome : fallbackIncome
-}
-
-function getMonthlyBudget(profile: FinancialProfile, fallbackIncome: number) {
-  if (profile.monthlyBudget && profile.monthlyBudget > 0) {
-    return { value: profile.monthlyBudget, source: 'user' as const }
-  }
-  const income = getProfileIncome(profile, fallbackIncome)
-  if (income > 0) return { value: roundUiMoney(income * 0.8), source: 'income_rule' as const }
-  return { value: null, source: 'missing' as const }
-}
-
-function buildClientCategoryAnalysis(
-  transactions: AnalysisTransaction[],
-  summary: FinanceSummary,
-  profile: FinancialProfile,
-  period = summary.month
-): CategoryAnalysis {
-  const months = getAvailableMonths(transactions)
-  const currentPeriod = period || months[0] || summary.month
-  const previousPeriod = months.find((month) => month < currentPeriod) || null
-  const current = getMonthTotalsForAnalysis(transactions, currentPeriod)
-  const previous = previousPeriod ? getMonthTotalsForAnalysis(transactions, previousPeriod) : null
-  const budget = getMonthlyBudget(profile, current.incomeTotal)
-  const denominator = current.spendingTotal || 1
-  const currency = profile.currency || transactions[0]?.currency || 'MXN'
-
-  const categories = [...current.categoryTotals.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([category, rawAmount]) => {
-      const amount = roundUiMoney(rawAmount)
-      const previousAmount = roundUiMoney(previous?.categoryTotals.get(category) || 0)
-      const categoryBudget = profile.categoryBudgets[category] || null
-      const budgetStatus = getBudgetStatus(amount, categoryBudget)
-      const deltaFromPrevious = roundUiMoney(amount - previousAmount)
-      const advice = budgetStatus === 'over' && categoryBudget
-        ? `${category} está ${formatCardCurrency(amount - categoryBudget, currency)} sobre presupuesto.`
-        : deltaFromPrevious > 0
-          ? `${category} subió ${formatCardCurrency(deltaFromPrevious, currency)} frente al mes anterior.`
-          : categoryBudget
-            ? `${category} sigue dentro del presupuesto.`
-            : `Sin presupuesto para ${category}.`
-
-      return {
-        category,
-        amount,
-        share: Math.round((amount / denominator) * 100),
-        previousAmount,
-        deltaFromPrevious,
-        budget: categoryBudget,
-        budgetUsage: categoryBudget ? Math.round((amount / categoryBudget) * 100) : null,
-        budgetStatus,
-        advice,
-      }
-    })
-
-  const income = getProfileIncome(profile, current.incomeTotal)
-  const summaryAdvice = budget.source === 'missing'
-    ? 'Falta tu ingreso y presupuesto mensual. Agrega esos datos para comparar el gasto contra una meta real.'
-    : budget.value && current.spendingTotal > budget.value
-      ? `Este mes estás ${formatCardCurrency(current.spendingTotal - budget.value, currency)} sobre presupuesto.`
-      : budget.source === 'income_rule'
-        ? `Aún no tienes presupuesto guardado. FinovAI propone ${formatCardCurrency(budget.value || 0, currency)} como tope mensual.`
-        : income > 0 && current.spendingTotal / income > 0.5
-          ? `Tus gastos superan 50% de tus ingresos. Revisa gastos fijos y deuda.`
-          : 'Vas dentro del presupuesto mensual.'
-
-  const monthRows = months.map((month, index) => {
-    const totals = getMonthTotalsForAnalysis(transactions, month)
-    const previousMonth = months[index + 1]
-    const previousTotals = previousMonth ? getMonthTotalsForAnalysis(transactions, previousMonth) : null
-    const monthBudget = getMonthlyBudget(profile, totals.incomeTotal).value
-
-    return {
-      month,
-      spendingTotal: totals.spendingTotal,
-      incomeTotal: totals.incomeTotal,
-      topCategory: totals.topCategory,
-      deltaFromPrevious: previousTotals ? roundUiMoney(totals.spendingTotal - previousTotals.spendingTotal) : null,
-      budgetTotal: monthBudget,
-      status: getBudgetStatus(totals.spendingTotal, monthBudget),
-    }
-  })
-
-  return {
-    period: currentPeriod,
-    periodLabel: formatMonth(currentPeriod),
-    previousPeriod,
-    spendingTotal: current.spendingTotal,
-    incomeTotal: current.incomeTotal,
-    budgetTotal: budget.value,
-    budgetSource: budget.source,
-    fixedExpenseShare: income > 0 ? Math.round((current.spendingTotal / income) * 100) : null,
-    fixedExpenseLimit: income > 0 ? roundUiMoney(income * 0.5) : null,
-    summaryAdvice,
-    categories,
-    monthRows,
-  }
 }
 
 function CategorySearchSelect({
@@ -1267,70 +984,6 @@ function getRecurringChartData(summary: FinanceSummary) {
   }))
 }
 
-function getLatestMonth(transactions: AnalysisTransaction[]) {
-  return transactions
-    .map((transaction) => transaction.date.slice(0, 7))
-    .filter(Boolean)
-    .sort()
-    .at(-1) || EMPTY_SUMMARY.month
-}
-
-function buildLocalSummary(transactions: AnalysisTransaction[]): FinanceSummary {
-  const month = getLatestMonth(transactions)
-  const monthlyTransactions = transactions.filter((transaction) => transaction.date.startsWith(month))
-  const categoryTotals = new Map<string, number>()
-  const dayTotals = new Map<string, number>()
-  const recurringGroups = new Map<string, AnalysisTransaction[]>()
-  let monthlyIncome = 0
-  let monthlySpending = 0
-  let estimatedSavingsOpportunity = 0
-
-  for (const transaction of monthlyTransactions) {
-    if (transaction.type === 'income') {
-      monthlyIncome += transaction.amount
-      continue
-    }
-
-    monthlySpending += transaction.amount
-    categoryTotals.set(transaction.category, (categoryTotals.get(transaction.category) || 0) + transaction.amount)
-    dayTotals.set(transaction.date, (dayTotals.get(transaction.date) || 0) + transaction.amount)
-    if (DISCRETIONARY_CATEGORIES.has(transaction.category)) {
-      estimatedSavingsOpportunity += transaction.amount * 0.15
-    }
-
-    const recurringKey = transaction.description.toLowerCase().replace(/\d+/g, '').replace(/\s+/g, ' ').trim()
-    if (recurringKey) {
-      recurringGroups.set(recurringKey, [...(recurringGroups.get(recurringKey) || []), transaction])
-    }
-  }
-
-  const topCategory = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1])[0]
-  const unusualDay = [...dayTotals.entries()].sort((a, b) => b[1] - a[1])[0]
-  const recurringExpenses = [...recurringGroups.entries()]
-    .filter(([, group]) => group.length >= 2)
-    .map(([key, group]) => ({
-      key,
-      description: group[0]?.description || key,
-      amount: Math.round((group.reduce((total, item) => total + item.amount, 0) / group.length) * 100) / 100,
-      count: group.length,
-    }))
-    .sort((a, b) => b.count - a.count)
-
-  return {
-    month,
-    monthlyIncome: Math.round(monthlyIncome * 100) / 100,
-    monthlySpending: Math.round(monthlySpending * 100) / 100,
-    netBalance: Math.round((monthlyIncome - monthlySpending) * 100) / 100,
-    transactionCount: transactions.length,
-    dataCoverage: buildDataCoverage(transactions),
-    topSpendingCategory: topCategory?.[0] || 'Sin datos',
-    topSpendingCategoryAmount: Math.round((topCategory?.[1] || 0) * 100) / 100,
-    unusualHighSpendDay: unusualDay ? { date: unusualDay[0], amount: Math.round(unusualDay[1] * 100) / 100 } : null,
-    recurringExpenses,
-    estimatedSavingsOpportunity: Math.round(estimatedSavingsOpportunity * 100) / 100,
-  }
-}
-
 function createPreviewTransaction(
   id: string,
   date: string,
@@ -1345,7 +998,7 @@ function createPreviewTransaction(
     date,
     type,
     amount,
-    currency: 'MXN',
+    currency: DEFAULT_FINANCE_CURRENCY,
     category,
     description,
     merchant: description,
@@ -1383,10 +1036,10 @@ function createPreviewDashboardResponse(email: string): DashboardResponse {
     createPreviewTransaction('preview-15', '2026-06-14', INVESTMENT_CATEGORY, 'Bitso compra recurrente', 2500),
   ].map((transaction) => ({ ...transaction, email }))
 
-  const summary = buildLocalSummary(transactions)
+  const summary = buildFinancialSummary(transactions)
   const profile: FinancialProfile = {
     email,
-    currency: 'MXN',
+    currency: DEFAULT_FINANCE_CURRENCY,
     monthlyIncome: 52000,
     monthlyBudget: 39000,
     categoryBudgets: {
@@ -1399,7 +1052,8 @@ function createPreviewDashboardResponse(email: string): DashboardResponse {
       Impuestos: 3500,
     },
   }
-  const categoryAnalysis = buildClientCategoryAnalysis(transactions, summary, profile)
+  const categoryAnalysis = buildCategoryAnalysis(transactions, summary, profile)
+  const investmentProjection = projectInvestmentContribution(summary.estimatedSavingsOpportunity)
   const actionPlan: FinanceActionPlan = {
     monthlySavingsTarget: summary.estimatedSavingsOpportunity,
     topOpportunities: [
@@ -1420,14 +1074,7 @@ function createPreviewDashboardResponse(email: string): DashboardResponse {
         estimatedMonthlySavings: 428,
       },
     ],
-    investmentProjection: {
-      monthlyContribution: summary.estimatedSavingsOpportunity,
-      years: 10,
-      annualReturn: DEFAULT_INVESTMENT_ASSUMPTION.annualReturn,
-      totalContributed: summary.estimatedSavingsOpportunity * 120,
-      tenYearValue: projectMonthlyContribution(summary.estimatedSavingsOpportunity),
-      potentialGrowth: Math.max(0, projectMonthlyContribution(summary.estimatedSavingsOpportunity) - summary.estimatedSavingsOpportunity * 120),
-    },
+    investmentProjection,
     nextActions: [
       {
         id: 'preview-plan',
@@ -1462,7 +1109,7 @@ function createPreviewDashboardResponse(email: string): DashboardResponse {
       {
         id: 'preview-investable',
         title: 'Ahorro invertible',
-        value: formatCardCurrency(summary.estimatedSavingsOpportunity, 'MXN'),
+        value: formatCardCurrency(summary.estimatedSavingsOpportunity, DEFAULT_FINANCE_CURRENCY),
         body: 'FinovAI puede transformar ese margen en próximos pasos de inversión.',
         tone: 'good',
       },
@@ -1506,22 +1153,8 @@ function createPreviewSyncfyCredentials(): SyncfyCredential[] {
   ]
 }
 
-function projectMonthlyContribution(monthlyContribution: number, years = DEFAULT_INVESTMENT_ASSUMPTION.years) {
-  if (monthlyContribution <= 0) return 0
-
-  const months = years * 12
-  const monthlyReturn = DEFAULT_INVESTMENT_ASSUMPTION.annualReturn / 12
-  let value = 0
-
-  for (let month = 0; month < months; month += 1) {
-    value = (value + monthlyContribution) * (1 + monthlyReturn)
-  }
-
-  return Math.round(value)
-}
-
 function getSavingsProjection(summary: FinanceSummary) {
-  return projectMonthlyContribution(summary.estimatedSavingsOpportunity)
+  return projectInvestmentContribution(summary.estimatedSavingsOpportunity).tenYearValue
 }
 
 function draftRowToAnalysisTransaction(row: CartolaDraftRow): AnalysisTransaction {
@@ -1532,6 +1165,7 @@ function draftRowToAnalysisTransaction(row: CartolaDraftRow): AnalysisTransactio
     currency: row.currency,
     category: row.category,
     description: row.description,
+    merchant: row.merchant,
   }
 }
 
@@ -1566,37 +1200,7 @@ function buildDashboardChatOpening(
 }
 
 function getDashboardEffectiveMonthlyIncome(summary: FinanceSummary, profile?: FinancialProfile | null) {
-  return getProfileIncome(profile || EMPTY_PROFILE, summary.monthlyIncome)
-}
-
-function getDashboardDebtGate(transactions: AnalysisTransaction[], summary: FinanceSummary, effectiveMonthlyIncome = summary.monthlyIncome) {
-  const debtTransactions = transactions.filter((transaction) => (
-    transaction.type === 'expense' &&
-    transaction.category === 'Deuda' &&
-    transaction.date.startsWith(summary.month)
-  ))
-  const monthlyDebtPayments = roundUiMoney(debtTransactions.reduce((sum, transaction) => sum + transaction.amount, 0))
-  const debtShareOfIncome = effectiveMonthlyIncome > 0
-    ? Math.round((monthlyDebtPayments / effectiveMonthlyIncome) * 100)
-    : null
-  const debtShareOfSpending = summary.monthlySpending > 0
-    ? Math.round((monthlyDebtPayments / summary.monthlySpending) * 100)
-    : null
-  const expensiveDebtSignals = debtTransactions.filter((transaction) => (
-    /(american express|amex|tarjeta|tdc|interes|comision|disposicion|pago minimo|cat)/i.test(transaction.description)
-  ))
-  const active = monthlyDebtPayments > 0 && (
-    summary.topSpendingCategory === 'Deuda' ||
-    (debtShareOfIncome !== null && debtShareOfIncome >= 30) ||
-    (debtShareOfSpending !== null && debtShareOfSpending >= 25) ||
-    expensiveDebtSignals.length > 0
-  )
-
-  return {
-    active,
-    monthlyDebtPayments,
-    debtShareOfIncome,
-  }
+  return buildDashboardIncomeGuidance(summary, profile || EMPTY_PROFILE).effectiveMonthlyIncome || 0
 }
 
 function buildDashboardChatAnswer(
@@ -1628,11 +1232,11 @@ function buildDashboardChatAnswer(
   const topTransactions = getTopTransactions(transactions, summary.month)
   const prefix = isDraftAnalysis ? 'Preliminar: ' : ''
   const effectiveMonthlyIncome = getDashboardEffectiveMonthlyIncome(summary, profile)
-  const monthlyMargin = effectiveMonthlyIncome > 0 ? roundUiMoney(effectiveMonthlyIncome - summary.monthlySpending) : null
+  const monthlyMargin = effectiveMonthlyIncome > 0 ? roundMoney(effectiveMonthlyIncome - summary.monthlySpending) : null
   const spendingShareOfIncome = effectiveMonthlyIncome > 0 ? Math.round((summary.monthlySpending / effectiveMonthlyIncome) * 100) : null
-  const starterSavingsTarget = effectiveMonthlyIncome > 0 ? roundUiMoney(effectiveMonthlyIncome * 0.05) : null
-  const strongSavingsTarget = effectiveMonthlyIncome > 0 ? roundUiMoney(effectiveMonthlyIncome * 0.2) : null
-  const debtGate = getDashboardDebtGate(transactions, summary, effectiveMonthlyIncome)
+  const starterSavingsTarget = effectiveMonthlyIncome > 0 ? roundMoney(effectiveMonthlyIncome * 0.05) : null
+  const strongSavingsTarget = effectiveMonthlyIncome > 0 ? roundMoney(effectiveMonthlyIncome * 0.2) : null
+  const debtGate = buildDashboardDebtGate(summary, transactions, effectiveMonthlyIncome)
 
   if (isCategoryQuestion(normalized) && topCategory) {
     const totalSpending = getBreakdownTotal(breakdown)
@@ -1704,40 +1308,6 @@ function buildDashboardChatAnswer(
   return `${prefix}Tengo ${transactions.length} movimientos para analizar. Puedo revisar categorías, días atípicos, cargos recurrentes y ahorro estimado.`
 }
 
-function finalizeDashboardChatAnswer(answer: string) {
-  const replaced = answer
-    .replace(/\bVe a Revisar recurrentes\b/gi, 'Ve a Movimientos')
-    .replace(/\bEn Revisar recurrentes\b/gi, 'En Movimientos')
-    .replace(/\bdesde Revisar recurrentes\b/gi, 'desde Movimientos')
-    .replace(/\bRevisar recurrentes\b/g, 'Movimientos')
-    .replace(/\brevisar recurrentes\b/g, 'Movimientos')
-    .trim()
-  const chartPayloadStart = replaced.search(/\n\s*(CHART|```(?:json|chart)?\s*\{)/i)
-  const withoutChartPayload = chartPayloadStart >= 0 && /("datasets"|"type"\s*:|"labels"\s*:)/i.test(replaced.slice(chartPayloadStart))
-    ? replaced.slice(0, chartPayloadStart).trim()
-    : replaced
-
-  if (!withoutChartPayload || /[.!?…)]$/.test(withoutChartPayload)) return withoutChartPayload
-
-  const lines = withoutChartPayload.split('\n')
-  if (lines.length > 1 && !/[.!?…)]$/.test((lines.at(-1) || '').trim())) {
-    return lines.slice(0, -1).join('\n').trim()
-  }
-
-  const lastSentenceEnd = Math.max(
-    withoutChartPayload.lastIndexOf('.'),
-    withoutChartPayload.lastIndexOf('!'),
-    withoutChartPayload.lastIndexOf('?'),
-    withoutChartPayload.lastIndexOf('…')
-  )
-
-  if (lastSentenceEnd >= 0) {
-    return withoutChartPayload.slice(0, lastSentenceEnd + 1).trim()
-  }
-
-  return `${withoutChartPayload.replace(/[,;:\-\s]+$/, '')}.`
-}
-
 function getDashboardChatChartType(
   question: string,
   transactions: AnalysisTransaction[],
@@ -1749,7 +1319,7 @@ function getDashboardChatChartType(
   const hasMonthSpending = summary.monthlySpending > 0
   const requestedChartCategory = getDashboardChatChartCategory(question)
   const asksForChart = isExplicitChartQuestion(normalized)
-  const debtGate = getDashboardDebtGate(transactions, summary)
+  const debtGate = buildDashboardDebtGate(summary, transactions)
 
   if (asksForChart && requestedChartCategory && transactions.some((transaction) => transaction.type === 'expense' && transaction.category === requestedChartCategory)) {
     return 'category-trend'
@@ -2010,7 +1580,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const rawSummary = data?.summary || EMPTY_SUMMARY
   const summary = rawSummary.dataCoverage
     ? rawSummary
-    : { ...rawSummary, dataCoverage: buildDataCoverage(transactions) }
+    : { ...rawSummary, dataCoverage: buildFinanceDataCoverage(transactions) }
   const profile = data?.profile || EMPTY_PROFILE
   const serverCategoryAnalysis = data?.categoryAnalysis || EMPTY_CATEGORY_ANALYSIS
   const insights = data?.insights || EMPTY_INSIGHTS
@@ -2027,23 +1597,24 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     [selectedRows]
   )
   const chatTransactions: AnalysisTransaction[] = hasDraftRows ? draftAnalysisTransactions : transactions
-  const chatSummary = hasDraftRows ? buildLocalSummary(draftAnalysisTransactions) : summary
+  const chatSummary = hasDraftRows ? buildFinancialSummary(draftAnalysisTransactions) : summary
   const chatProfile = profile.email ? profile : { ...profile, email: activeEmail || profile.email }
-  const latestCurrency = transactions[0]?.currency || 'MXN'
+  const latestCurrency = transactions[0]?.currency || DEFAULT_FINANCE_CURRENCY
   const chatCurrency = chatProfile.currency || chatTransactions[0]?.currency || latestCurrency
-  const effectiveMonthlyIncome = chatSummary.monthlyIncome || chatProfile.monthlyIncome || 0
+  const incomeGuidance = buildDashboardIncomeGuidance(chatSummary, chatProfile)
+  const effectiveMonthlyIncome = incomeGuidance.effectiveMonthlyIncome || 0
   const effectiveNetBalance = effectiveMonthlyIncome > 0
     ? Math.round((effectiveMonthlyIncome - chatSummary.monthlySpending) * 100) / 100
     : null
   const savedMonthlyBudget = chatProfile.monthlyBudget || 0
   const savedCategoryBudgetEntries = Object.entries(chatProfile.categoryBudgets || {})
     .filter(([, amount]) => amount > 0)
-  const savedCategoryBudgetTotal = roundUiMoney(savedCategoryBudgetEntries.reduce((sum, [, amount]) => sum + amount, 0))
+  const savedCategoryBudgetTotal = roundMoney(savedCategoryBudgetEntries.reduce((sum, [, amount]) => sum + amount, 0))
   const budgetCoveragePercent = savedMonthlyBudget > 0
     ? Math.round((savedCategoryBudgetTotal / savedMonthlyBudget) * 100)
     : null
   const budgetRunwayAmount = savedMonthlyBudget > 0
-    ? roundUiMoney(savedMonthlyBudget - chatSummary.monthlySpending)
+    ? roundMoney(savedMonthlyBudget - chatSummary.monthlySpending)
     : null
   const isDraftChat = hasDraftRows
   const pageMeta = PAGE_META[activePage]
@@ -2056,7 +1627,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     [chatTransactions]
   )
   const fallbackCategoryAnalysis = useMemo(
-    () => buildClientCategoryAnalysis(chatTransactions, chatSummary, chatProfile),
+    () => buildCategoryAnalysis(chatTransactions, chatSummary, chatProfile),
     [chatProfile, chatSummary, chatTransactions]
   )
   const baseCategoryAnalysis = hasDraftRows || !data?.categoryAnalysis
@@ -2064,7 +1635,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     : serverCategoryAnalysis
   const previousCategoryAnalysis = useMemo(
     () => baseCategoryAnalysis.previousPeriod
-      ? buildClientCategoryAnalysis(chatTransactions, chatSummary, chatProfile, baseCategoryAnalysis.previousPeriod)
+    ? buildCategoryAnalysis(chatTransactions, { ...chatSummary, month: baseCategoryAnalysis.previousPeriod }, chatProfile)
       : null,
     [baseCategoryAnalysis.previousPeriod, chatProfile, chatSummary, chatTransactions]
   )
@@ -2106,7 +1677,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const categoryPageAdvice = categoryPeriodFilter === 'all'
     ? 'Vista histórica. Cambia a este mes para comparar contra presupuesto y mes anterior.'
     : selectedCategoryAnalysis.summaryAdvice
-  const investmentCategoryAmount = roundUiMoney(
+  const investmentCategoryAmount = roundMoney(
     categoryBreakdown.find((item) => item.category === INVESTMENT_CATEGORY)?.total || 0
   )
   const investmentCategoryBudget = categoryPeriodFilter === 'all'
@@ -2312,7 +1883,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
         const nextData: DashboardResponse = {
           ...(data || createPreviewDashboardResponse(nextProfile.email)),
           profile: nextProfile,
-          categoryAnalysis: buildClientCategoryAnalysis(chatTransactions, chatSummary, nextProfile),
+          categoryAnalysis: buildCategoryAnalysis(chatTransactions, chatSummary, nextProfile),
           message: 'Perfil financiero actualizado.',
         }
         setData(nextData)
@@ -2400,7 +1971,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
             date: draft.date,
             type: draft.type,
             amount: draft.amount,
-            currency: 'MXN',
+            currency: DEFAULT_FINANCE_CURRENCY,
             category: draft.category,
             description: draft.description,
             merchant: draft.merchant,

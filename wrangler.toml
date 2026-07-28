@@ -36,7 +36,7 @@ enabled = true
 head_sampling_rate = 1
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["0 * * * *"]
 
 [env.preview]
 name = "finovai-preview"

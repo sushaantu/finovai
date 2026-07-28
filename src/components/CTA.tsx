@@ -1,30 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
 import EmailSignup from './EmailSignup'
+import { useRevealOnce } from '@/lib/use-reveal-once'
 
 interface CTAProps {
   onSignupSuccess: (email: string) => void
 }
 
 export default function CTA({ onSignupSuccess }: CTAProps) {
-  const sectionRef = useRef<HTMLElement>(null)
-  const [isVisible, setIsVisible] = useState(false)
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true)
-        }
-      },
-      { threshold: 0.3 }
-    )
-
-    if (sectionRef.current) {
-      observer.observe(sectionRef.current)
-    }
-
-    return () => observer.disconnect()
-  }, [])
+  const { ref: sectionRef, isVisible } = useRevealOnce<HTMLElement>(0.3)
 
   return (
     <section ref={sectionRef} className="relative py-32 px-6 bg-[--color-bg] overflow-hidden">

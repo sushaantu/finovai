@@ -116,12 +116,12 @@ FinovAI has three refresh paths:
 | Path | Trigger | Notes |
 | --- | --- | --- |
 | Immediate import | Widget success / credential callback | Gives the user fast feedback after connecting. |
-| Manual refresh | `POST /api/syncfy/refresh` | Uses a five-minute cooldown for starting new provider pulls; support-admin can run the same endpoint for production repair. |
-| Scheduled refresh | Production cron every five minutes | Refreshes due credentials whose last pull is older than the configured interval. |
+| Manual refresh | `POST /api/syncfy/refresh` | Uses a 30-minute cooldown for starting new provider pulls; support-admin can run the same endpoint for production repair. |
+| Scheduled refresh | Production cron every hour | Refreshes due credentials whose last pull is older than the daily background interval. |
 
-The webhook path is important, but user-visible success must not depend only on webhook delivery. After a credential exists, FinovAI explicitly starts a Syncfy pull, persists the returned job state in `syncfy_credentials.raw_json`, follows job-status links, and falls back to direct `/transactions` reads. If a credential is already `pending_transactions`, FinovAI can keep polling saved job-status links and direct `/transactions` during the five-minute cooldown without starting another provider pull. If Syncfy rejects a new pull as rate-limited but `/transactions` is already readable, FinovAI should still import the readable movements and store the pull error for support.
+The webhook path is important, but user-visible success must not depend only on webhook delivery. After a credential exists, FinovAI explicitly starts a Syncfy pull, persists the returned job state in `syncfy_credentials.raw_json`, follows job-status links, and falls back to direct `/transactions` reads. If a credential is already `pending_transactions`, FinovAI can keep polling saved job-status links and direct `/transactions` during the 30-minute cooldown without starting another provider pull. If Syncfy rejects a new pull as rate-limited but `/transactions` is already readable, FinovAI should still import the readable movements and store the pull error for support.
 
-The five-minute UI cooldown, `POST /api/syncfy/refresh`, and scheduled cron interval must stay aligned. If the UI says FinovAI will retry in about five minutes, the Worker must consider that credential due after the same interval.
+The 30-minute UI/manual cooldown protects user-triggered refreshes. Healthy credentials are refreshed automatically at most once per day, and provider-side 5xx/maintenance failures are retried at most once per day until Syncfy or the institution recovers.
 
 `POST /api/syncfy/refresh` must not block the browser on long Syncfy pulls when the credential is already inside the provider cooldown. If credential-scoped transaction rows already exist in D1, the endpoint returns success from stored evidence without calling Syncfy again. If the credential is `pending_transactions` and still cooling down, the endpoint returns `202` quickly and continues job-status/direct-transaction import in `ctx.waitUntil`.
 

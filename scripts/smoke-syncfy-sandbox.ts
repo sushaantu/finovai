@@ -1,6 +1,12 @@
+import {
+  assert,
+  requestJson as requestJsonBase,
+  type JsonRecord,
+} from './smoke-utils'
+
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8788'
 
-interface JsonResponse {
+type JsonResponse = JsonRecord & {
   success?: boolean
   email?: string
   clientSecret?: string
@@ -32,21 +38,7 @@ function hasLocalDevVar(content: string, name: string, expected?: string) {
 }
 
 async function requestJson(path: string, init?: RequestInit): Promise<{ status: number; data: JsonResponse }> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
-  })
-  const data = await response.json().catch(() => ({})) as JsonResponse
-  return { status: response.status, data }
-}
-
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) {
-    throw new Error(message)
-  }
+  return requestJsonBase<JsonResponse>(apiBaseUrl, path, init)
 }
 
 const apiBaseUrl = (process.env.FINOVAI_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '')

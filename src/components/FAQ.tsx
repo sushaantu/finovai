@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
+import { useRevealOnce } from '@/lib/use-reveal-once'
 
 const FAQS = [
   {
@@ -28,26 +29,8 @@ const FAQS = [
 ]
 
 export default function FAQ() {
-  const sectionRef = useRef<HTMLElement>(null)
-  const [isVisible, setIsVisible] = useState(false)
+  const { ref: sectionRef, isVisible } = useRevealOnce<HTMLElement>(0.2)
   const [openIndex, setOpenIndex] = useState<number | null>(null)
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true)
-        }
-      },
-      { threshold: 0.2 }
-    )
-
-    if (sectionRef.current) {
-      observer.observe(sectionRef.current)
-    }
-
-    return () => observer.disconnect()
-  }, [])
 
   return (
     <section ref={sectionRef} id="faq" className="relative py-32 px-6 bg-[--color-bg-secondary]">

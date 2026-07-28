@@ -1,53 +1,19 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import {
+  assert,
+  asRecord,
+  booleanField,
+  numberField,
+  requestJson as requestJsonWithTimeout,
+  stringField,
+  type JsonRecord,
+} from './smoke-utils'
 
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8788'
 const PREVIEW_API_BASE_URL = 'https://finovai-preview.my-cloudflare-711.workers.dev'
 const ACME_NORMAL_SITE_ID = '56cf5728784806f72b8b4568'
-
-type JsonRecord = Record<string, unknown>
-
-function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
-}
-
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(message)
-}
-
-function stringField(record: JsonRecord, key: string) {
-  return typeof record[key] === 'string' ? record[key] : ''
-}
-
-function booleanField(record: JsonRecord, key: string) {
-  return Boolean(record[key])
-}
-
-function numberField(record: JsonRecord, key: string) {
-  return typeof record[key] === 'number' ? record[key] : null
-}
-
-async function requestJson<T extends JsonRecord>(
-  apiBaseUrl: string,
-  path: string,
-  init?: RequestInit,
-): Promise<{ status: number; data: T }> {
-  try {
-    const response = await fetch(`${apiBaseUrl}${path}`, {
-      ...init,
-      signal: init?.signal || AbortSignal.timeout(requestTimeoutMs),
-      headers: {
-        'Content-Type': 'application/json',
-        ...init?.headers,
-      },
-    })
-    const data = await response.json().catch(() => ({})) as T
-    return { status: response.status, data }
-  } catch (err) {
-    throw new Error(`Request failed for ${path}: ${err instanceof Error ? err.message : String(err)}`)
-  }
-}
 
 function walkFiles(root: string, suffix: string, deadlineMs: number): string[] {
   if (Date.now() > deadlineMs || !existsSync(root)) return []
@@ -138,6 +104,10 @@ const requestTimeoutMs = Number(process.env.FINOVAI_SMOKE_REQUEST_TIMEOUT_MS || 
 const requireEmailCode = process.env.FINOVAI_FULL_UX_REQUIRE_EMAIL_CODE === 'true'
 const startedAt = Date.now()
 const email = `full-ux-smoke-${Date.now()}@finov.ai`
+
+function requestJson<T extends JsonRecord>(baseUrl: string, path: string, init?: RequestInit) {
+  return requestJsonWithTimeout<T>(baseUrl, path, init, requestTimeoutMs)
+}
 
 const health = await requestJson<JsonRecord>(apiBaseUrl, '/api/health')
 assert(health.status === 200, `Health failed with ${health.status}`)

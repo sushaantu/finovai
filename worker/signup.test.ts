@@ -223,6 +223,35 @@ test('extractSyncfySiteMetadata resolves institution ids and ignores generic sit
     syncfySiteOrganizationId: 'org-1',
     siteName: 'Banco Demo',
   })
+
+  expect(extractSyncfySiteMetadata({
+    id_site: 'mx-site-1',
+    site: { name: 'Personal' },
+  })).toEqual({
+    syncfySiteId: 'mx-site-1',
+    syncfySiteOrganizationId: null,
+    siteName: null,
+  })
+
+  expect(extractSyncfySiteMetadata({
+    id_site: 'mx-site-2',
+    site: { name: 'Token & captcha' },
+  })).toEqual({
+    syncfySiteId: 'mx-site-2',
+    syncfySiteOrganizationId: null,
+    siteName: null,
+  })
+
+  expect(extractSyncfySiteMetadata({
+    id_site: 'mx-site-3',
+    id_site_organization: 'mx-org-3',
+    site: { name: 'Personal' },
+    site_organization: { id_site_organization: 'mx-org-3', name: 'BBVA México' },
+  })).toEqual({
+    syncfySiteId: 'mx-site-3',
+    syncfySiteOrganizationId: 'mx-org-3',
+    siteName: 'BBVA México',
+  })
 })
 
 test('normalizeSyncfyTransaction maps Syncfy transaction into finance shape', () => {
