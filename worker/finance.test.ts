@@ -424,6 +424,17 @@ class MockD1 {
         if (sql.includes('raw_json = ?')) {
           credential.raw_json = params[0]
         }
+        if (sql.includes('syncfy_site_id = COALESCE') && sql.includes('site_name = CASE')) {
+          const nextSiteId = params[0]
+          const nextSiteName = params[1]
+          const clearUselessName = Number(params[3]) === 1
+          if (nextSiteId != null) credential.syncfy_site_id = nextSiteId
+          if (nextSiteName != null) credential.site_name = nextSiteName
+          else if (clearUselessName) credential.site_name = null
+        } else if (sql.includes('site_name = COALESCE')) {
+          if (params[0] != null) credential.syncfy_site_id = params[0]
+          if (params[1] != null) credential.site_name = params[1]
+        }
         if (sql.includes("status = 'synced'") || sql.includes("status = COALESCE(NULLIF(status, ''), 'synced')")) {
           credential.status = 'synced'
           credential.last_pull_at = new Date().toISOString()
@@ -1388,7 +1399,7 @@ test('dashboard category analysis compares current month to budget and previous 
   expect(dashboard.categoryAnalysis?.monthRows.map((row) => row.month)).toEqual(['2026-05', '2026-04'])
 })
 
-test('syncfy credentials endpoint returns cached rows without external catalogue lookup', async () => {
+test('syncfy credentials endpoint skips catalogue lookup when a useful site name is cached', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
   env.DB.syncfyCredentials.push({
     id: 'credential-row-1',
@@ -1396,7 +1407,7 @@ test('syncfy credentials endpoint returns cached rows without external catalogue
     syncfy_user_id: 'syncfy-user-1',
     syncfy_credential_id: 'credential-1',
     syncfy_site_id: 'unknown-site-id',
-    site_name: null,
+    site_name: 'BBVA México',
     status: 'needs_reconnect',
     last_successful_sync_at: null,
     last_pull_at: null,
@@ -1421,11 +1432,81 @@ test('syncfy credentials endpoint returns cached rows without external catalogue
     expect(data.credentials).toHaveLength(1)
     expect(data.credentials[0]).toMatchObject({
       syncfyCredentialId: 'credential-1',
-      siteName: null,
+      siteName: 'BBVA México',
       ready: true,
       needsReconnect: true,
     })
     expect(externalFetches).toBe(0)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy credentials endpoint replaces auth-channel labels with organization catalogue names', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: 'mx-site-1',
+    site_name: 'Personal',
+    status: 'synced',
+    last_successful_sync_at: '2026-06-02T00:00:00Z',
+    last_pull_at: '2026-06-02T00:00:00Z',
+    last_rid: null,
+    raw_json: JSON.stringify({
+      id_credential: 'credential-1',
+      id_site: 'mx-site-1',
+      id_site_organization: 'mx-org-1',
+      site: { name: 'Personal' },
+    }),
+    created_at: '2026-06-02T00:00:00Z',
+    updated_at: '2026-06-02T00:00:00Z',
+  })
+
+  const originalFetch = globalThis.fetch
+  const calls: string[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input)
+    calls.push(url)
+
+    if (url.includes('/catalogues/site_organizations')) {
+      return new Response(JSON.stringify({
+        response: {
+          id_site_organization: 'mx-org-1',
+          name: 'BBVA México',
+        },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    if (url.includes('/catalogues/organizations/sites') || url.includes('/catalogues/sites')) {
+      return new Response(JSON.stringify({
+        response: {
+          id_site: 'mx-site-1',
+          id_site_organization: 'mx-org-1',
+          name: 'Personal',
+        },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    return new Response(JSON.stringify({ response: {} }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/credentials?email=user@example.com'), env)
+    const data = await response.json() as SyncfyCredentialsApiResponse
+
+    expect(response.status).toBe(200)
+    expect(data.credentials[0]).toMatchObject({
+      syncfyCredentialId: 'credential-1',
+      siteName: 'BBVA México',
+    })
+    expect(env.DB.syncfyCredentials[0].site_name).toBe('BBVA México')
+    expect(calls.some((url) => url.includes('/catalogues/site_organizations'))).toBe(true)
+    expect(calls.some((url) => url.includes('/catalogues/organizations/sites'))).toBe(false)
   } finally {
     globalThis.fetch = originalFetch
   }

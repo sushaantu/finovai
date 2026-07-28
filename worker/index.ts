@@ -379,7 +379,7 @@ const SYNCFY_DEFAULT_TRANSACTION_LIMIT = 500
 const SYNCFY_DEFAULT_TRANSACTION_LOOKBACK_MONTHS = 6
 const SYNCFY_MAX_TRANSACTION_IMPORT_COUNT = 5000
 const SYNCFY_MAX_TRANSACTION_IMPORT_PAGES = 10
-const SYNCFY_INSTITUTION_NAME_KEYS = [
+const SYNCFY_ORGANIZATION_NAME_KEYS = [
   'institution_name',
   'institutionName',
   'bank_name',
@@ -391,6 +391,9 @@ const SYNCFY_INSTITUTION_NAME_KEYS = [
   'id_site_organization_name',
   'display_name',
   'displayName',
+]
+const SYNCFY_INSTITUTION_NAME_KEYS = [
+  ...SYNCFY_ORGANIZATION_NAME_KEYS,
   'site_name',
   'siteName',
   'name_site',
@@ -398,24 +401,39 @@ const SYNCFY_INSTITUTION_NAME_KEYS = [
   'name',
 ]
 const SYNCFY_GENERIC_INSTITUTION_NAMES = new Set([
+  '2FA',
   'ACCOUNT',
   'BANK',
+  'BUSINESS',
+  'CAPTCHA',
+  'CLAVE',
+  'CORPORATE',
   'CREDENTIAL',
   'CREDENTIALS',
   'CREDENCIAL',
   'CUENTA',
+  'EMPRESARIAL',
   'LOGIN',
   'MOVIMIENTO',
   'NORMAL',
+  'OTP',
   'PASSWORD',
+  'PASSWORD CAPTCHA',
+  'PERSONAL',
+  'PIN',
   'SITE',
   'SITIO',
   'SYNCFY',
   'TOKEN',
+  'TOKEN AND CAPTCHA',
+  'TOKEN CAPTCHA',
   'TRANSACTION',
   'USERNAME',
+  'USERNAME AND PASSWORD',
   'USUARIO',
+  'USUARIO Y CONTRASENA',
 ])
+const SYNCFY_AUTH_CHANNEL_NAME_PATTERN = /^(?:PERSONAL|EMPRESARIAL|BUSINESS|CORPORATE|NORMAL|TOKEN(?:\s+(?:AND\s+)?CAPTCHA)?|USUARIO(?:\s+Y\s+CONTRASENA)?|USERNAME(?:\s+AND\s+PASSWORD)?|PASSWORD(?:\s+CAPTCHA)?|CAPTCHA|PIN|OTP|2FA|CLAVE|LOGIN)$/
 const KNOWN_SYNCFY_INSTITUTION_NAMES = new Map<string, string>([
   ['56cf5728784806f72b8b4568', 'Acme Bank'],
   ['56cf4ff5784806152c8b4567', 'Acme Bank'],
@@ -1461,7 +1479,7 @@ function lookupKnownSyncfyInstitutionName(...ids: Array<string | null | undefine
   return null
 }
 
-function isUsefulSyncfyInstitutionName(value: string): boolean {
+export function isUsefulSyncfyInstitutionName(value: string): boolean {
   const label = cleanText(value)
   if (!label || label.length < 2 || label.length > 120) return false
   if (/^[a-f0-9]{16,}$/i.test(label) || /^\d+$/.test(label)) return false
@@ -1469,11 +1487,53 @@ function isUsefulSyncfyInstitutionName(value: string): boolean {
 
   const normalized = normalizeCategoryInput(label).replace(/[^A-Z0-9]+/g, ' ').trim()
   if (!normalized || SYNCFY_GENERIC_INSTITUTION_NAMES.has(normalized)) return false
+  if (SYNCFY_AUTH_CHANNEL_NAME_PATTERN.test(normalized)) return false
+  // Syncfy site.name is often an auth/channel label ("Token & captcha"), not a bank brand.
+  if (/\b(?:CAPTCHA|CONTRASENA|PASSWORD)\b/.test(normalized) && normalized.split(/\s+/).length <= 4) {
+    return false
+  }
 
   return true
 }
 
+function recordLooksLikeSyncfySiteOrganization(record: Record<string, unknown>): boolean {
+  return Boolean(
+    record.id_site_organization ||
+    record.site_organization_id ||
+    record.idSiteOrganization ||
+    record.syncfy_site_organization_id ||
+    record.organization_name ||
+    record.organizationName ||
+    record.institution_name ||
+    record.institutionName ||
+    record.bank_name ||
+    record.bankName
+  )
+}
+
+function firstSyncfyOrganizationInstitutionName(payload: unknown): string | null {
+  for (const record of collectSyncfyRecords(payload)) {
+    for (const key of SYNCFY_ORGANIZATION_NAME_KEYS) {
+      const value = stringFromUnknown(record[key], 160)
+      if (value && isUsefulSyncfyInstitutionName(value)) return cleanText(value)
+    }
+  }
+
+  for (const record of collectSyncfyRecords(payload)) {
+    if (!recordLooksLikeSyncfySiteOrganization(record)) continue
+    for (const key of ['name', 'site_name', 'siteName', 'display_name', 'displayName']) {
+      const value = stringFromUnknown(record[key], 160)
+      if (value && isUsefulSyncfyInstitutionName(value)) return cleanText(value)
+    }
+  }
+
+  return null
+}
+
 function firstSyncfyInstitutionName(payload: unknown): string | null {
+  const organizationName = firstSyncfyOrganizationInstitutionName(payload)
+  if (organizationName) return organizationName
+
   for (const record of collectSyncfyRecords(payload)) {
     for (const key of SYNCFY_INSTITUTION_NAME_KEYS) {
       const value = stringFromUnknown(record[key], 160)
@@ -2216,29 +2276,65 @@ function buildSyncfyCataloguePath(path: string, metadata: SyncfySiteMetadata): s
   return query ? `${path}?${query}` : path
 }
 
+async function readSyncfyCatalogueInstitutionName(env: Env, path: string): Promise<string | null> {
+  try {
+    const response = await syncfyRequest<unknown>(env, path, { method: 'GET' })
+    return firstSyncfyOrganizationInstitutionName(response) || firstSyncfyInstitutionName(response)
+  } catch {
+    // Institution names are presentational; transaction imports must not fail on catalogue lookup.
+    return null
+  }
+}
+
 async function fetchSyncfyInstitutionName(env: Env, metadata: SyncfySiteMetadata): Promise<string | null> {
   const knownName = lookupKnownSyncfyInstitutionName(metadata.syncfySiteId, metadata.syncfySiteOrganizationId)
-  if (!env.SYNCFY_API_KEY) return knownName
+  if (knownName) return knownName
+  if (!env.SYNCFY_API_KEY) return null
 
-  const cataloguePaths = [
-    buildSyncfyCataloguePath('/catalogues/organizations/sites', metadata),
-    metadata.syncfySiteOrganizationId
-      ? buildSyncfyCataloguePath('/catalogues/site_organizations', metadata)
-      : null,
-    buildSyncfyCataloguePath('/catalogues/sites', metadata),
-  ].filter((path): path is string => Boolean(path))
+  let organizationId = metadata.syncfySiteOrganizationId
 
-  for (const path of cataloguePaths) {
+  if (organizationId) {
+    const organizationName = await readSyncfyCatalogueInstitutionName(
+      env,
+      buildSyncfyCataloguePath('/catalogues/site_organizations', {
+        syncfySiteId: metadata.syncfySiteId,
+        syncfySiteOrganizationId: organizationId,
+        siteName: null,
+      })
+    )
+    if (organizationName) return organizationName
+  }
+
+  if (metadata.syncfySiteId) {
     try {
-      const response = await syncfyRequest<unknown>(env, path, { method: 'GET' })
-      const siteName = firstSyncfyInstitutionName(response)
-      if (siteName) return siteName
+      const siteResponse = await syncfyRequest<unknown>(
+        env,
+        buildSyncfyCataloguePath('/catalogues/sites', metadata),
+        { method: 'GET' }
+      )
+      const siteMetadata = extractSyncfySiteMetadata(siteResponse)
+      // Prefer nested organization brand names; never trust site channel labels alone.
+      const nestedOrganizationName = firstSyncfyOrganizationInstitutionName(siteResponse)
+      if (nestedOrganizationName) return nestedOrganizationName
+
+      organizationId = organizationId || siteMetadata.syncfySiteOrganizationId
+      if (organizationId) {
+        const organizationName = await readSyncfyCatalogueInstitutionName(
+          env,
+          buildSyncfyCataloguePath('/catalogues/site_organizations', {
+            syncfySiteId: metadata.syncfySiteId,
+            syncfySiteOrganizationId: organizationId,
+            siteName: null,
+          })
+        )
+        if (organizationName) return organizationName
+      }
     } catch {
       // Institution names are presentational; transaction imports must not fail on catalogue lookup.
     }
   }
 
-  return knownName
+  return null
 }
 
 function mergeSyncfySiteMetadata(
@@ -2311,18 +2407,30 @@ async function enrichSyncfyCredentialInstitution(
     : metadata.siteName || await fetchSyncfyInstitutionName(env, metadata)
   const nextSiteId = !credential.syncfy_site_id ? metadata.syncfySiteId : null
   const nextSiteName = siteName && isUsefulSyncfyInstitutionName(siteName) ? siteName : null
+  const clearUselessName = !currentNameIsUseful && Boolean(credential.site_name) && !nextSiteName
 
-  if (!nextSiteId && !nextSiteName) return false
+  if (!nextSiteId && !nextSiteName && !clearUselessName) return false
 
   await env.DB.prepare(
     `UPDATE syncfy_credentials
      SET syncfy_site_id = COALESCE(?, syncfy_site_id),
-         site_name = COALESCE(?, site_name),
+         site_name = CASE
+           WHEN ? IS NOT NULL THEN ?
+           WHEN ? = 1 THEN NULL
+           ELSE site_name
+         END,
          updated_at = datetime("now")
      WHERE email = ?
        AND syncfy_credential_id = ?`
   )
-    .bind(nextSiteId, nextSiteName, credential.email, credential.syncfy_credential_id)
+    .bind(
+      nextSiteId,
+      nextSiteName,
+      nextSiteName,
+      clearUselessName ? 1 : 0,
+      credential.email,
+      credential.syncfy_credential_id
+    )
     .run()
 
   return true
@@ -6373,7 +6481,7 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
 
-      const credentials = await loadSyncfyCredentialsForEmail(env, normalizedEmail)
+      const credentials = await loadDisplaySyncfyCredentialsForEmail(env, normalizedEmail)
       return json({
         success: true,
         email: normalizedEmail,
