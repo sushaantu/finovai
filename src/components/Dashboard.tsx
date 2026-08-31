@@ -151,7 +151,6 @@ import {
   type FinancialProfile,
 } from '../../shared/finance-core'
 import type {
-  DashboardChatResponse,
   DashboardResponse,
   HouseholdInvite,
   SyncfyCredential,
@@ -162,6 +161,7 @@ import {
   useInviteSpouse,
   useSaveManualTransaction,
   useSaveProfile,
+  useSendChatMessage,
   useSyncfyCredentials,
   useTransactions,
   useUpdateTransactionCategory,
@@ -216,7 +216,6 @@ type DashboardChatChartType = 'categories' | 'daily-spend' | 'savings' | 'recurr
 
 interface PendingChatAnswer {
   question: string
-  reasoning: string
   startedAt: number
 }
 
@@ -1297,39 +1296,6 @@ function getDashboardChatChartType(
   return undefined
 }
 
-function buildDashboardChatReasoning(
-  question: string,
-  transactions: AnalysisTransaction[],
-  summary: FinanceSummary,
-  isDraftAnalysis = false
-) {
-  if (transactions.length === 0) {
-    return 'Estoy revisando si hay transacciones disponibles. Sin una cuenta conectada, la respuesta solo puede orientar el siguiente paso.'
-  }
-
-  const normalized = normalizeQuestion(question)
-  const scope = isDraftAnalysis ? 'movimientos seleccionados' : 'transacciones confirmadas'
-
-  if (isCategoryQuestion(normalized)) {
-    const month = getCategoryQuestionMonth(normalized, summary)
-    return `Agrupo ${transactions.length} ${scope} por categoría, ${month ? `sumo solo gastos de ${formatMonth(month)}` : 'uso todos los gastos disponibles'} y comparo el peso relativo de los rubros principales.`
-  }
-
-  if (/(ahorr|reduc|bajar|optim|invert|invers|futur)/.test(normalized)) {
-    return `Reviso gastos flexibles y cargos repetidos de ${formatMonth(summary.month)} para estimar una oportunidad conservadora de ahorro que podría invertirse después.`
-  }
-
-  if (/(recurrent|suscrip|mensual|repite|repet)/.test(normalized)) {
-    return `Busco descripciones repetidas en los ${scope} para separar cargos recurrentes de compras puntuales.`
-  }
-
-  if (/(dia|d[ií]a|raro|inusual|alto|peak|pico)/.test(normalized)) {
-    return `Sumo el gasto por día y busco el pico de ${formatMonth(summary.month)} para detectar un día atípico.`
-  }
-
-  return `Reviso ingresos, gastos, balance neto, categorías y movimientos grandes de ${formatMonth(summary.month)} antes de responder.`
-}
-
 export default function Dashboard({ email, initialNotice, initialPath, onBackHome, onLogout }: DashboardProps) {
   const previewEnabled = getDashboardPreviewEnabled()
   const loadingPreviewEnabled = getDashboardLoadingPreviewEnabled()
@@ -1354,7 +1320,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [showIncomePrompt, setShowIncomePrompt] = useState(false)
   const [incomePromptValue, setIncomePromptValue] = useState('')
   const [incomePromptError, setIncomePromptError] = useState('')
-  const chatAnswerTimeoutRef = useRef<number | null>(null)
   const announcedLoadStatusRef = useRef<string | null>(null)
   const chatMessagesEndRef = useRef<HTMLDivElement | null>(null)
   const queryClient = useQueryClient()
@@ -1370,6 +1335,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const saveProfile = useSaveProfile(activeEmail ?? '')
   const saveIncomePromptProfile = useSaveProfile(activeEmail ?? '')
   const inviteSpouse = useInviteSpouse(activeEmail ?? '')
+  const sendChat = useSendChatMessage(activeEmail ?? '')
 
   const data = previewEnabled
     ? createPreviewDashboardResponse(activeEmail || previewEmail || 'preview@finov.ai')
@@ -1743,12 +1709,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     })
   }, [activeEmail, chatTransactions, hasConnectedInstitution, hasReconnectRequiredCredential, transactions.length])
 
-  useEffect(() => () => {
-    if (chatAnswerTimeoutRef.current) {
-      window.clearTimeout(chatAnswerTimeoutRef.current)
-    }
-  }, [])
-
   useEffect(() => {
     chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [chatMessages, pendingChatAnswer])
@@ -2039,93 +1999,68 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     if (!question) return
     if (pendingChatAnswer) return
 
-    const reasoning = buildDashboardChatReasoning(question, chatTransactions, chatSummary, false)
     const startedAt = Date.now()
     setChatMessages((current) => [
       ...current,
       { id: crypto.randomUUID(), role: 'user', content: question },
     ])
-    setPendingChatAnswer({ question, reasoning, startedAt })
+    setPendingChatAnswer({ question, startedAt })
     setChatInput('')
     window.setTimeout(() => {
       chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
     }, 0)
 
-    if (chatAnswerTimeoutRef.current) {
-      window.clearTimeout(chatAnswerTimeoutRef.current)
-    }
+    void (async () => {
+      let answer = ''
+      let model: string | undefined
+      let chatError: string | null = null
 
-    chatAnswerTimeoutRef.current = window.setTimeout(() => {
-      void (async () => {
-        let answer = ''
-        let model: string | undefined
-        let chatError: string | null = null
-
-        if (activeEmail) {
-          try {
-            const response = await apiJson<DashboardChatResponse>('/api/dashboard/chat', {
-              method: 'POST',
-              body: JSON.stringify({
-                email: activeEmail,
-                question,
-              }),
-            })
-            answer = response.answer
-            model = response.model
-          } catch (error) {
-            chatError = error instanceof Error ? error.message : 'No pudimos conectar con el modelo financiero.'
-          }
-        } else {
-          answer = buildDashboardChatAnswer(
-            question,
-            chatTransactions,
-            chatSummary,
-            chatCurrency,
-            false,
-            hasConnectedInstitution,
-            hasReconnectRequiredCredential,
-            chatProfile
-          )
+      if (activeEmail) {
+        try {
+          const response = await sendChat.mutateAsync(question)
+          answer = response.answer
+          model = response.model
+        } catch (error) {
+          chatError = error instanceof Error ? error.message : 'No pudimos conectar con el modelo financiero.'
         }
+      }
 
-        if (chatError) {
-          answer = buildDashboardChatAnswer(
-            question,
-            chatTransactions,
-            chatSummary,
-            chatCurrency,
-            false,
-            hasConnectedInstitution,
-            hasReconnectRequiredCredential,
-            chatProfile
-          )
-          model = 'análisis local'
-        }
+      if (!activeEmail || chatError) {
+        answer = buildDashboardChatAnswer(
+          question,
+          chatTransactions,
+          chatSummary,
+          chatCurrency,
+          false,
+          hasConnectedInstitution,
+          hasReconnectRequiredCredential,
+          chatProfile
+        )
+        if (chatError) model = 'análisis local'
+      }
 
-        answer = finalizeDashboardChatAnswer(answer)
+      answer = finalizeDashboardChatAnswer(answer)
 
-        const chart = getDashboardChatChartType(question, chatTransactions, chatSummary)
-        const chartCategory = chart === 'category-trend' ? getDashboardChatChartCategory(question) : undefined
-        const reasoningDuration = Math.max(1, Math.ceil((Date.now() - startedAt) / 1000))
+      const chart = getDashboardChatChartType(question, chatTransactions, chatSummary)
+      const chartCategory = chart === 'category-trend' ? getDashboardChatChartCategory(question) : undefined
+      const reasoningDuration = Math.max(1, Math.ceil((Date.now() - startedAt) / 1000))
 
-        setChatMessages((current) => [
-          ...current,
-          {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: answer,
-            chart,
-            chartCategory,
-            reasoning: model
-              ? `${reasoning}\nModelo: ${model}${chatError ? `\nModelo remoto no ejecutado: ${chatError}` : ''}`
-                : reasoning,
-            reasoningDuration,
-          },
-        ])
-        setPendingChatAnswer(null)
-        chatAnswerTimeoutRef.current = null
-      })()
-    }, 1200)
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: answer,
+          chart,
+          chartCategory,
+          reasoning: model
+            ? `Modelo: ${model}${chatError ? `\nModelo remoto no ejecutado: ${chatError}` : ''}`
+            : undefined,
+          reasoningDuration,
+        },
+      ])
+      setPendingChatAnswer(null)
+    })()
   }
 
   const submitDashboardChatInput = () => {
@@ -2816,11 +2751,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
         )}
       >
         <ThinkingBar text="Analizando movimientos..." />
-        {pendingChatAnswer ? (
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            {pendingChatAnswer.reasoning}
-          </p>
-        ) : null}
       </MessageContent>
     </Message>
   )
