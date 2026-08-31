@@ -2660,6 +2660,82 @@ test('syncfy webhook does not poll needs_user or abandoned credentials', async (
   }
 })
 
+test('syncfy SUCCESS webhook does not rewrite parked credential lifecycle fields', async () => {
+  const env = createEnv('test', {
+    SYNCFY_API_KEY: 'test-key',
+    SYNCFY_WEBHOOK_SECRET: 'webhook-secret',
+  })
+  await seedSyncfyUsers(env.DB, {
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_external_id: 'finovai:user@example.com',
+    name: null,
+    mode: 'live',
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: null,
+    last_session_at: null,
+  })
+  await seedSyncfyCredentials(env.DB, {
+    id: 'credential-row-parked',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'cred-parked',
+    site_name: 'BBVA México',
+    status: 'needs_reconnect',
+    state: 'needs_user',
+    last_successful_sync_at: '2026-07-01T00:00:00Z',
+    last_pull_at: '2026-07-01T00:00:00Z',
+    last_rid: 'parked-rid',
+    raw_json: null,
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: '2026-07-01T00:00:00Z',
+  })
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({ response: {} }), {
+    headers: { 'Content-Type': 'application/json' },
+  })) as typeof fetch
+
+  const waitUntilPromises: Promise<unknown>[] = []
+  const ctx = {
+    waitUntil(promise: Promise<unknown>) {
+      waitUntilPromises.push(promise)
+    },
+  } as unknown as ExecutionContext
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-finovai-webhook-secret': 'webhook-secret',
+      },
+      body: JSON.stringify({
+        events: [{
+          header: {
+            event: { name: 'credentials.refreshed' },
+            user: { id_user: 'syncfy-user-1' },
+          },
+          payload: {
+            status: 'SUCCESS',
+            id_credential: 'cred-parked',
+            id_user: 'syncfy-user-1',
+          },
+        }],
+      }),
+    }), env, ctx)
+    expect(response.status).toBe(202)
+    if (waitUntilPromises[0]) await waitUntilPromises[0]
+
+    const row = (await readSyncfyCredentials(env.DB))[0]
+    expect(row.status).toBe('needs_reconnect')
+    expect(row.state).toBe('needs_user')
+    expect(row.last_successful_sync_at).toBe('2026-07-01T00:00:00Z')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('syncfy status probe is protected and returns sanitized upstream checks', async () => {
   const env = createEnv('production', {
     SUPPORT_ADMIN_SECRET: 'admin-secret',

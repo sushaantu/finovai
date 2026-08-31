@@ -9,7 +9,6 @@ import {
   firstSyncfyOrganizationInstitutionName,
   isSyncfyReconnectRequiredStatus,
   isSyncfyRefreshEvent,
-  isSyncfySuccessfulStatus,
   isUsefulSyncfyInstitutionName,
   lookupKnownSyncfyInstitutionName,
   parseJsonUnknown,
@@ -199,23 +198,19 @@ export async function storeSyncfyCredential(
   }
 
   const now = new Date().toISOString()
-  const successfulSyncAt = isSyncfyRefreshEvent(eventType) && isSyncfySuccessfulStatus(credential.status) ? now : null
 
   const user = await getOrCreateUserByEmail(env.DB, email)
 
   await env.DB.prepare(
     `INSERT INTO syncfy_credentials (
-      id, email, syncfy_user_id, syncfy_credential_id, syncfy_site_id, site_name, status,
-      last_successful_sync_at, last_pull_at, last_rid, raw_json, created_at, updated_at, user_id
+      id, email, syncfy_user_id, syncfy_credential_id, syncfy_site_id, site_name,
+      last_pull_at, last_rid, raw_json, created_at, updated_at, user_id
     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"), ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"), ?)
      ON CONFLICT(email, syncfy_credential_id) DO UPDATE SET
        syncfy_user_id = excluded.syncfy_user_id,
        syncfy_site_id = COALESCE(excluded.syncfy_site_id, syncfy_credentials.syncfy_site_id),
        site_name = COALESCE(excluded.site_name, syncfy_credentials.site_name),
-       status = COALESCE(excluded.status, syncfy_credentials.status),
-       last_successful_sync_at = COALESCE(excluded.last_successful_sync_at, syncfy_credentials.last_successful_sync_at),
-       last_pull_at = COALESCE(excluded.last_pull_at, syncfy_credentials.last_pull_at),
        last_rid = COALESCE(excluded.last_rid, syncfy_credentials.last_rid),
        raw_json = excluded.raw_json,
        updated_at = datetime("now"),
@@ -229,8 +224,6 @@ export async function storeSyncfyCredential(
       credential.syncfyCredentialId,
       credential.syncfySiteId,
       credential.siteName,
-      credential.status,
-      successfulSyncAt,
       isSyncfyRefreshEvent(eventType) ? now : null,
       credential.rid,
       JSON.stringify(payload),
