@@ -1,6 +1,9 @@
+import { DASHBOARD_SECRET_HEADER, type SessionStore } from '@finovai/core'
+
+export { DASHBOARD_SECRET_HEADER }
+
 export const DASHBOARD_EMAIL_STORAGE_KEY = 'finovai_signup_email'
 export const DASHBOARD_SECRET_STORAGE_KEY = 'finovai_dashboard_secret'
-export const DASHBOARD_SECRET_HEADER = 'X-FinovAI-Dashboard-Secret'
 const LOCAL_DASHBOARD_SECRET = 'local-dev-session'
 
 export function getStoredDashboardEmail() {
@@ -34,4 +37,11 @@ export function clearDashboardSession() {
   if (typeof window === 'undefined') return
   window.localStorage.removeItem(DASHBOARD_EMAIL_STORAGE_KEY)
   window.localStorage.removeItem(DASHBOARD_SECRET_STORAGE_KEY)
+}
+
+export const webSessionStore: SessionStore = {
+  getEmail: getStoredDashboardEmail,
+  getSecret: getStoredDashboardSecret,
+  set: setDashboardSession,
+  clear: clearDashboardSession,
 }
