@@ -32,6 +32,7 @@ import type {
 import {
   ensureFinanceTables,
   ensureSyncfyTables,
+  getOrCreateUserByEmail,
   storeSyncfyError,
   upsertFinancialProfile,
 } from './db'
@@ -461,13 +462,14 @@ async function upsertSyncfyFinanceTransaction(
   transaction: NormalizedSyncfyTransaction
 ): Promise<boolean> {
   await upsertFinancialProfile(env, email)
+  const user = await getOrCreateUserByEmail(env.DB, email)
 
   await env.DB.prepare(
     `INSERT INTO transactions (
       id, email, date, type, amount, currency, category, description, merchant, notes,
-      source, confidence, category_locked, raw_source, cartola_import_id, created_at, updated_at
+      source, confidence, category_locked, raw_source, cartola_import_id, created_at, updated_at, user_id
     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'syncfy', 0.9, 0, ?, NULL, datetime("now"), datetime("now"))
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'syncfy', 0.9, 0, ?, NULL, datetime("now"), datetime("now"), ?)
      ON CONFLICT(id) DO UPDATE SET
        email = excluded.email,
        date = excluded.date,
@@ -485,7 +487,8 @@ async function upsertSyncfyFinanceTransaction(
        description = excluded.description,
        merchant = excluded.merchant,
        raw_source = excluded.raw_source,
-       updated_at = datetime("now")`
+       updated_at = datetime("now"),
+       user_id = COALESCE(excluded.user_id, transactions.user_id)`
   )
     .bind(
       transaction.id,
@@ -497,7 +500,8 @@ async function upsertSyncfyFinanceTransaction(
       transaction.category,
       transaction.description,
       transaction.merchant,
-      JSON.stringify(transaction.raw)
+      JSON.stringify(transaction.raw),
+      user.id
     )
     .run()
 

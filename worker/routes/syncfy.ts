@@ -30,6 +30,7 @@ import type {
 } from '../lib/shared'
 import {
   ensureSyncfyTables,
+  getOrCreateUserByEmail,
   storeSyncfyError,
 } from '../lib/db'
 import {
@@ -477,6 +478,7 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
       const access = await verifyDashboardEmailAccess(env, request, normalizedEmail)
       if (!access.ok) return error(access.message, access.status)
 
+      await getOrCreateUserByEmail(env.DB, normalizedEmail)
       await upsertLead(env, normalizedEmail, name, JSON.stringify({ source: 'syncfy-session' }))
       let syncfyUser: SyncfyUserRow
       let session: { token: string | null; mode: 'live' | 'local' }

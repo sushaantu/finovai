@@ -31,6 +31,7 @@ import type {
 import {
   ensureFinanceTables,
   ensureSyncfyTables,
+  getOrCreateUserByEmail,
   storeSyncfyError,
 } from './db'
 
@@ -44,12 +45,8 @@ const SYNCFY_DEFAULT_TRANSACTION_LOOKBACK_MONTHS = 6
 
 const SYNCFY_MAX_TRANSACTION_IMPORT_COUNT = 5000
 
-export function buildSyncfyExternalId(email: string): string {
-  return `finovai:${email}`
-}
-
-function buildSyncfyRecoveryExternalId(email: string): string {
-  return `${buildSyncfyExternalId(email)}:reset:${Date.now()}`
+export function buildSyncfyExternalId(userId: string, version: number): string {
+  return `finovai:user:${userId}:v${version}`
 }
 
 export class SyncfyRequestError extends Error {
@@ -185,12 +182,14 @@ export async function storeSyncfyCredential(
   const now = new Date().toISOString()
   const successfulSyncAt = isSyncfyRefreshEvent(eventType) && isSyncfySuccessfulStatus(credential.status) ? now : null
 
+  const user = await getOrCreateUserByEmail(env.DB, email)
+
   await env.DB.prepare(
     `INSERT INTO syncfy_credentials (
       id, email, syncfy_user_id, syncfy_credential_id, syncfy_site_id, site_name, status,
-      last_successful_sync_at, last_pull_at, last_rid, raw_json, created_at, updated_at
+      last_successful_sync_at, last_pull_at, last_rid, raw_json, created_at, updated_at, user_id
     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"), ?)
      ON CONFLICT(email, syncfy_credential_id) DO UPDATE SET
        syncfy_user_id = excluded.syncfy_user_id,
        syncfy_site_id = COALESCE(excluded.syncfy_site_id, syncfy_credentials.syncfy_site_id),
@@ -200,7 +199,8 @@ export async function storeSyncfyCredential(
        last_pull_at = COALESCE(excluded.last_pull_at, syncfy_credentials.last_pull_at),
        last_rid = COALESCE(excluded.last_rid, syncfy_credentials.last_rid),
        raw_json = excluded.raw_json,
-       updated_at = datetime("now")`
+       updated_at = datetime("now"),
+       user_id = COALESCE(excluded.user_id, syncfy_credentials.user_id)`
   )
     .bind(
       crypto.randomUUID(),
@@ -213,7 +213,8 @@ export async function storeSyncfyCredential(
       successfulSyncAt,
       isSyncfyRefreshEvent(eventType) ? now : null,
       credential.rid,
-      JSON.stringify(payload)
+      JSON.stringify(payload),
+      user.id
     )
     .run()
 
@@ -985,7 +986,8 @@ export async function getOrCreateSyncfyUser(env: Env, email: string, name?: stri
 
   if (existing) return existing
 
-  const syncfyExternalId = buildSyncfyExternalId(email)
+  const user = await getOrCreateUserByEmail(env.DB, email)
+  const syncfyExternalId = buildSyncfyExternalId(user.id, user.syncfy_identity_version)
   let syncfyUserId = `local_${email.replace(/[^a-z0-9]/gi, '_')}`
   let mode: 'live' | 'local' = 'local'
 
@@ -1003,10 +1005,10 @@ export async function getOrCreateSyncfyUser(env: Env, email: string, name?: stri
   }
 
   await env.DB.prepare(
-    `INSERT INTO syncfy_users (email, syncfy_user_id, syncfy_external_id, name, mode, created_at)
-     VALUES (?, ?, ?, ?, ?, datetime("now"))`
+    `INSERT INTO syncfy_users (email, syncfy_user_id, syncfy_external_id, name, mode, created_at, user_id)
+     VALUES (?, ?, ?, ?, ?, datetime("now"), ?)`
   )
-    .bind(email, syncfyUserId, syncfyExternalId, name?.trim() || '', mode)
+    .bind(email, syncfyUserId, syncfyExternalId, name?.trim() || '', mode, user.id)
     .run()
 
   const created = await env.DB.prepare(`SELECT * FROM syncfy_users WHERE email = ?`)
@@ -1031,9 +1033,11 @@ export async function recreateSyncfyUser(
   env: Env,
   email: string,
   name?: string,
-  externalId = buildSyncfyExternalId(email)
+  externalId?: string
 ): Promise<SyncfyUserRow> {
   await ensureSyncfyTables(env)
+  const user = await getOrCreateUserByEmail(env.DB, email)
+  const resolvedExternalId = externalId ?? buildSyncfyExternalId(user.id, user.syncfy_identity_version)
 
   if (!env.SYNCFY_API_KEY) {
     throw new Error('SYNCFY_API_KEY is not configured')
@@ -1043,21 +1047,22 @@ export async function recreateSyncfyUser(
     method: 'POST',
     body: JSON.stringify({
       name: name?.trim() || email,
-      id_external: externalId,
+      id_external: resolvedExternalId,
     }),
   })
 
   await env.DB.prepare(
-    `INSERT INTO syncfy_users (email, syncfy_user_id, syncfy_external_id, name, mode, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'live', datetime("now"), datetime("now"))
+    `INSERT INTO syncfy_users (email, syncfy_user_id, syncfy_external_id, name, mode, created_at, updated_at, user_id)
+     VALUES (?, ?, ?, ?, 'live', datetime("now"), datetime("now"), ?)
      ON CONFLICT(email) DO UPDATE SET
        syncfy_user_id = excluded.syncfy_user_id,
        syncfy_external_id = excluded.syncfy_external_id,
        name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE syncfy_users.name END,
        mode = 'live',
-       updated_at = datetime("now")`
+       updated_at = datetime("now"),
+       user_id = excluded.user_id`
   )
-    .bind(email, createdUser.id_user, externalId, name?.trim() || '')
+    .bind(email, createdUser.id_user, resolvedExternalId, name?.trim() || '', user.id)
     .run()
 
   const recreated = await env.DB.prepare(`SELECT * FROM syncfy_users WHERE email = ?`)
@@ -1129,8 +1134,19 @@ export async function resetSyncfyConnectionForEmail(
 
       if (err.status === 400) {
         try {
+          const user = await getOrCreateUserByEmail(env.DB, email)
+          await env.DB.prepare(
+            `UPDATE users SET syncfy_identity_version = syncfy_identity_version + 1 WHERE id = ?`
+          )
+            .bind(user.id)
+            .run()
           return {
-            syncfyUser: await recreateSyncfyUser(env, email, name, buildSyncfyRecoveryExternalId(email)),
+            syncfyUser: await recreateSyncfyUser(
+              env,
+              email,
+              name,
+              buildSyncfyExternalId(user.id, user.syncfy_identity_version + 1)
+            ),
             recreated: true,
             deletedTransactions: localState.deletedTransactions,
             deletedCredentials: localState.deletedCredentials,

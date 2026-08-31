@@ -37,7 +37,7 @@ test('normalizeSignupEmail rejects invalid email addresses', () => {
 })
 
 test('buildSyncfyExternalId scopes external ids to FinovAI', () => {
-  expect(buildSyncfyExternalId('user@example.com')).toBe('finovai:user@example.com')
+  expect(buildSyncfyExternalId('user-1', 1)).toBe('finovai:user:user-1:v1')
 })
 
 test('normalizeSyncfyRequestPath accepts webhook and direct endpoint paths', () => {

@@ -74,6 +74,7 @@ export interface SyncfyUserRow {
   created_at: string
   updated_at: string | null
   last_session_at: string | null
+  user_id?: string | null
 }
 
 export interface SyncfyCredentialRow {
@@ -91,6 +92,7 @@ export interface SyncfyCredentialRow {
   raw_json: string | null
   created_at: string
   updated_at: string | null
+  user_id?: string | null
   connection_issue?: SyncfyConnectionIssue | null
 }
 
@@ -232,6 +234,7 @@ export interface FinanceTransactionRow {
   cartola_import_id: string | null
   created_at: string
   updated_at: string | null
+  user_id?: string | null
 }
 
 export interface FinancialProfileRow {
@@ -471,9 +474,11 @@ export async function ensureDashboardSessionTable(env: Env): Promise<void> {
       email TEXT PRIMARY KEY,
       client_secret_hash TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      last_used_at TEXT
+      last_used_at TEXT,
+      user_id TEXT
     )`
   ).run()
+  await env.DB.prepare(`ALTER TABLE dashboard_sessions ADD COLUMN user_id TEXT`).run().catch(() => {})
   await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_last_used ON dashboard_sessions(last_used_at DESC)`).run()
 }
 

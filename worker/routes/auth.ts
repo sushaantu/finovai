@@ -19,6 +19,7 @@ import type {
 } from '../lib/shared'
 import {
   ensureEmailAuthTables,
+  getOrCreateUserByEmail,
 } from '../lib/db'
 
 const EMAIL_LOGIN_TOKEN_BYTES = 32
@@ -29,16 +30,18 @@ const EMAIL_LOGIN_MAX_ATTEMPTS = 5
 
 async function issueDashboardEmailSession(env: Env, email: string): Promise<{ clientSecret: string }> {
   await ensureDashboardSessionTable(env)
+  const user = await getOrCreateUserByEmail(env.DB, email)
   const clientSecret = createDashboardClientSecret()
   const clientSecretHash = await sha256Hex(clientSecret)
   await env.DB.prepare(
-    `INSERT INTO dashboard_sessions (email, client_secret_hash, created_at, last_used_at)
-     VALUES (?, ?, datetime("now"), datetime("now"))
+    `INSERT INTO dashboard_sessions (email, client_secret_hash, created_at, last_used_at, user_id)
+     VALUES (?, ?, datetime("now"), datetime("now"), ?)
      ON CONFLICT(email) DO UPDATE SET
        client_secret_hash = excluded.client_secret_hash,
-       last_used_at = datetime("now")`
+       last_used_at = datetime("now"),
+       user_id = excluded.user_id`
   )
-    .bind(email, clientSecretHash)
+    .bind(email, clientSecretHash, user.id)
     .run()
 
   return { clientSecret }
@@ -240,6 +243,8 @@ export async function handleAuthRoutes(request: Request, env: Env, url: URL): Pr
         return error('Correo inválido')
       }
 
+      await getOrCreateUserByEmail(env.DB, normalizedEmail)
+
       if (url.pathname === '/api/auth/request-link' || isEmailAuthRequired(env)) {
         let challenge: { debugCode?: string; debugToken?: string }
         try {
@@ -286,6 +291,8 @@ export async function handleAuthRoutes(request: Request, env: Env, url: URL): Pr
       if (!normalizedEmail) {
         return error('Correo inválido')
       }
+
+      await getOrCreateUserByEmail(env.DB, normalizedEmail)
 
       const verified = await verifyEmailLoginChallenge(env, normalizedEmail, {
         code: typeof code === 'string' ? code.trim() : undefined,

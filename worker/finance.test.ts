@@ -28,6 +28,10 @@ import {
   normalizeFinancialDate,
 } from './lib/shared'
 import {
+  getOrCreateUserByEmail,
+} from './lib/db'
+import {
+  buildSyncfyExternalId,
   classifySyncfyConnectionIssue,
   classifySyncfyCredentialBlocker,
   getSyncfyCredentialBlockerMessage,
@@ -278,6 +282,18 @@ const readSyncfyCredentials = (db: TestD1) => readTable(db, 'syncfy_credentials'
 const readSyncfyUsers = (db: TestD1) => readTable(db, 'syncfy_users')
 const readSyncfyErrors = (db: TestD1) => readTable(db, 'syncfy_errors')
 const readSyncfyWebhookEvents = (db: TestD1) => readTable(db, 'syncfy_webhook_events')
+
+test('getOrCreateUserByEmail is idempotent and normalizes email', async () => {
+  const { db } = createTestDb(await loadSchema())
+  const a = await getOrCreateUserByEmail(db, 'Foo@Bar.com ')
+  const b = await getOrCreateUserByEmail(db, 'foo@bar.com')
+  expect(a.id).toBe(b.id)
+  expect(a.syncfy_identity_version).toBe(1)
+})
+
+test('buildSyncfyExternalId encodes user id and version', () => {
+  expect(buildSyncfyExternalId('u-123', 3)).toBe('finovai:user:u-123:v3')
+})
 
 test('test-d1 adapter runs real schema and round-trips a row', async () => {
   const { db } = createTestDb(await loadSchema())

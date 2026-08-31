@@ -3,12 +3,67 @@ import {
 } from '../../shared/finance-core'
 import {
   ensureDashboardSessionTable,
+  normalizeSignupEmail,
 } from './shared'
 import type {
   Env,
 } from './shared'
 
+async function ensureUsersTable(db: D1Database): Promise<void> {
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      syncfy_identity_version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`
+  ).run()
+}
+
+async function ensureUserIdColumn(db: D1Database, table: string): Promise<void> {
+  try {
+    const columns = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>()
+    if (columns.results.some((column) => column.name === 'user_id')) return
+  } catch {
+    // Some test doubles do not implement PRAGMA; the ALTER path below is still safe.
+  }
+
+  try {
+    await db.prepare(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`).run()
+  } catch {
+    // Existing databases already have the column. D1 exposes duplicate-column as an error.
+  }
+}
+
+export async function getOrCreateUserByEmail(
+  db: D1Database,
+  rawEmail: string
+): Promise<{ id: string; email: string; syncfy_identity_version: number }> {
+  await ensureUsersTable(db)
+  const email = normalizeSignupEmail(rawEmail)
+  if (!email) {
+    throw new Error('Invalid email')
+  }
+  const existing = await db
+    .prepare('SELECT id, email, syncfy_identity_version FROM users WHERE email = ?')
+    .bind(email)
+    .first<{ id: string; email: string; syncfy_identity_version: number }>()
+  if (existing) return existing
+  const id = crypto.randomUUID()
+  await db
+    .prepare(`INSERT INTO users (id, email) VALUES (?, ?)
+              ON CONFLICT(email) DO NOTHING`)
+    .bind(id, email)
+    .run()
+  return (await db
+    .prepare('SELECT id, email, syncfy_identity_version FROM users WHERE email = ?')
+    .bind(email)
+    .first<{ id: string; email: string; syncfy_identity_version: number }>())!
+}
+
 export async function ensureSyncfyTables(env: Env): Promise<void> {
+  await ensureUsersTable(env.DB)
+
   await env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS syncfy_users (
       email TEXT PRIMARY KEY,
@@ -18,7 +73,8 @@ export async function ensureSyncfyTables(env: Env): Promise<void> {
       mode TEXT DEFAULT 'live',
       created_at TEXT NOT NULL,
       updated_at TEXT,
-      last_session_at TEXT
+      last_session_at TEXT,
+      user_id TEXT
     )`
   ).run()
 
@@ -38,6 +94,7 @@ export async function ensureSyncfyTables(env: Env): Promise<void> {
       raw_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT,
+      user_id TEXT,
       UNIQUE(email, syncfy_credential_id)
     )`
   ).run()
@@ -72,12 +129,18 @@ export async function ensureSyncfyTables(env: Env): Promise<void> {
       message TEXT,
       source TEXT NOT NULL,
       payload_json TEXT,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      user_id TEXT
     )`
   ).run()
 
+  await ensureUserIdColumn(env.DB, 'syncfy_users')
+  await ensureUserIdColumn(env.DB, 'syncfy_credentials')
+  await ensureUserIdColumn(env.DB, 'syncfy_errors')
+
   await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_syncfy_credentials_email ON syncfy_credentials(email)`).run()
   await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_syncfy_credentials_user ON syncfy_credentials(syncfy_user_id)`).run()
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_syncfy_credentials_user_id ON syncfy_credentials(user_id)`).run()
   await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_syncfy_credentials_credential ON syncfy_credentials(syncfy_credential_id)`).run()
   await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_syncfy_webhooks_event ON syncfy_webhook_events(event_type, created_at DESC)`).run()
   await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_syncfy_webhooks_user ON syncfy_webhook_events(syncfy_user_id, created_at DESC)`).run()
@@ -144,6 +207,8 @@ export async function storeSyncfyError(
 }
 
 export async function ensureFinanceTables(env: Env): Promise<void> {
+  await ensureUsersTable(env.DB)
+
   await env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS financial_profiles (
       email TEXT PRIMARY KEY,
@@ -152,7 +217,8 @@ export async function ensureFinanceTables(env: Env): Promise<void> {
       monthly_budget REAL,
       category_budgets_json TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT
+      updated_at TEXT,
+      user_id TEXT
     )`
   ).run()
 
@@ -191,6 +257,7 @@ export async function ensureFinanceTables(env: Env): Promise<void> {
       cartola_import_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT,
+      user_id TEXT,
       FOREIGN KEY (email) REFERENCES financial_profiles(email),
       FOREIGN KEY (cartola_import_id) REFERENCES cartola_imports(id)
     )`
@@ -199,8 +266,11 @@ export async function ensureFinanceTables(env: Env): Promise<void> {
   await ensureFinancialProfileBudgetColumns(env)
   await migrateTransactionsSourceConstraint(env)
   await ensureTransactionCategoryLockColumn(env)
+  await ensureUserIdColumn(env.DB, 'financial_profiles')
+  await ensureUserIdColumn(env.DB, 'transactions')
   await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_transactions_email_date ON transactions(email, date DESC)`).run()
   await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_transactions_email_source ON transactions(email, source)`).run()
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id)`).run()
   await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_cartola_imports_email_created ON cartola_imports(email, created_at DESC)`).run()
 }
 
