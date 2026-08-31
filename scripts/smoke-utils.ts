@@ -51,14 +51,9 @@ export async function requestJson<T extends JsonRecord>(
     // Transport-level failure: the request never produced a response. Typed so
     // release gates can tell "the network/upstream flaked" apart from "our API
     // answered, and the answer was wrong".
-    const failure = new UpstreamRequestError(
+    throw new UpstreamRequestError(
       `Request failed for ${path}: ${err instanceof Error ? err.message : String(err)}`
     )
-    // A gate that opted in ends the run here rather than unwinding through a
-    // top-level await, which Bun reports as an unhandled rejection and exits 1
-    // on regardless of any handler.
-    if (upstreamPolicy) finishSmoke(failure, upstreamPolicy)
-    throw failure
   }
 }
 
@@ -132,23 +127,18 @@ function strictSmoke() {
 }
 
 /**
- * Label of the gate that wants transport failures reported as skips, or null to
- * throw them (the default, so non-gate callers keep normal error handling).
+ * Route every error escaping a smoke script through finishSmoke.
+ *
+ * These scripts are a flat sequence of top-level awaits, so a failure anywhere
+ * rejects the module's evaluation. That surfaces as `uncaughtException`, not
+ * `unhandledRejection` — in Node and Bun alike, since it is ESM module-
+ * evaluation semantics rather than a runtime quirk. Registering the wrong one
+ * silently never fires and the process exits 1 with the policy ignored.
+ *
+ * Call this once, at the top of a gate, before any await that can fail.
  */
-let upstreamPolicy: string | null = null
-
-/**
- * Opt this process into skip-on-outage: any transport failure from requestJson
- * ends the run through finishSmoke instead of throwing. Release gates call this;
- * scripts that want to handle their own errors simply do not.
- */
-export function skipOnUpstreamFailure(label: string) {
-  upstreamPolicy = label
-}
-
-/** Restores throw-on-transport-failure. Exists for tests. */
-export function failOnUpstreamFailure() {
-  upstreamPolicy = null
+export function installSmokeExit(label: string) {
+  process.on('uncaughtException', (error) => finishSmoke(error, label))
 }
 
 /**

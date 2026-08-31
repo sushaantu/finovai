@@ -2,12 +2,11 @@ import {
   assert,
   asRecord,
   booleanField,
-  finishSmoke,
   loadDevVars,
   numberField,
   requestJson as requestJsonWithTimeout,
+  installSmokeExit,
   requireSupportAdminHeaders,
-  skipOnUpstreamFailure,
   SmokeSkip,
   stringField,
   UpstreamRequestError,
@@ -21,9 +20,10 @@ const SMOKE_LABEL = 'smoke-syncfy-full-flow'
 await loadDevVars()
 
 // This is a deploy gate against a sandbox we do not control. A Syncfy outage
-// must not block shipping code that does not touch Syncfy, so transport
-// failures end the run as a skip. FINOVAI_SMOKE_STRICT=1 restores hard failure.
-skipOnUpstreamFailure(SMOKE_LABEL)
+// must not block shipping code that does not touch Syncfy, so an unavailable
+// upstream ends the run as a skip while assertion failures against our own
+// endpoints still fail. FINOVAI_SMOKE_STRICT=1 restores hard failure.
+installSmokeExit(SMOKE_LABEL)
 
 const DEFAULT_API_BASE_URL = 'https://finovai-preview.my-cloudflare-711.workers.dev'
 // Use Syncfy's dedicated sample-data institution for release gates. The normal
@@ -106,11 +106,9 @@ try {
     }),
   })
 } catch (err) {
-  // Syncfy's own API, not ours. Ends the run here: a throw at this level is a
-  // top-level-await rejection, which Bun exits 1 on no matter what.
-  finishSmoke(
-    new UpstreamRequestError(`Syncfy credential create did not respond: ${err instanceof Error ? err.message : String(err)}`),
-    SMOKE_LABEL
+  // Syncfy's own API, not ours, so this is an outage rather than a regression.
+  throw new UpstreamRequestError(
+    `Syncfy credential create did not respond: ${err instanceof Error ? err.message : String(err)}`
   )
 }
 const createPayload = await createResponse.json().catch(() => ({})) as JsonRecord
@@ -166,12 +164,9 @@ for (let attempt = 0; attempt < pollAttempts; attempt += 1) {
 const importedTransactionCount = transactions ? transactionCount(transactions.data) : 0
 if (importedTransactionCount === 0) {
   // Everything of ours answered; the sandbox just never produced sample data.
-  finishSmoke(
-    new SmokeSkip(
-      `Syncfy sandbox imported no transactions after ${pollAttempts} attempts `
-      + `(${Math.round((pollAttempts * pollDelayMs) / 1000)}s). Our endpoints all responded.`
-    ),
-    SMOKE_LABEL
+  throw new SmokeSkip(
+    `Syncfy sandbox imported no transactions after ${pollAttempts} attempts `
+    + `(${Math.round((pollAttempts * pollDelayMs) / 1000)}s). Our endpoints all responded.`
   )
 }
 

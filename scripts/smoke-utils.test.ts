@@ -166,3 +166,38 @@ test('a genuine assertion failure still fails the release gate', async () => {
   )
   expect(exitCode).toBe(1)
 })
+
+// The path that actually matters: a failure deep inside a top-level-await
+// script. This rejects module evaluation, which arrives as uncaughtException
+// rather than unhandledRejection — the distinction the gate depends on.
+const TLA_SOURCE = (thrown: string) =>
+  "import {installSmokeExit, SmokeSkip, UpstreamRequestError} from './scripts/smoke-utils';"
+  + "installSmokeExit('gate');"
+  + `async function deep() { await new Promise(r => setTimeout(r, 5)); throw ${thrown} }`
+  + 'await deep();'
+  + "console.log('NOT REACHED')"
+
+test('installSmokeExit turns an upstream outage in a top-level-await script into a skip', async () => {
+  const { exitCode, stderr } = await runFinishSmoke(TLA_SOURCE("new SmokeSkip('sandbox produced no data')"))
+  expect(exitCode).toBe(0)
+  expect(stderr).toContain('SKIPPED')
+  expect(stderr).not.toContain('NOT REACHED')
+})
+
+test('installSmokeExit treats a transport failure as an outage', async () => {
+  const { exitCode } = await runFinishSmoke(TLA_SOURCE("new UpstreamRequestError('timed out')"))
+  expect(exitCode).toBe(0)
+})
+
+test('installSmokeExit still fails the build on an assertion failure', async () => {
+  const { exitCode } = await runFinishSmoke(TLA_SOURCE("new Error('Signup returned success=false')"))
+  expect(exitCode).toBe(1)
+})
+
+test('installSmokeExit honours FINOVAI_SMOKE_STRICT for outages', async () => {
+  const { exitCode } = await runFinishSmoke(
+    TLA_SOURCE("new SmokeSkip('sandbox produced no data')"),
+    { FINOVAI_SMOKE_STRICT: '1' },
+  )
+  expect(exitCode).toBe(1)
+})
