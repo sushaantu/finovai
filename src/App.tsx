@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import Navbar from './components/Navbar'
-import Dashboard from './components/Dashboard'
+import DashboardApp from './dashboard/DashboardApp'
 import LandingPage from './components/LandingPage'
 import ToolPage, { type ToolSlug } from './components/ToolPage'
 import StaticPage, { getStaticPage } from './components/StaticPage'
@@ -118,7 +118,7 @@ function App() {
       ) : null}
 
       {isDashboard ? (
-        <Dashboard
+        <DashboardApp
           email={signupEmail}
           initialNotice={authNotice}
           initialPath={pathname}
