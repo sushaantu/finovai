@@ -22,7 +22,6 @@ import {
   Check,
   CircleDollarSign,
   FileSearch,
-  FileUp,
   Film,
   HeartPulse,
   Home,
@@ -65,7 +64,6 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -161,23 +159,9 @@ interface DashboardProps {
 
 type TransactionType = FinanceTransactionType
 type TransactionSource = FinanceTransactionSource
-type DashboardPage = 'inicio' | 'syncfy' | 'cartola' | 'movimientos' | 'categorias' | 'analisis' | 'ajustes'
+type DashboardPage = 'inicio' | 'syncfy' | 'movimientos' | 'categorias' | 'analisis' | 'ajustes'
 type DashboardTheme = 'light' | 'dark'
 type CategoryPeriodFilter = 'current' | 'previous' | 'all'
-
-interface CartolaDraftRow {
-  id: string
-  date: string
-  type: TransactionType
-  amount: number
-  currency: string
-  category: string
-  description: string
-  merchant: string
-  confidence: number
-  rawSource: string
-}
-
 
 type BudgetStatus = CategoryBudgetStatus
 
@@ -197,16 +181,6 @@ interface SyncfyCredentialsResponse {
   success: boolean
   email: string
   credentials: SyncfyCredential[]
-}
-
-interface CartolaImportResponse {
-  success: boolean
-  email: string
-  importId: string
-  fileName: string
-  fileType: string
-  rows: CartolaDraftRow[]
-  message: string
 }
 
 interface ManualForm {
@@ -293,7 +267,6 @@ const DASHBOARD_PAGE_PATHS: Record<DashboardPage, string> = {
   syncfy: '/connect',
   movimientos: '/movements',
   categorias: '/categories',
-  cartola: '/import',
   analisis: '/analysis',
   ajustes: '/settings',
 }
@@ -323,7 +296,6 @@ const LEGACY_DASHBOARD_PAGE_PATHS: Partial<Record<string, DashboardPage>> = {
   '/dashboard/movement': 'movimientos',
   '/dashboard/categories': 'categorias',
   '/dashboard/category': 'categorias',
-  '/dashboard/import': 'cartola',
   '/dashboard/analysis': 'analisis',
   '/dashboard/settings': 'ajustes',
   '/movement': 'movimientos',
@@ -337,10 +309,6 @@ const PAGE_META: Record<DashboardPage, { title: string; description: string }> =
   syncfy: {
     title: 'Conectar cuenta',
     description: 'Vincula bancos, SAT, Bitso, American Express y fuentes compatibles.',
-  },
-  cartola: {
-    title: 'Importación de respaldo',
-    description: 'Flujo operativo no principal para revisar movimientos antes de guardarlos.',
   },
   movimientos: {
     title: 'Movimientos',
@@ -1173,33 +1141,11 @@ function getSavingsProjection(summary: FinanceSummary) {
   return projectInvestmentContribution(summary.estimatedSavingsOpportunity).tenYearValue
 }
 
-function draftRowToAnalysisTransaction(row: CartolaDraftRow): AnalysisTransaction {
-  return {
-    date: row.date,
-    type: row.type,
-    amount: row.amount,
-    currency: row.currency,
-    category: row.category,
-    description: row.description,
-    merchant: row.merchant,
-  }
-}
-
 function buildDashboardChatOpening(
   transactions: AnalysisTransaction[],
-  draftCount: number,
-  selectedDraftCount: number,
   hasConnectedInstitution: boolean,
   hasReconnectRequiredCredential = false
 ) {
-  if (draftCount > 0 && selectedDraftCount > 0) {
-    return `Ya puedo hacer un análisis preliminar de ${selectedDraftCount} movimientos seleccionados. Pregúntame qué se repite, dónde se fuga dinero o qué podrías ahorrar.`
-  }
-
-  if (draftCount > 0) {
-    return 'Tienes movimientos de respaldo cargados, pero no hay filas seleccionadas. Marca movimientos para analizarlos antes de confirmar.'
-  }
-
   if (transactions.length === 0) {
     if (hasConnectedInstitution) {
       return 'La institución ya está conectada. Cuando los movimientos estén listos, puedo encontrar fugas, patrones y oportunidades para ahorrar.'
@@ -1412,14 +1358,9 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [data, setData] = useState<DashboardResponse | null>(() => previewEnabled && previewEmail ? createPreviewDashboardResponse(previewEmail) : null)
   const [manualForm, setManualForm] = useState<ManualForm>(() => createManualForm())
   const [manualDrafts, setManualDrafts] = useState<ManualDraft[]>([])
-  const [draftRows, setDraftRows] = useState<CartolaDraftRow[]>([])
-  const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set())
-  const [currentImport, setCurrentImport] = useState<CartolaImportResponse | null>(null)
   const [status, setStatus] = useState(initialNotice || 'Entra con tu correo para conectar tu banco y analizar tus movimientos.')
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
-  const [isConfirming, setIsConfirming] = useState(false)
   const [chatInput, setChatInput] = useState('')
   const [chatMessages, setChatMessages] = useState<DashboardChatMessage[]>([])
   const [pendingChatAnswer, setPendingChatAnswer] = useState<PendingChatAnswer | null>(null)
@@ -1680,11 +1621,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const actionPlan = data?.actionPlan || EMPTY_ACTION_PLAN
   const categories = getFinanceCategoriesForType(manualForm.type)
   const hasTransactions = transactions.length > 0
-  const hasDraftRows = draftRows.length > 0
-  const selectedRows = useMemo(
-    () => draftRows.filter((row) => selectedDraftIds.has(row.id)),
-    [draftRows, selectedDraftIds]
-  )
 
   useEffect(() => {
     if (previewEnabled || loadingPreviewEnabled || !activeEmail) return
@@ -1705,12 +1641,8 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     previewEnabled,
     profile.monthlyIncome,
   ])
-  const draftAnalysisTransactions = useMemo(
-    () => selectedRows.map(draftRowToAnalysisTransaction),
-    [selectedRows]
-  )
-  const chatTransactions: AnalysisTransaction[] = hasDraftRows ? draftAnalysisTransactions : transactions
-  const chatSummary = hasDraftRows ? buildFinancialSummary(draftAnalysisTransactions) : summary
+  const chatTransactions: AnalysisTransaction[] = transactions
+  const chatSummary = summary
   const chatProfile = profile.email ? profile : { ...profile, email: activeEmail || profile.email }
   const latestCurrency = transactions[0]?.currency || DEFAULT_FINANCE_CURRENCY
   const chatCurrency = chatProfile.currency || chatTransactions[0]?.currency || latestCurrency
@@ -1729,7 +1661,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const budgetRunwayAmount = savedMonthlyBudget > 0
     ? roundMoney(savedMonthlyBudget - chatSummary.monthlySpending)
     : null
-  const isDraftChat = hasDraftRows
   const pageMeta = PAGE_META[activePage]
   const monthlyCategoryBreakdown = useMemo(
     () => getExpenseBreakdown(chatTransactions, chatSummary.month),
@@ -1743,9 +1674,9 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     () => buildCategoryAnalysis(chatTransactions, chatSummary, chatProfile),
     [chatProfile, chatSummary, chatTransactions]
   )
-  const baseCategoryAnalysis = hasDraftRows || !data?.categoryAnalysis
-    ? fallbackCategoryAnalysis
-    : serverCategoryAnalysis
+  const baseCategoryAnalysis = data?.categoryAnalysis
+    ? serverCategoryAnalysis
+    : fallbackCategoryAnalysis
   const previousCategoryAnalysis = useMemo(
     () => baseCategoryAnalysis.previousPeriod
     ? buildCategoryAnalysis(chatTransactions, { ...chatSummary, month: baseCategoryAnalysis.previousPeriod }, chatProfile)
@@ -1760,8 +1691,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     : selectedCategoryAnalysis.categories.map((item) => ({ category: item.category, total: item.amount }))
   const categoryBreakdownTotal = getBreakdownTotal(categoryBreakdown)
   const topAnalysisTransactions = getTopTransactions(chatTransactions, chatSummary.month)
-  const lowConfidenceRows = draftRows.filter((row) => row.confidence < 0.75).length
-  const dataModeLabel = hasDraftRows ? 'Preliminar' : hasTransactions ? 'Confirmado' : 'Sin datos'
+  const dataModeLabel = hasTransactions ? 'Confirmado' : 'Sin datos'
   const cashflowChartData = useMemo(
     () => getDailyFlowChartData(chatTransactions, chatSummary.month),
     [chatTransactions, chatSummary.month]
@@ -1839,7 +1769,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
 
     setChatMessages((current) => {
       const firstMessage = current[0]
-      const welcomeId = `welcome-${activeEmail}-${hasDraftRows ? `draft-${selectedRows.length}-${draftRows.length}` : `confirmed-${transactions.length}`}`
+      const welcomeId = `welcome-${activeEmail}-confirmed-${transactions.length}`
       if (firstMessage?.id === welcomeId) return current
 
       return [
@@ -1848,8 +1778,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
           role: 'assistant',
           content: buildDashboardChatOpening(
             chatTransactions,
-            draftRows.length,
-            selectedRows.length,
             hasConnectedInstitution,
             hasReconnectRequiredCredential
           ),
@@ -1857,7 +1785,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
         ...current.filter((message) => !message.id.startsWith(`welcome-${activeEmail}`)),
       ]
     })
-  }, [activeEmail, chatTransactions, draftRows.length, hasConnectedInstitution, hasDraftRows, hasReconnectRequiredCredential, selectedRows.length, transactions.length])
+  }, [activeEmail, chatTransactions, hasConnectedInstitution, hasReconnectRequiredCredential, transactions.length])
 
   useEffect(() => () => {
     if (chatAnswerTimeoutRef.current) {
@@ -2197,81 +2125,11 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     }
   }
 
-  const handleCartolaUpload = async (file: File | null) => {
-    if (!file || !activeEmail) return
-
-    setIsUploading(true)
-    setDraftRows([])
-    setSelectedDraftIds(new Set())
-    setCurrentImport(null)
-
-    try {
-      const formData = new FormData()
-      formData.append('email', activeEmail)
-      formData.append('file', file)
-
-      const response = await apiJson<CartolaImportResponse>('/api/cartola/import', {
-        method: 'POST',
-        body: formData,
-      })
-
-      setCurrentImport(response)
-      setDraftRows(response.rows)
-      setSelectedDraftIds(new Set(response.rows.map((row) => row.id)))
-      setStatus(response.message)
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'No pudimos leer los movimientos.')
-    } finally {
-      setIsUploading(false)
-    }
-  }
-
-  const toggleDraftRow = (id: string) => {
-    setSelectedDraftIds((current) => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  const updateDraftRow = <K extends keyof CartolaDraftRow>(id: string, field: K, value: CartolaDraftRow[K]) => {
-    setDraftRows((current) => current.map((row) => (row.id === id ? { ...row, [field]: value } : row)))
-  }
-
-  const handleConfirmCartola = async () => {
-    if (!activeEmail || !currentImport || selectedRows.length === 0) {
-      setStatus('Selecciona al menos un movimiento para confirmar.')
-      return
-    }
-
-    setIsConfirming(true)
-    try {
-      const response = await apiJson<DashboardResponse>('/api/cartola/confirm', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: activeEmail,
-          importId: currentImport.importId,
-          rows: selectedRows.map((row) => ({ ...row, selected: true })),
-        }),
-      })
-      setData(response)
-      setDraftRows([])
-      setSelectedDraftIds(new Set())
-      setCurrentImport(null)
-      setStatus(response.message || 'Movimientos confirmados.')
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'No pudimos confirmar los movimientos.')
-    } finally {
-      setIsConfirming(false)
-    }
-  }
-
   const queueDashboardChatAnswer = (question: string) => {
     if (!question) return
     if (pendingChatAnswer) return
 
-    const reasoning = buildDashboardChatReasoning(question, chatTransactions, chatSummary, isDraftChat)
+    const reasoning = buildDashboardChatReasoning(question, chatTransactions, chatSummary, false)
     const startedAt = Date.now()
     setChatMessages((current) => [
       ...current,
@@ -2293,7 +2151,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
         let model: string | undefined
         let chatError: string | null = null
 
-        if (activeEmail && !hasDraftRows) {
+        if (activeEmail) {
           try {
             const response = await apiJson<DashboardChatResponse>('/api/dashboard/chat', {
               method: 'POST',
@@ -2313,12 +2171,11 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
             chatTransactions,
             chatSummary,
             chatCurrency,
-            isDraftChat,
+            false,
             hasConnectedInstitution,
             hasReconnectRequiredCredential,
             chatProfile
           )
-          model = isDraftChat ? 'análisis local preliminar' : undefined
         }
 
         if (chatError) {
@@ -2327,7 +2184,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
             chatTransactions,
             chatSummary,
             chatCurrency,
-            isDraftChat,
+            false,
             hasConnectedInstitution,
             hasReconnectRequiredCredential,
             chatProfile
@@ -2917,7 +2774,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
 
   const renderDashboardPromptSuggestions = (isMobile = false) => (
     (() => {
-      const showConnectPrompt = (!hasTransactions || hasDraftRows) && !hasConnectedInstitution
+      const showConnectPrompt = !hasTransactions && !hasConnectedInstitution
       const questions = DASHBOARD_CHAT_SUGGESTIONS.slice(0, showConnectPrompt ? 2 : 3)
 
       return (
@@ -3258,18 +3115,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   if (activeEmail && data) {
     return (
       <main className={cn('finovai-dashboard min-h-screen text-foreground', dashboardTheme === 'dark' && 'dark')}>
-        <Input
-          id="cartola-upload"
-          accept=".pdf,.csv,.tsv,.txt,application/pdf,text/csv,text/tab-separated-values"
-          className="hidden"
-          type="file"
-          disabled={isUploading}
-          onChange={(event) => {
-            void handleCartolaUpload(event.target.files?.[0] || null)
-            event.target.value = ''
-          }}
-        />
-
         <div className="min-h-screen p-3 sm:p-5 lg:p-7">
           <div className={FINANCE_APP_SHELL_CLASS}>
             {renderDashboardRail()}
@@ -3326,173 +3171,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                     }
                   }}
                 />
-              ) : null}
-
-              {activePage === 'cartola' ? (
-              <Card id="cartola-panel" className={FINANCE_ARTIFACT_CARD_CLASS}>
-                <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <CardTitle>Importación de respaldo</CardTitle>
-                    <CardDescription>
-                      Revisa un archivo de movimientos antes de guardarlo como respaldo operativo.
-                    </CardDescription>
-                  </div>
-                  <Badge variant={hasDraftRows || hasTransactions ? 'secondary' : 'outline'}>
-                    {hasDraftRows ? `${draftRows.length} en revisión` : hasTransactions ? `${transactions.length} guardados` : 'Sin datos'}
-                  </Badge>
-                </CardHeader>
-                <CardContent className="grid gap-3 md:grid-cols-[minmax(0,1.1fr)_minmax(260px,0.9fr)]">
-                  <Label
-                    htmlFor="cartola-upload"
-                    className={cn(
-                      'flex min-h-36 cursor-pointer flex-col justify-between rounded-lg bg-primary p-4 text-primary-foreground shadow-[0_18px_60px_rgba(0,212,170,0.16)] transition-transform active:scale-[0.96]',
-                      isUploading && 'pointer-events-none opacity-70'
-                    )}
-                  >
-                    <span className="flex items-center gap-2 text-sm font-medium">
-                      {isUploading ? <Loader2 className="size-4 animate-spin" /> : <FileUp className="size-4" />}
-                      {isUploading ? 'Leyendo archivo' : 'Cargar archivo'}
-                    </span>
-                    <span className="text-sm leading-relaxed text-primary-foreground/75">
-                      PDF o CSV. La revisas antes de guardar.
-                    </span>
-                    <span className="text-sm font-semibold">Elegir archivo</span>
-                  </Label>
-
-                  <div className={FINANCE_ARTIFACT_TILE_CLASS}>
-                    <p className="text-sm font-medium">Flujo de revisión</p>
-                    <div className="mt-4 grid gap-3 text-sm text-muted-foreground">
-                      <div className="flex items-start gap-3">
-                        <Badge variant="secondary">1</Badge>
-                        <span>Cargas PDF o CSV.</span>
-                      </div>
-                      <div className="flex items-start gap-3">
-                        <Badge variant="secondary">2</Badge>
-                        <span>Revisas fechas, montos y categorías.</span>
-                      </div>
-                      <div className="flex items-start gap-3">
-                        <Badge variant="secondary">3</Badge>
-                        <span>Confirma solo las filas que quieres guardar.</span>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              ) : null}
-
-              {activePage === 'cartola' && hasDraftRows ? (
-                <Card id="review-panel" className={FINANCE_ARTIFACT_CARD_CLASS}>
-                  <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary">
-                        <FileSearch className="size-4" />
-                      </div>
-                      <div>
-                        <CardTitle>Revisar transacciones</CardTitle>
-                        <CardDescription>
-                          Estas filas alimentan el chat como análisis preliminar.
-                          {lowConfidenceRows > 0 ? ` ${lowConfidenceRows} requieren más revisión.` : ''}
-                        </CardDescription>
-                      </div>
-                    </div>
-                    <Badge variant="secondary">{selectedRows.length}/{draftRows.length} seleccionadas</Badge>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-4">
-                    <div className={cn('max-h-[560px] overflow-auto rounded-lg shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]', FINANCE_SCROLLBAR_CLASS)}>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-10">OK</TableHead>
-                            <TableHead>Fecha</TableHead>
-                            <TableHead>Tipo</TableHead>
-                            <TableHead>Detalle</TableHead>
-                            <TableHead>Categoría</TableHead>
-                            <TableHead className="text-right">Monto</TableHead>
-                            <TableHead>Conf.</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {draftRows.map((row) => (
-                            <TableRow key={row.id}>
-                              <TableCell>
-                                <Checkbox
-                                  aria-label={`Seleccionar ${row.description}`}
-                                  checked={selectedDraftIds.has(row.id)}
-                                  onCheckedChange={() => toggleDraftRow(row.id)}
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <Input
-                                  className="w-36"
-                                  inputMode="numeric"
-                                  placeholder="YYYY-MM-DD"
-                                  value={row.date}
-                                  onChange={(event) => updateDraftRow(row.id, 'date', event.target.value)}
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <Select
-                                  value={row.type}
-                                  onValueChange={(value) => updateDraftRow(row.id, 'type', value as TransactionType)}
-                                >
-                                  <SelectTrigger className="w-28">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectGroup>
-                                      <SelectItem value="expense">Gasto</SelectItem>
-                                      <SelectItem value="income">Ingreso</SelectItem>
-                                    </SelectGroup>
-                                  </SelectContent>
-                                </Select>
-                              </TableCell>
-                              <TableCell>
-                                <Input
-                                  className="w-[30rem]"
-                                  value={row.description}
-                                  onChange={(event) => updateDraftRow(row.id, 'description', event.target.value)}
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <Input
-                                  className="w-40"
-                                  value={row.category}
-                                  onChange={(event) => updateDraftRow(row.id, 'category', event.target.value)}
-                                />
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <Input
-                                  className="ml-auto w-32 text-right tabular-nums"
-                                  inputMode="decimal"
-                                  value={String(row.amount)}
-                                  onChange={(event) => updateDraftRow(row.id, 'amount', Number(event.target.value) || 0)}
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  className={cn(row.confidence < 0.75 && 'border-amber-500/30 text-amber-700 dark:text-amber-300')}
-                                  variant={row.confidence < 0.75 ? 'outline' : 'secondary'}
-                                >
-                                  {Math.round(row.confidence * 100)}%
-                                </Badge>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-sm text-muted-foreground">
-                        Nada se guarda como movimiento hasta que confirmes.
-                      </p>
-                      <Button onClick={handleConfirmCartola} disabled={isConfirming || selectedRows.length === 0}>
-                        {isConfirming ? <Loader2 className="size-4 animate-spin" /> : <Check data-icon="inline-start" />}
-                        Confirmar seleccionadas
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
               ) : null}
 
               {activePage === 'movimientos' && manualDrafts.length > 0 ? (
@@ -3807,9 +3485,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                       <div className="min-w-0">
                         <CardTitle>Presupuesto vs realidad</CardTitle>
                         <CardDescription>
-                          {hasDraftRows
-                            ? 'Vista preliminar de movimientos seleccionados.'
-                            : `Comparativo de ${categoryPeriodLabel}.`}
+                          {`Comparativo de ${categoryPeriodLabel}.`}
                         </CardDescription>
                       </div>
                       <div className="flex min-w-0 flex-wrap gap-2">

@@ -19,7 +19,6 @@ const DASHBOARD_APP_PATHS = new Set([
   '/movement',
   '/categories',
   '/category',
-  '/import',
   '/analysis',
   '/settings',
 ])
