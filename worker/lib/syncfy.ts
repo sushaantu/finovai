@@ -984,7 +984,18 @@ export async function getOrCreateSyncfyUser(env: Env, email: string, name?: stri
     .bind(email)
     .first<SyncfyUserRow>()
 
-  if (existing) return existing
+  if (existing) {
+    if (!existing.user_id) {
+      const user = await getOrCreateUserByEmail(env.DB, email)
+      await env.DB.prepare(
+        `UPDATE syncfy_users SET user_id = ? WHERE email = ? AND user_id IS NULL`
+      )
+        .bind(user.id, email)
+        .run()
+      existing.user_id = user.id
+    }
+    return existing
+  }
 
   const user = await getOrCreateUserByEmail(env.DB, email)
   const syncfyExternalId = buildSyncfyExternalId(user.id, user.syncfy_identity_version)

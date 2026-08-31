@@ -34,6 +34,7 @@ import {
   buildSyncfyExternalId,
   classifySyncfyConnectionIssue,
   classifySyncfyCredentialBlocker,
+  getOrCreateSyncfyUser,
   getSyncfyCredentialBlockerMessage,
   parseSyncfyCredentialHealth,
 } from './lib/syncfy'
@@ -293,6 +294,34 @@ test('getOrCreateUserByEmail is idempotent and normalizes email', async () => {
 
 test('buildSyncfyExternalId encodes user id and version', () => {
   expect(buildSyncfyExternalId('u-123', 3)).toBe('finovai:user:u-123:v3')
+})
+
+test('getOrCreateSyncfyUser stamps user_id on existing rows without rewriting external id', async () => {
+  const env = createEnv()
+  await seedSyncfyUsers(env.DB, {
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_external_id: 'finovai:user@example.com',
+    name: 'User',
+    mode: 'live',
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: null,
+    last_session_at: null,
+  })
+
+  const row = await getOrCreateSyncfyUser(env as never, 'user@example.com')
+
+  expect(row.user_id).toBeTruthy()
+  expect(row.syncfy_external_id).toBe('finovai:user@example.com')
+  const stored = await env.DB.prepare('SELECT user_id, syncfy_external_id FROM syncfy_users WHERE email = ?')
+    .bind('user@example.com')
+    .first<{ user_id: string | null; syncfy_external_id: string }>()
+  expect(stored?.user_id).toBe(row.user_id)
+  expect(stored?.syncfy_external_id).toBe('finovai:user@example.com')
+  const user = await env.DB.prepare('SELECT id FROM users WHERE email = ?')
+    .bind('user@example.com')
+    .first<{ id: string }>()
+  expect(user?.id).toBe(row.user_id)
 })
 
 test('test-d1 adapter runs real schema and round-trips a row', async () => {

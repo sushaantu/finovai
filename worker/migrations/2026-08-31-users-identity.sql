@@ -14,4 +14,4 @@ ALTER TABLE syncfy_users ADD COLUMN user_id TEXT;
 ALTER TABLE financial_profiles ADD COLUMN user_id TEXT;
 ALTER TABLE dashboard_sessions ADD COLUMN user_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);
-CREATE INDEX IF NOT EXISTS idx_syncfy_credentials_user ON syncfy_credentials(user_id);
+CREATE INDEX IF NOT EXISTS idx_syncfy_credentials_user_id ON syncfy_credentials(user_id);
