@@ -113,6 +113,7 @@ import { FinovaiLogo } from './LandingPage'
 import { SyncfyConnect, type SyncfyCredential } from '@/components/SyncfyConnect'
 import { cn } from '@/lib/utils'
 import {
+  clearDashboardSession,
   getDashboardAuthHeaders,
   getStoredDashboardEmail,
   setDashboardSession,
@@ -589,6 +590,12 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const data = await response.json().catch(() => ({}))
 
   if (!response.ok) {
+    if (response.status === 401) {
+      clearDashboardSession()
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('finovai:session-expired'))
+      }
+    }
     throw new Error(typeof data.error === 'string' ? data.error : 'Error de API')
   }
 
@@ -1359,6 +1366,8 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [pendingLoginEmail, setPendingLoginEmail] = useState('')
   const [loginCode, setLoginCode] = useState('')
   const [data, setData] = useState<DashboardResponse | null>(() => previewEnabled && previewEmail ? createPreviewDashboardResponse(previewEmail) : null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadNonce, setReloadNonce] = useState(0)
   const [manualForm, setManualForm] = useState<ManualForm>(() => createManualForm())
   const [manualDrafts, setManualDrafts] = useState<ManualDraft[]>([])
   const [status, setStatus] = useState(initialNotice || 'Entra con tu correo para conectar tu banco y analizar tus movimientos.')
@@ -1473,11 +1482,13 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     if (!activeEmail) return
 
     setIsLoading(true)
+    setLoadError(null)
     setStatus('Cargando transacciones conectadas.')
 
     apiJson<DashboardResponse>(`/api/transactions?email=${encodeURIComponent(activeEmail)}`)
       .then((response) => {
         if (cancelled) return
+        setLoadError(null)
         setData(response)
         setStatus(response.transactions.length > 0
           ? 'Transacciones listas para análisis.'
@@ -1495,6 +1506,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
       })
       .catch((error: Error) => {
         if (cancelled) return
+        setLoadError(error.message)
         setStatus(error.message)
       })
       .finally(() => {
@@ -1514,7 +1526,19 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     loadingPreviewEnabled,
     previewEmail,
     previewEnabled,
+    reloadNonce,
   ])
+
+  useEffect(() => {
+    function handleSessionExpired() {
+      setData(null)
+      setLoadError(null)
+      setActiveEmail(null)
+      setStatus('Tu sesión expiró. Vuelve a entrar con tu correo.')
+    }
+    window.addEventListener('finovai:session-expired', handleSessionExpired)
+    return () => window.removeEventListener('finovai:session-expired', handleSessionExpired)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -2985,6 +3009,40 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
           {renderFinanceChatComposer()}
         </footer>
       </div>
+    )
+  }
+
+  if (activeEmail && !data && loadError) {
+    return (
+      <main className={cn('finovai-dashboard min-h-screen text-foreground', dashboardTheme === 'dark' && 'dark')}>
+        <div className="min-h-screen p-3 sm:p-5 lg:p-7">
+          <div className={FINANCE_APP_SHELL_CLASS}>
+            {renderDashboardRail()}
+
+            <section className={cn('relative min-h-0 min-w-0 overflow-y-auto bg-background', FINANCE_SCROLLBAR_CLASS)}>
+              <div className="flex min-h-full flex-col items-center justify-center gap-4 px-6 py-12 text-center">
+                <h1 className="text-2xl font-semibold tracking-normal">No pudimos cargar tu análisis</h1>
+                <p className="max-w-md text-sm leading-relaxed text-muted-foreground">{loadError}</p>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <Button onClick={() => { setLoadError(null); setReloadNonce((n) => n + 1) }}>Reintentar</Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      clearDashboardSession()
+                      setData(null)
+                      setLoadError(null)
+                      setActiveEmail(null)
+                      setStatus('Vuelve a entrar con tu correo.')
+                    }}
+                  >
+                    Volver a entrar
+                  </Button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
     )
   }
 
