@@ -556,6 +556,7 @@ function getCategoryTrendChartData(
 
 function syncfyCredentialNeedsReconnect(credential: SyncfyCredential) {
   return credential.connectionState === 'action_required' ||
+    credential.connectionState === 'abandoned' ||
     credential.needsReconnect === true ||
     credential.status === 'needs_reconnect'
 }
@@ -566,6 +567,7 @@ function syncfyCredentialIsConnected(credential: SyncfyCredential) {
 
 function syncfyCredentialHasProviderIssue(credential: SyncfyCredential) {
   return credential.connectionState === 'provider_unavailable' ||
+    credential.connectionState === 'broken' ||
     credential.status === 'provider_unavailable'
 }
 

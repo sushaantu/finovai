@@ -87,6 +87,11 @@ export async function ensureSyncfyTables(env: Env): Promise<void> {
       syncfy_site_id TEXT,
       site_name TEXT,
       status TEXT,
+      state TEXT NOT NULL DEFAULT 'pending',
+      state_changed_at TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      first_failed_at TEXT,
+      deleted_at TEXT,
       last_successful_sync_at TEXT,
       last_pull_at TEXT,
       last_pull_attempt_at TEXT,
@@ -101,6 +106,22 @@ export async function ensureSyncfyTables(env: Env): Promise<void> {
 
   // Self-migrate older databases created before last_pull_attempt_at existed.
   await env.DB.prepare(`ALTER TABLE syncfy_credentials ADD COLUMN last_pull_attempt_at TEXT`)
+    .run()
+    .catch(() => {})
+
+  await env.DB.prepare(`ALTER TABLE syncfy_credentials ADD COLUMN state TEXT NOT NULL DEFAULT 'pending'`)
+    .run()
+    .catch(() => {})
+  await env.DB.prepare(`ALTER TABLE syncfy_credentials ADD COLUMN state_changed_at TEXT`)
+    .run()
+    .catch(() => {})
+  await env.DB.prepare(`ALTER TABLE syncfy_credentials ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0`)
+    .run()
+    .catch(() => {})
+  await env.DB.prepare(`ALTER TABLE syncfy_credentials ADD COLUMN first_failed_at TEXT`)
+    .run()
+    .catch(() => {})
+  await env.DB.prepare(`ALTER TABLE syncfy_credentials ADD COLUMN deleted_at TEXT`)
     .run()
     .catch(() => {})
 

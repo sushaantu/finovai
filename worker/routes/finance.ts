@@ -72,7 +72,8 @@ import {
 import {
   extractSyncfyTransactions,
   importSyncfyTransactionsForCredential,
-  markSyncfyCredentialFromImportResult,
+  applyPollOutcome,
+  connectionEventFromPoll,
   normalizeSyncfyTransaction,
   resolveSyncfyStoredTransactionCategory,
   resolveSyncfyStoredTransactionType,
@@ -1040,12 +1041,10 @@ export async function handleFinanceRoutes(request: Request, env: Env, url: URL):
               credential.syncfy_credential_id,
               importResult
             )
-            await markSyncfyCredentialFromImportResult(
-              env,
-              normalizedEmail,
-              credential.syncfy_credential_id,
-              importResult,
-              importState
+            await applyPollOutcome(
+              env.DB,
+              { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
+              connectionEventFromPoll(importResult, importState, null, credential.state)
             )
           }
 

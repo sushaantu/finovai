@@ -43,7 +43,7 @@ interface SyncfyConnectProps {
 }
 
 export interface SyncfyConnectionIssue {
-  kind: 'action_required' | 'provider_unavailable' | 'rate_limited' | 'unknown'
+  kind: 'action_required' | 'provider_unavailable' | 'rate_limited' | 'unknown' | 'broken' | 'abandoned' | 'connecting'
   owner: 'user' | 'provider' | 'finovai'
   action: 'update_access' | 'retry_later' | 'contact_support'
   title: string
@@ -64,7 +64,7 @@ export interface SyncfyCredential {
   cooldownSeconds: number
   ready: boolean
   needsReconnect?: boolean
-  connectionState?: 'ready' | 'verifying' | 'action_required' | 'provider_unavailable' | 'support_required'
+  connectionState?: 'ready' | 'verifying' | 'action_required' | 'provider_unavailable' | 'support_required' | 'broken' | 'abandoned'
   connectionIssue?: SyncfyConnectionIssue | null
 }
 
@@ -277,6 +277,8 @@ function getCredentialConnectionState(credential: SyncfyCredential) {
     return 'provider_unavailable'
   }
   if (credential.status === 'sync_error') return 'support_required'
+  if (credential.connectionIssue?.kind === 'broken') return 'broken'
+  if (credential.connectionIssue?.kind === 'abandoned') return 'abandoned'
   return 'verifying'
 }
 
@@ -306,6 +308,12 @@ function getCredentialStatusText(credential: SyncfyCredential) {
   if (connectionState === 'support_required') {
     return 'La conexión respondió con un error que el equipo de FinovAI debe revisar.'
   }
+  if (connectionState === 'broken') {
+    return 'La conexión con tu institución no ha logrado sincronizar. Estamos investigando con el proveedor.'
+  }
+  if (connectionState === 'abandoned') {
+    return 'Esta conexión falló durante 14 días y fue retirada. Puedes volver a conectarla cuando quieras.'
+  }
 
   if (credential.status === 'pending_transactions') {
     return credential.ready
@@ -325,8 +333,16 @@ function getCredentialStatusText(credential: SyncfyCredential) {
 }
 
 function getDefaultConnectMessage(credentials: SyncfyCredential[]) {
+  if (credentials.some((credential) => getCredentialConnectionState(credential) === 'abandoned')) {
+    return 'Una conexión fue retirada. Puedes volver a conectarla cuando quieras.'
+  }
+
   if (credentials.some((credential) => getCredentialConnectionState(credential) === 'action_required')) {
     return 'Una institución necesita que actualices el acceso para continuar.'
+  }
+
+  if (credentials.some((credential) => getCredentialConnectionState(credential) === 'broken')) {
+    return 'Una conexión no ha logrado sincronizar. Estamos investigando con el proveedor.'
   }
 
   if (credentials.some((credential) => getCredentialConnectionState(credential) === 'provider_unavailable')) {
@@ -868,19 +884,22 @@ export function SyncfyConnect({
               const menuId = `credential-menu-${credential.syncfyCredentialId}`
               const connectionState = getCredentialConnectionState(credential)
               const issue = credential.connectionIssue
-              const needsReconnect = connectionState === 'action_required'
+              const needsReconnect = connectionState === 'action_required' || connectionState === 'abandoned'
               const providerUnavailable = connectionState === 'provider_unavailable'
               const supportRequired = connectionState === 'support_required'
+              const isBroken = connectionState === 'broken'
               const isVerifying = connectionState === 'verifying'
               const primaryActionLabel = needsReconnect
                 ? 'Actualizar acceso'
-                : providerUnavailable
-                  ? credential.ready ? 'Reintentar' : 'Reintentaremos'
-                  : supportRequired
-                    ? credential.ready ? 'Reintentar' : 'Reintentar más tarde'
-                  : isVerifying
-                    ? credential.ready ? 'Verificar ahora' : 'Verificando'
-                    : 'Sincronizar'
+                : isBroken
+                  ? 'Estamos investigando'
+                  : providerUnavailable
+                    ? credential.ready ? 'Reintentar' : 'Reintentaremos'
+                    : supportRequired
+                      ? credential.ready ? 'Reintentar' : 'Reintentar más tarde'
+                    : isVerifying
+                      ? credential.ready ? 'Verificar ahora' : 'Verificando'
+                      : 'Sincronizar'
               const primaryActionDisabled = isBusy || (!needsReconnect && !credential.ready)
 
               return (
@@ -897,7 +916,11 @@ export function SyncfyConnect({
                         <p className="truncate text-sm font-medium">{getCredentialLabel(credential)}</p>
                         <p className="mt-0.5 truncate text-xs text-muted-foreground">
                           {needsReconnect
-                            ? 'La institución rechazó el acceso'
+                            ? connectionState === 'abandoned'
+                              ? 'Conexión retirada'
+                              : 'La institución rechazó el acceso'
+                            : isBroken
+                              ? 'Esta conexión no está funcionando'
                             : providerUnavailable
                               ? 'Incidencia en la institución'
                               : supportRequired
@@ -995,11 +1018,11 @@ export function SyncfyConnect({
                     <div
                       className={cn(
                         'flex items-start gap-2 rounded-xl border p-3 text-sm',
-                        issue.kind === 'action_required'
+                        issue.kind === 'action_required' || issue.kind === 'abandoned'
                           ? 'border-destructive/20 bg-destructive/5 text-destructive'
                           : 'border-amber-500/20 bg-amber-500/8 text-amber-800 dark:text-amber-200'
                       )}
-                      role={issue.kind === 'action_required' ? 'alert' : 'status'}
+                      role={issue.kind === 'action_required' || issue.kind === 'abandoned' ? 'alert' : 'status'}
                     >
                       <AlertCircle className="mt-0.5 size-4 shrink-0" />
                       <div className="min-w-0">

@@ -15,6 +15,10 @@ import {
   parseJsonUnknown,
   stringFromUnknown,
 } from './shared'
+import {
+  userFacingIssue,
+  type ConnectionState,
+} from './lifecycle'
 import type {
   Env,
   SyncfyConnectionIssue,
@@ -23,7 +27,6 @@ import type {
   SyncfyCredentialHealth,
   SyncfyCredentialRow,
   SyncfyCredentialsResponse,
-  SyncfyErrorRow,
   SyncfySiteMetadata,
   SyncfyUserRow,
   SyncfyWebhookEventRow,
@@ -36,6 +39,14 @@ import {
 } from './db'
 
 export const DEFAULT_SYNCFY_BASE_URL = 'https://sync.paybook.com/v1'
+
+type SyncfyFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+const defaultSyncfyFetch: SyncfyFetch = (input, init) => fetch(input, init)
+let syncfyFetch: SyncfyFetch = defaultSyncfyFetch
+
+export function setSyncfyFetchForTests(impl: SyncfyFetch): void {
+  syncfyFetch = impl
+}
 
 const SYNCFY_REFRESH_COOLDOWN_SECONDS = 30 * 60
 
@@ -80,7 +91,7 @@ export async function syncfyRequest<T>(env: Env, path: string, init: RequestInit
   headers.set('Content-Type', 'application/json')
   headers.set(headerName, buildSyncfyAuthHeaderValue(env))
 
-  const response = await fetch(`${baseUrl}${requestPath}`, {
+  const response = await syncfyFetch(`${baseUrl}${requestPath}`, {
     ...init,
     headers,
   })
@@ -200,7 +211,8 @@ export async function storeSyncfyCredential(
        last_rid = COALESCE(excluded.last_rid, syncfy_credentials.last_rid),
        raw_json = excluded.raw_json,
        updated_at = datetime("now"),
-       user_id = COALESCE(excluded.user_id, syncfy_credentials.user_id)`
+       user_id = COALESCE(excluded.user_id, syncfy_credentials.user_id),
+       deleted_at = NULL`
   )
     .bind(
       crypto.randomUUID(),
@@ -383,28 +395,57 @@ export function getSyncfyCredentialBlockerMessage(
   return 'La institución está fallando al iniciar sesión. FinovAI seguirá reintentando automáticamente.'
 }
 
-function getSyncfyConnectionState(credential: SyncfyCredentialRow): SyncfyConnectionState {
-  if (credential.status === 'synced') return 'ready'
-  if (credential.connection_issue?.kind === 'action_required' || isSyncfyReconnectRequiredStatus(credential.status)) {
-    return 'action_required'
-  }
-  if (
-    credential.connection_issue?.kind === 'provider_unavailable' ||
-    credential.status === 'provider_unavailable'
-  ) {
-    return 'provider_unavailable'
-  }
-  if (credential.connection_issue?.kind === 'unknown' || credential.status === 'sync_error') {
-    return 'support_required'
+const CONNECTION_STATES: ReadonlySet<string> = new Set([
+  'pending', 'healthy', 'degraded', 'broken', 'needs_user', 'abandoned',
+])
+
+export function resolveLifecycleState(credential: SyncfyCredentialRow): ConnectionState {
+  const state = credential.state
+  if (state && CONNECTION_STATES.has(state) && state !== 'pending') {
+    return state as ConnectionState
   }
 
-  return 'verifying'
+  if (credential.status === 'synced') return 'healthy'
+  if (isSyncfyReconnectRequiredStatus(credential.status)) return 'needs_user'
+  if (credential.status === 'provider_unavailable') return 'degraded'
+  if (credential.status === 'sync_error') return 'abandoned'
+  if (state === 'pending') return 'pending'
+  return 'pending'
+}
+
+function apiConnectionState(state: ConnectionState): SyncfyConnectionState {
+  switch (state) {
+    case 'healthy': return 'ready'
+    case 'pending': return 'verifying'
+    case 'degraded': return 'provider_unavailable'
+    case 'broken': return 'broken'
+    case 'needs_user': return 'action_required'
+    case 'abandoned': return 'abandoned'
+  }
+}
+
+function connectionIssueFromState(credential: SyncfyCredentialRow): SyncfyConnectionIssue | null {
+  const state = resolveLifecycleState(credential)
+  const issue = userFacingIssue(state)
+  if (!issue) return null
+  return {
+    kind: issue.kind as NonNullable<SyncfyCredentialRow['connection_issue']>['kind'],
+    owner: state === 'needs_user' ? 'user' : state === 'abandoned' ? 'user' : 'provider',
+    action: state === 'needs_user' || state === 'abandoned' ? 'update_access' : 'retry_later',
+    title: issue.title,
+    message: issue.message,
+    supportCode: null,
+    statusCode: null,
+    occurredAt: credential.state_changed_at || credential.updated_at || credential.created_at,
+    source: 'lifecycle',
+  }
 }
 
 export function syncfyCredentialToApi(credential: SyncfyCredentialRow): SyncfyCredentialsResponse['credentials'][number] {
   const cooldownSeconds = getSyncfyCredentialCooldownSeconds(credential)
-  const connectionState = getSyncfyConnectionState(credential)
-  const needsReconnect = connectionState === 'action_required'
+  const lifecycleState = resolveLifecycleState(credential)
+  const connectionState = apiConnectionState(lifecycleState)
+  const needsReconnect = lifecycleState === 'needs_user' || lifecycleState === 'abandoned'
 
   return {
     id: credential.id,
@@ -417,7 +458,7 @@ export function syncfyCredentialToApi(credential: SyncfyCredentialRow): SyncfyCr
     ready: cooldownSeconds === 0,
     needsReconnect,
     connectionState,
-    connectionIssue: credential.connection_issue || null,
+    connectionIssue: credential.connection_issue ?? connectionIssueFromState(credential) ?? null,
   }
 }
 
@@ -427,6 +468,7 @@ export async function loadSyncfyCredentialsForEmail(env: Env, email: string): Pr
   const result = await env.DB.prepare(
     `SELECT * FROM syncfy_credentials
      WHERE email = ?
+       AND deleted_at IS NULL
      ORDER BY updated_at DESC, created_at DESC`
   )
     .bind(email)
@@ -450,7 +492,7 @@ export async function deleteSyncfyCredentialForEmail(
   await ensureFinanceTables(env)
 
   const credential = await env.DB.prepare(
-    `SELECT * FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ?`
+    `SELECT * FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ? AND deleted_at IS NULL`
   )
     .bind(email, credentialId)
     .first<SyncfyCredentialRow>()
@@ -495,9 +537,12 @@ async function deleteLocalSyncfyCredentialForEmail(
     .run()
 
   await env.DB.prepare(
-    `DELETE FROM syncfy_credentials
+    `UPDATE syncfy_credentials
+     SET deleted_at = datetime('now'),
+         updated_at = datetime('now')
      WHERE email = ?
-       AND syncfy_credential_id = ?`
+       AND syncfy_credential_id = ?
+       AND deleted_at IS NULL`
   )
     .bind(email, credentialId)
     .run()
@@ -545,7 +590,7 @@ export async function deleteSyncfyCredentialFromWebhook(
 
   let email = event.syncfy_user_id ? await findEmailBySyncfyUserId(env, event.syncfy_user_id) : null
   if (!email) {
-    const row = await env.DB.prepare(`SELECT email FROM syncfy_credentials WHERE syncfy_credential_id = ? LIMIT 1`)
+    const row = await env.DB.prepare(`SELECT email FROM syncfy_credentials WHERE syncfy_credential_id = ? AND deleted_at IS NULL LIMIT 1`)
       .bind(credentialId)
       .first<{ email: string }>()
     email = row?.email || null
@@ -759,7 +804,7 @@ export async function enrichSyncfyCredentialInstitutionById(
   metadata: SyncfySiteMetadata
 ): Promise<boolean> {
   const credential = await env.DB.prepare(
-    `SELECT * FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ?`
+    `SELECT * FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ? AND deleted_at IS NULL`
   )
     .bind(email, credentialId)
     .first<SyncfyCredentialRow>()
@@ -769,42 +814,13 @@ export async function enrichSyncfyCredentialInstitutionById(
 }
 
 async function attachSyncfyConnectionIssues(
-  env: Env,
-  email: string,
+  _env: Env,
+  _email: string,
   credentials: SyncfyCredentialRow[]
 ): Promise<SyncfyCredentialRow[]> {
-  const unresolvedCredentialIds = new Set(
-    credentials
-      .filter((credential) => credential.status !== 'synced')
-      .map((credential) => credential.syncfy_credential_id)
-  )
-  if (unresolvedCredentialIds.size === 0) return credentials
-
-  const errors = await env.DB.prepare(
-    `SELECT id, email, syncfy_user_id, syncfy_credential_id, rid, status_code,
-            error_code, message, source, created_at
-     FROM syncfy_errors
-     WHERE email = ?
-       AND syncfy_credential_id IS NOT NULL
-       AND created_at >= datetime('now', '-30 days')
-     ORDER BY created_at DESC
-     LIMIT 100`
-  )
-    .bind(email)
-    .all<SyncfyErrorRow>()
-  const issues = new Map<string, SyncfyConnectionIssue>()
-
-  for (const error of errors.results) {
-    const credentialId = error.syncfy_credential_id
-    if (!credentialId || !unresolvedCredentialIds.has(credentialId) || issues.has(credentialId)) continue
-    issues.set(credentialId, classifySyncfyConnectionIssue(error))
-  }
-
   return credentials.map((credential) => ({
     ...credential,
-    connection_issue: credential.status === 'synced'
-      ? null
-      : issues.get(credential.syncfy_credential_id) || null,
+    connection_issue: connectionIssueFromState(credential),
   }))
 }
 
@@ -904,77 +920,6 @@ export function buildSyncfyUserMessage(error: SyncfyRequestError): string {
   }
 
   return 'No pudimos completar la conexión con la institución. Revisa los datos o intenta otra vez.'
-}
-
-export function classifySyncfyConnectionIssue(
-  error: Pick<SyncfyErrorRow, 'rid' | 'status_code' | 'message' | 'source' | 'created_at'>
-): SyncfyConnectionIssue {
-  const text = `${error.message || ''}`.toLowerCase()
-  const actionRequired = (
-    /credential error.*password/.test(text) ||
-    /update|updating|actualiza/.test(text) && /password|contrase|credential|acceso/.test(text) ||
-    /invalid|incorrect|rejected|rechaz/.test(text) && /password|contrase|credential|login|access|acceso/.test(text) ||
-    /two.?factor|2fa|verification code|c[oó]digo de seguridad|otp/.test(text)
-  )
-  const providerUnavailable = (
-    (error.status_code !== null && error.status_code >= 500) ||
-    /can't be sync at this moment|cannot be sync at this moment|temporar|unavailable|maintenance|mantenimiento/.test(text)
-  )
-  const rateLimited = error.status_code === 429 || /rate limit|too many requests|limit exceeded/.test(text)
-
-  if (actionRequired) {
-    return {
-      kind: 'action_required',
-      owner: 'user',
-      action: 'update_access',
-      title: 'Actualiza el acceso de esta institución',
-      message: 'La institución rechazó el acceso guardado. La contraseña pudo cambiar o puede faltar una verificación de seguridad.',
-      supportCode: error.rid,
-      statusCode: error.status_code,
-      occurredAt: error.created_at,
-      source: error.source,
-    }
-  }
-
-  if (providerUnavailable) {
-    return {
-      kind: 'provider_unavailable',
-      owner: 'provider',
-      action: 'retry_later',
-      title: 'La institución no está disponible',
-      message: 'La conexión de esta institución está fallando temporalmente. No necesitas volver a ingresar tu contraseña; FinovAI reintentará automáticamente.',
-      supportCode: error.rid,
-      statusCode: error.status_code,
-      occurredAt: error.created_at,
-      source: error.source,
-    }
-  }
-
-  if (rateLimited) {
-    return {
-      kind: 'rate_limited',
-      owner: 'provider',
-      action: 'retry_later',
-      title: 'La institución sigue procesando la conexión',
-      message: 'La institución limitó temporalmente las verificaciones. FinovAI volverá a intentar sin que tengas que reconectar.',
-      supportCode: error.rid,
-      statusCode: error.status_code,
-      occurredAt: error.created_at,
-      source: error.source,
-    }
-  }
-
-  return {
-    kind: 'unknown',
-    owner: 'finovai',
-    action: 'contact_support',
-    title: 'No pudimos completar esta conexión',
-    message: 'La institución respondió con un error que necesita revisión. Intenta otra vez o comparte el código de soporte con el equipo.',
-    supportCode: error.rid,
-    statusCode: error.status_code,
-    occurredAt: error.created_at,
-    source: error.source,
-  }
 }
 
 export async function getOrCreateSyncfyUser(env: Env, email: string, name?: string): Promise<SyncfyUserRow> {

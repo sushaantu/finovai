@@ -32,7 +32,6 @@ import {
 } from './lib/db'
 import {
   buildSyncfyExternalId,
-  classifySyncfyConnectionIssue,
   classifySyncfyCredentialBlocker,
   getOrCreateSyncfyUser,
   getSyncfyCredentialBlockerMessage,
@@ -96,9 +95,9 @@ interface SyncfyCredentialsApiResponse {
     siteName: string | null
     ready: boolean
     needsReconnect?: boolean
-    connectionState?: 'ready' | 'verifying' | 'action_required' | 'provider_unavailable' | 'support_required'
+    connectionState?: 'ready' | 'verifying' | 'action_required' | 'provider_unavailable' | 'support_required' | 'broken' | 'abandoned'
     connectionIssue?: {
-      kind: 'action_required' | 'provider_unavailable' | 'rate_limited' | 'unknown'
+      kind: 'action_required' | 'provider_unavailable' | 'rate_limited' | 'unknown' | 'broken' | 'abandoned' | 'connecting'
       supportCode: string | null
       message: string
     } | null
@@ -206,9 +205,9 @@ async function seedSyncfyCredentials(db: TestD1, ...rows: SeedRow[]): Promise<vo
       .prepare(
         `INSERT INTO syncfy_credentials (
           id, email, syncfy_user_id, syncfy_credential_id, syncfy_site_id, site_name, status,
-          last_successful_sync_at, last_pull_at, last_pull_attempt_at, last_rid, raw_json,
+          state, attempt_count, last_successful_sync_at, last_pull_at, last_pull_attempt_at, last_rid, raw_json,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         seedField(row, ['id'], crypto.randomUUID()),
@@ -218,6 +217,8 @@ async function seedSyncfyCredentials(db: TestD1, ...rows: SeedRow[]): Promise<vo
         seedField(row, ['syncfy_site_id']),
         seedField(row, ['site_name']),
         seedField(row, ['status']),
+        seedField(row, ['state'], 'pending'),
+        seedField(row, ['attempt_count'], 0),
         seedField(row, ['last_successful_sync_at']),
         seedField(row, ['last_pull_at']),
         seedField(row, ['last_pull_attempt_at']),
@@ -948,7 +949,8 @@ test('syncfy credentials endpoint exposes actionable institution errors instead 
     syncfy_credential_id: 'credential-1',
     syncfy_site_id: 'amex-site',
     site_name: 'American Express',
-    status: 'pending_transactions',
+    status: 'needs_reconnect',
+    state: 'needs_user',
     last_successful_sync_at: null,
     last_pull_at: '2026-07-29T04:00:51Z',
     last_rid: 'password-rid',
@@ -981,10 +983,9 @@ test('syncfy credentials endpoint exposes actionable institution errors instead 
     needsReconnect: true,
     connectionIssue: {
       kind: 'action_required',
-      supportCode: 'password-rid',
     },
   })
-  expect(data.credentials[0].connectionIssue?.message).toContain('contraseña')
+  expect(data.credentials[0].connectionIssue?.message).toContain('Vuelve a conectar')
 })
 
 test('syncfy credentials endpoint replaces auth-channel labels with organization catalogue names', async () => {
@@ -1188,7 +1189,8 @@ test('syncfy credential delete removes one connection and its imported transacti
     expect(calls[0].method).toBe('DELETE')
     expect(calls[0].url).toContain('/credentials/credential-1?id_user=syncfy-user-1')
     expect(data.credentials.map((credential) => credential.syncfyCredentialId)).toEqual(['credential-2'])
-    expect((await readSyncfyCredentials(env.DB)).map((credential) => credential.syncfy_credential_id)).toEqual(['credential-2'])
+    expect((await readSyncfyCredentials(env.DB)).filter((credential) => !credential.deleted_at).map((credential) => credential.syncfy_credential_id)).toEqual(['credential-2'])
+    expect((await readSyncfyCredentials(env.DB)).find((credential) => credential.syncfy_credential_id === 'credential-1')?.deleted_at).toBeTruthy()
     expect((await readTransactions(env.DB)).map((transaction) => transaction.id)).toEqual([
       'syncfy:credential-2:grocery',
       'manual:rent',
@@ -1327,7 +1329,7 @@ test('syncfy credential delete cleans local stale rows when upstream credential 
     expect(data.syncfyCredentialDeleteAttempted).toBe(true)
     expect(data.syncfyCredentialDeleted).toBe(false)
     expect(data.credentials).toEqual([])
-    expect(await readSyncfyCredentials(env.DB)).toEqual([])
+    expect((await readSyncfyCredentials(env.DB))[0]?.deleted_at).toBeTruthy()
     expect(await readTransactions(env.DB)).toEqual([])
     expect(await readSyncfyErrors(env.DB)).toHaveLength(1)
     expect((await readSyncfyErrors(env.DB))[0]).toMatchObject({
@@ -1388,7 +1390,7 @@ test('syncfy credential delete cleans local stale rows for Syncfy status-false 2
     expect(data.syncfyCredentialDeleteAttempted).toBe(true)
     expect(data.syncfyCredentialDeleted).toBe(false)
     expect(data.credentials).toEqual([])
-    expect(await readSyncfyCredentials(env.DB)).toEqual([])
+    expect((await readSyncfyCredentials(env.DB))[0]?.deleted_at).toBeTruthy()
     expect((await readSyncfyErrors(env.DB))[0]).toMatchObject({
       rid: 'delete-rid-3',
       status_code: 200,
@@ -1922,6 +1924,7 @@ test('syncfy refresh starts credential pull and imports transactions from return
     ]))
     expect(data.syncfy?.endpoints).toContain('/credentials/credential-1/pulls?id_user=syncfy-user-1')
     expect((await readSyncfyCredentials(env.DB))[0].status).toBe('synced')
+    expect((await readSyncfyCredentials(env.DB))[0].state).toBe('healthy')
     expect((await readSyncfyCredentials(env.DB))[0].last_successful_sync_at).toBeTruthy()
     expect(String((await readSyncfyCredentials(env.DB))[0].raw_json)).toContain('job-from-pull')
   } finally {
@@ -2183,6 +2186,7 @@ test('syncfy refresh records pending pull attempts when Syncfy returns no transa
     expect(data.pendingTransactions).toBe(true)
     expect(data.message).toContain('movimientos todavía se están preparando')
     expect((await readSyncfyCredentials(env.DB))[0].status).toBe('pending_transactions')
+    expect((await readSyncfyCredentials(env.DB))[0].state).toBe('pending')
     expect((await readSyncfyCredentials(env.DB))[0].last_pull_at).toBeTruthy()
     expect((await readSyncfyCredentials(env.DB))[0].last_successful_sync_at).toBeNull()
   } finally {
@@ -2372,6 +2376,7 @@ test('syncfy webhook acknowledges before importing transactions in the backgroun
     expect((await readSyncfyWebhookEvents(env.DB))[0].processed_at).toBeTruthy()
     expect(await readTransactions(env.DB)).toHaveLength(1)
     expect((await readSyncfyCredentials(env.DB))[0].status).toBe('synced')
+    expect((await readSyncfyCredentials(env.DB))[0].state).toBe('healthy')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -2464,7 +2469,9 @@ test('syncfy deleted webhook removes local credential instead of recreating it',
 
   await waitUntilPromises[0]
 
-  expect(await readSyncfyCredentials(env.DB)).toEqual([])
+  const remaining = await readSyncfyCredentials(env.DB)
+  expect(remaining).toHaveLength(1)
+  expect(remaining[0].deleted_at).toBeTruthy()
   expect(await readTransactions(env.DB)).toEqual([])
   expect((await readSyncfyWebhookEvents(env.DB))[0].processed_at).toBeTruthy()
 })
@@ -3033,45 +3040,6 @@ test('classifySyncfyCredentialBlocker does not block healthy or in-progress cred
   expect(classifySyncfyCredentialBlocker({ found: false, code: null, isAuthorized: null, isTwofa: false }))
     .toBe(null)
   expect(classifySyncfyCredentialBlocker(null)).toBe(null)
-})
-
-test('classifySyncfyConnectionIssue separates user action from provider incidents', () => {
-  expect(classifySyncfyConnectionIssue({
-    rid: 'password-rid',
-    status_code: 400,
-    message: 'Credential error, please consider updating credential password',
-    source: 'syncfy-pull',
-    created_at: '2026-07-29T04:00:51Z',
-  })).toMatchObject({
-    kind: 'action_required',
-    owner: 'user',
-    action: 'update_access',
-    supportCode: 'password-rid',
-  })
-
-  expect(classifySyncfyConnectionIssue({
-    rid: 'provider-rid',
-    status_code: 400,
-    message: "Credential can't be sync at this moment",
-    source: 'syncfy-pull',
-    created_at: '2026-07-29T04:00:50Z',
-  })).toMatchObject({
-    kind: 'provider_unavailable',
-    owner: 'provider',
-    action: 'retry_later',
-    supportCode: 'provider-rid',
-  })
-
-  expect(classifySyncfyConnectionIssue({
-    rid: 'rate-rid',
-    status_code: 429,
-    message: 'Credential Rate Limit exceeded. Try again in 58 s',
-    source: 'syncfy-pull',
-    created_at: '2026-07-28T03:18:12Z',
-  })).toMatchObject({
-    kind: 'rate_limited',
-    owner: 'provider',
-  })
 })
 
 test('isSyncfyProviderPullRetryDue backs off provider retries to 24 hours', () => {

@@ -68,16 +68,20 @@ import {
   getSyncfyJobStatusPaths,
   getSyncfyTransactionImportMessageForState,
   getSyncfyWebhookEndpointPaths,
+  applyConnectionEvent,
+  applyPollOutcome,
+  connectionEventFromPoll,
   importSyncfyTransactionsForCredential,
   importSyncfyTransactionsFromEndpoints,
   importSyncfyTransactionsFromJobStatuses,
   isSyncfyTransactionImportComplete,
-  markSyncfyCredentialFromImportResult,
-  markSyncfyCredentialSyncError,
-  markSyncfyCredentialSyncSuccess,
   mergeSyncfyTransactionImportResults,
+  refreshSyncfyCredential,
   resolveSyncfyTransactionImportState,
 } from '../lib/ingest'
+import {
+  classifyVendorFailure,
+} from '../lib/lifecycle'
 import {
   getFinanceDashboard,
 } from '../routes/finance'
@@ -259,34 +263,17 @@ async function processSyncfyWebhookEvent(
       return
     }
 
-    if (isSyncfyRefreshEvent(event.event_type) || event.event_type.toLowerCase() === 'refresh') {
-      const transactionEndpoints = getSyncfyWebhookEndpointPaths(payload, 'transactions')
-      webhookEmail = event.syncfy_user_id ? await findEmailBySyncfyUserId(env, event.syncfy_user_id) : credential?.email || null
-
-      if (webhookEmail && transactionEndpoints.length > 0) {
-        const importResult = await importSyncfyTransactionsFromEndpoints(
-          env,
-          webhookEmail,
-          event.syncfy_user_id || credential?.syncfy_user_id || null,
-          webhookCredentialId,
-          transactionEndpoints
-        )
-        if (webhookCredentialId) {
-          const importState = await resolveSyncfyTransactionImportState(
-            env,
-            webhookEmail,
-            webhookCredentialId,
-            importResult
-          )
-          await markSyncfyCredentialFromImportResult(
-            env,
-            webhookEmail,
-            webhookCredentialId,
-            importResult,
-            importState
-          )
-        }
-      }
+    webhookEmail = event.syncfy_user_id ? await findEmailBySyncfyUserId(env, event.syncfy_user_id) : credential?.email || null
+    const known = credential || (
+      webhookEmail && webhookCredentialId
+        ? await env.DB.prepare(
+          `SELECT * FROM syncfy_credentials
+           WHERE email = ? AND syncfy_credential_id = ? AND deleted_at IS NULL`
+        ).bind(webhookEmail, webhookCredentialId).first<SyncfyCredentialRow>()
+        : null
+    )
+    if (known) {
+      await refreshSyncfyCredential(env, known)
     }
 
     await markSyncfyWebhookEventProcessed(env, event.id)
@@ -375,7 +362,7 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
           `SELECT email, syncfy_user_id, syncfy_credential_id, syncfy_site_id, site_name, status,
              last_successful_sync_at, last_pull_at, last_rid, created_at, updated_at
            FROM syncfy_credentials
-           WHERE email = ? OR syncfy_user_id = ?
+           WHERE (email = ? OR syncfy_user_id = ?) AND deleted_at IS NULL
            ORDER BY COALESCE(updated_at, created_at) DESC
            LIMIT ?`
         )
@@ -385,6 +372,7 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
           `SELECT email, syncfy_user_id, syncfy_credential_id, syncfy_site_id, site_name, status,
              last_successful_sync_at, last_pull_at, last_rid, created_at, updated_at
            FROM syncfy_credentials
+           WHERE deleted_at IS NULL
            ORDER BY COALESCE(updated_at, created_at) DESC
            LIMIT ?`
         )
@@ -694,6 +682,11 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
         }, isWidgetError ? 409 : 422)
       }
 
+      await applyConnectionEvent(env.DB, {
+        email: normalizedEmail,
+        syncfy_credential_id: credential.syncfy_credential_id,
+      }, { type: 'user_reconnected' })
+
       const transactionEndpoints = getSyncfyWebhookEndpointPaths(payload, 'transactions')
       let importResult: SyncfyTransactionImportResult | null = null
 
@@ -796,13 +789,17 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
           credential.syncfy_credential_id,
           importResult
         )
-        await markSyncfyCredentialFromImportResult(
-          env,
-          normalizedEmail,
-          credential.syncfy_credential_id,
-          importResult,
-          importState
-        )
+        if (importState.complete) {
+          await applyConnectionEvent(env.DB, {
+            email: normalizedEmail,
+            syncfy_credential_id: credential.syncfy_credential_id,
+          }, { type: 'sync_succeeded' })
+        } else if (importResult.vendorStatus != null || importResult.vendorMessage) {
+          await applyConnectionEvent(env.DB, {
+            email: normalizedEmail,
+            syncfy_credential_id: credential.syncfy_credential_id,
+          }, classifyVendorFailure(importResult.vendorStatus ?? null, importResult.vendorMessage ?? null))
+        }
       }
 
       const credentials = await loadDisplaySyncfyCredentialsForEmail(env, normalizedEmail)
@@ -852,7 +849,10 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
         credential.syncfy_credential_id
       )
       if (storedTransactions > 0) {
-        await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
+        await applyConnectionEvent(env.DB, {
+          email: normalizedEmail,
+          syncfy_credential_id: credential.syncfy_credential_id,
+        }, { type: 'sync_succeeded' })
         const dashboard = await getFinanceDashboard(env, normalizedEmail)
 
         return json({
@@ -872,9 +872,10 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
 
       const cooldownSeconds = getSyncfyCredentialCooldownSeconds(credential)
       const jobStatusPaths = getSyncfyCredentialJobStatusPaths(credential)
-      const canPollPendingCredential = credential.status === 'pending_transactions'
+      const canPollPendingCredential = credential.status === 'pending_transactions' ||
+        (credential.state === 'pending' && credential.status !== 'synced')
 
-      if (cooldownSeconds > 0 && !canPollPendingCredential && credential.status === 'synced') {
+      if (cooldownSeconds > 0 && !canPollPendingCredential && (credential.status === 'synced' || credential.state === 'healthy')) {
         return json({
           success: false,
           error: 'Puedes hacer una sincronización exitosa por institución cada 30 minutos.',
@@ -891,12 +892,10 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
       const blocker = classifySyncfyCredentialBlocker(health)
 
       if (blocker === 'needs_reconnect') {
-        await markSyncfyCredentialSyncError(
-          env,
-          normalizedEmail,
-          credential.syncfy_credential_id,
-          'needs_reconnect'
-        )
+        await applyConnectionEvent(env.DB, {
+          email: normalizedEmail,
+          syncfy_credential_id: credential.syncfy_credential_id,
+        }, { type: 'auth_required' })
         const updatedCredentials = await loadSyncfyCredentialsForEmail(env, normalizedEmail)
         const updatedCredential = updatedCredentials.find(
           (item) => item.syncfy_credential_id === credential.syncfy_credential_id
@@ -934,12 +933,10 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
               importResult
             )
 
-            await markSyncfyCredentialFromImportResult(
-              env,
-              normalizedEmail,
-              credential.syncfy_credential_id,
-              importResult,
-              importState
+            await applyPollOutcome(
+              env.DB,
+              { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
+              connectionEventFromPoll(importResult, importState, blocker, credential.state)
             )
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
@@ -1013,12 +1010,10 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
           importResult
         )
         const importComplete = importState.complete
-        await markSyncfyCredentialFromImportResult(
-          env,
-          normalizedEmail,
-          credential.syncfy_credential_id,
-          importResult,
-          importState
+        await applyPollOutcome(
+          env.DB,
+          { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
+          connectionEventFromPoll(importResult, importState, blocker, credential.state)
         )
         const dashboard = await getFinanceDashboard(env, normalizedEmail)
 
@@ -1044,6 +1039,11 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
             source: 'syncfy-refresh',
             payload: err.responseBody,
           })
+          await applyConnectionEvent(
+            env.DB,
+            { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
+            classifyVendorFailure(err.status, err.message)
+          )
 
           return json({
             success: false,
@@ -1107,7 +1107,7 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
         .bind(normalizedEmail)
         .first<SyncfyUserRow>()
       const credentials = await env.DB.prepare(
-        `SELECT * FROM syncfy_credentials WHERE email = ? ORDER BY updated_at DESC, created_at DESC LIMIT 20`
+        `SELECT * FROM syncfy_credentials WHERE email = ? AND deleted_at IS NULL ORDER BY updated_at DESC, created_at DESC LIMIT 20`
       )
         .bind(normalizedEmail)
         .all<SyncfyCredentialRow>()

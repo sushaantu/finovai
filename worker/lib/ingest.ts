@@ -41,12 +41,20 @@ import {
   addSyncfyUserParamToEndpoint,
   buildNextSyncfyTransactionsPageEndpoint,
   buildSyncfyTransactionsPath,
-  classifySyncfyConnectionIssue,
+  classifySyncfyCredentialBlocker,
   enrichSyncfyCredentialInstitutionById,
+  fetchSyncfyCredentialHealth,
   getSyncfyTransactionLookbackMonths,
   normalizeSyncfyRequestPath,
   syncfyRequest,
 } from './syncfy'
+import {
+  classifyVendorFailure,
+  transition,
+  type ConnectionEvent,
+  type ConnectionState,
+  type TransitionResult,
+} from './lifecycle'
 
 // Backoff for re-running provider pulls after Syncfy-side scrape failures (code 5xx).
 const SYNCFY_PROVIDER_RETRY_INTERVAL_SECONDS = 24 * 60 * 60
@@ -134,7 +142,7 @@ async function storeSyncfyCredentialPullState(
 ): Promise<void> {
   await ensureSyncfyTables(env)
 
-  const existing = await env.DB.prepare(`SELECT * FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ?`)
+  const existing = await env.DB.prepare(`SELECT * FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ? AND deleted_at IS NULL`)
     .bind(email, credentialId)
     .first<SyncfyCredentialRow>()
 
@@ -264,12 +272,12 @@ async function recordSyncfyCredentialPullAttempt(
 export async function loadDueSyncfyCredentials(env: Env): Promise<SyncfyCredentialRow[]> {
   await ensureSyncfyTables(env)
 
-  // needs_reconnect requires user action (new login/2FA in the widget); polling cannot fix it.
   const result = await env.DB.prepare(
     `SELECT * FROM syncfy_credentials
      WHERE (last_pull_at IS NULL
         OR unixepoch(last_pull_at) <= unixepoch('now') - ?)
-       AND COALESCE(status, '') <> 'needs_reconnect'
+       AND deleted_at IS NULL
+       AND state NOT IN ('needs_user', 'abandoned')
      ORDER BY COALESCE(last_pull_at, created_at) ASC
      LIMIT ?`
   )
@@ -577,8 +585,11 @@ export function mergeSyncfyTransactionImportResults(
 ): SyncfyTransactionImportResult {
   const issuePriority: Record<SyncfyConnectionIssueKind, number> = {
     action_required: 4,
+    broken: 3,
+    abandoned: 3,
     provider_unavailable: 3,
     unknown: 2,
+    connecting: 1,
     rate_limited: 1,
   }
   const leftIssue = left.connectionIssue || null
@@ -598,6 +609,8 @@ export function mergeSyncfyTransactionImportResults(
     skipped: left.skipped + right.skipped,
     endpoints: [...left.endpoints, ...right.endpoints],
     connectionIssue,
+    vendorStatus: right.vendorStatus ?? left.vendorStatus ?? null,
+    vendorMessage: right.vendorMessage ?? left.vendorMessage ?? null,
   }
 }
 
@@ -739,13 +752,8 @@ export async function importSyncfyTransactionsForCredential(
         imported: 0,
         skipped: 0,
         endpoints: [pullPath],
-        connectionIssue: classifySyncfyConnectionIssue({
-          rid: err.rid,
-          status_code: err.status,
-          message: err.message,
-          source: 'syncfy-pull',
-          created_at: new Date().toISOString(),
-        }),
+        vendorStatus: err.status,
+        vendorMessage: err.message,
       }
       result = result ? mergeSyncfyTransactionImportResults(result, failedPullResult) : failedPullResult
     }
@@ -764,84 +772,169 @@ export async function importSyncfyTransactionsForCredential(
   return result ? mergeSyncfyTransactionImportResults(result, directResult) : directResult
 }
 
-export async function markSyncfyCredentialSyncSuccess(
-  env: Env,
-  email: string,
-  credentialId: string
-): Promise<void> {
-  await env.DB.prepare(
-    `UPDATE syncfy_credentials
-     SET last_pull_at = datetime("now"),
-         last_successful_sync_at = datetime("now"),
-         status = 'synced',
-         updated_at = datetime("now")
-     WHERE email = ? AND syncfy_credential_id = ?`
-  )
-    .bind(email, credentialId)
-    .run()
+const CONNECTION_STATES = new Set<string>([
+  'pending', 'healthy', 'degraded', 'broken', 'needs_user', 'abandoned',
+])
+
+const LEGACY_STATUS: Record<ConnectionState, string> = {
+  healthy: 'synced', pending: 'pending_transactions', degraded: 'provider_unavailable',
+  broken: 'provider_unavailable', needs_user: 'needs_reconnect', abandoned: 'sync_error',
 }
 
-async function markSyncfyCredentialSyncPending(
-  env: Env,
-  email: string,
-  credentialId: string
-): Promise<void> {
-  await env.DB.prepare(
-    `UPDATE syncfy_credentials
-     SET last_pull_at = datetime("now"),
-         status = 'pending_transactions',
-         updated_at = datetime("now")
-     WHERE email = ? AND syncfy_credential_id = ?`
-  )
-    .bind(email, credentialId)
-    .run()
+function emitLifecycleAlerts(
+  result: TransitionResult,
+  credential: { email: string; syncfy_credential_id: string }
+): void {
+  if (result.alerts.includes('entered_broken') || result.alerts.includes('unmapped_vendor_code')) {
+    console.error('LIFECYCLE_ALERT', result.alerts, credential.syncfy_credential_id)
+  }
 }
 
-export async function markSyncfyCredentialSyncError(
-  env: Env,
-  email: string,
-  credentialId: string,
-  status: string
-): Promise<void> {
-  await env.DB.prepare(
-    `UPDATE syncfy_credentials
-     SET last_pull_at = datetime("now"),
-         status = ?,
-         updated_at = datetime("now")
-     WHERE email = ? AND syncfy_credential_id = ?`
-  )
-    .bind(status, email, credentialId)
-    .run()
-}
-
-export async function markSyncfyCredentialFromImportResult(
-  env: Env,
-  email: string,
-  credentialId: string,
+export function connectionEventFromPoll(
   result: SyncfyTransactionImportResult,
-  state: { complete: boolean }
-): Promise<void> {
-  if (state.complete) {
-    await markSyncfyCredentialSyncSuccess(env, email, credentialId)
-    return
+  importState: { complete: boolean },
+  blocker: ReturnType<typeof classifySyncfyCredentialBlocker>,
+  currentState?: string | null
+): ConnectionEvent | null {
+  if (blocker === 'needs_reconnect') return { type: 'auth_required' }
+  if (importState.complete) return { type: 'sync_succeeded' }
+  if (result.vendorStatus != null || result.vendorMessage) {
+    return classifyVendorFailure(result.vendorStatus ?? null, result.vendorMessage ?? null)
   }
+  if (currentState === 'healthy') return { type: 'sync_succeeded' }
+  return null
+}
 
-  if (result.connectionIssue?.kind === 'action_required') {
-    await markSyncfyCredentialSyncError(env, email, credentialId, 'needs_reconnect')
-    return
+export async function applyConnectionEvent(
+  db: D1Database,
+  credential: { email: string; syncfy_credential_id: string },
+  event: ConnectionEvent,
+  now: Date = new Date()
+): Promise<TransitionResult> {
+  const row = await db.prepare(
+    `SELECT state, attempt_count, first_failed_at, last_successful_sync_at, created_at
+     FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ? AND deleted_at IS NULL`
+  ).bind(credential.email, credential.syncfy_credential_id).first<{
+    state: string | null
+    attempt_count: number | null
+    first_failed_at: string | null
+    last_successful_sync_at: string | null
+    created_at: string
+  }>()
+  if (!row) throw new Error(`applyConnectionEvent: credential not found ${credential.syncfy_credential_id}`)
+
+  const firstFailedAt = row.first_failed_at
+    ?? (row.last_successful_sync_at ? null : row.created_at)
+  const result = transition(
+    {
+      state: (CONNECTION_STATES.has(row.state || '') ? row.state : 'pending') as ConnectionState,
+      attemptCount: row.attempt_count ?? 0,
+      firstFailedAt,
+      lastSuccessfulSyncAt: row.last_successful_sync_at,
+      createdAt: row.created_at,
+    },
+    event, now
+  )
+  const success = event.type === 'sync_succeeded'
+  await db.prepare(
+    `UPDATE syncfy_credentials
+     SET state = ?, state_changed_at = ?, attempt_count = ?, first_failed_at = ?,
+         status = ?, last_pull_at = ?,
+         last_successful_sync_at = CASE WHEN ? THEN ? ELSE last_successful_sync_at END,
+         updated_at = ?
+     WHERE email = ? AND syncfy_credential_id = ?`
+  ).bind(
+    result.state, now.toISOString(), result.attemptCount, result.firstFailedAt,
+    LEGACY_STATUS[result.state], now.toISOString(),
+    success ? 1 : 0, now.toISOString(), now.toISOString(),
+    credential.email, credential.syncfy_credential_id
+  ).run()
+  emitLifecycleAlerts(result, credential)
+  return result
+}
+
+export async function applyPollOutcome(
+  db: D1Database,
+  credential: { email: string; syncfy_credential_id: string },
+  event: ConnectionEvent | null
+): Promise<TransitionResult | null> {
+  if (!event) return null
+  return applyConnectionEvent(db, credential, event)
+}
+
+export async function refreshSyncfyCredential(
+  env: Env,
+  credential: SyncfyCredentialRow
+): Promise<{ imported: number; failed: boolean }> {
+  const key = { email: credential.email, syncfy_credential_id: credential.syncfy_credential_id }
+
+  try {
+    const health = await fetchSyncfyCredentialHealth(
+      env,
+      credential.syncfy_user_id,
+      credential.syncfy_credential_id
+    )
+    const blocker = classifySyncfyCredentialBlocker(health)
+
+    if (blocker === 'needs_reconnect') {
+      await storeSyncfyError(env, {
+        email: credential.email,
+        syncfyUserId: credential.syncfy_user_id,
+        syncfyCredentialId: credential.syncfy_credential_id,
+        statusCode: health?.code ?? null,
+        message: health?.isTwofa
+          ? 'Syncfy credential requires user 2FA; waiting for reconnect.'
+          : 'Syncfy credential login rejected by institution; waiting for reconnect.',
+        source: 'syncfy-credential-state',
+      })
+      await applyConnectionEvent(env.DB, key, { type: 'auth_required' })
+      return { imported: 0, failed: true }
+    }
+
+    const result = await importSyncfyTransactionsForCredential(
+      env,
+      credential.email,
+      credential.syncfy_user_id,
+      credential.syncfy_credential_id,
+      {
+        jobStatusPaths: getSyncfyCredentialJobStatusPaths(credential),
+        startPull: blocker !== 'provider_pending'
+          || isSyncfyProviderPullRetryDue(credential.last_pull_attempt_at),
+      }
+    )
+    const importState = await resolveSyncfyTransactionImportState(
+      env,
+      credential.email,
+      credential.syncfy_credential_id,
+      result
+    )
+    const event = connectionEventFromPoll(result, importState, blocker, credential.state)
+    if (event) {
+      await applyConnectionEvent(env.DB, key, event)
+    } else {
+      await env.DB.prepare(
+        `UPDATE syncfy_credentials
+         SET last_pull_at = ?, updated_at = ?
+         WHERE email = ? AND syncfy_credential_id = ? AND deleted_at IS NULL`
+      ).bind(new Date().toISOString(), new Date().toISOString(), key.email, key.syncfy_credential_id).run()
+    }
+    return { imported: result.imported, failed: false }
+  } catch (err) {
+    if (err instanceof SyncfyRequestError) {
+      await storeSyncfyError(env, {
+        email: credential.email,
+        syncfyUserId: credential.syncfy_user_id,
+        syncfyCredentialId: credential.syncfy_credential_id,
+        rid: err.rid,
+        statusCode: err.status,
+        errorCode: err.code,
+        message: err.message,
+        source: 'syncfy-scheduled-refresh',
+        payload: err.responseBody,
+      })
+      await applyConnectionEvent(env.DB, key, classifyVendorFailure(err.status, err.message))
+      return { imported: 0, failed: true }
+    }
+    throw err
   }
-
-  if (
-    result.connectionIssue?.kind === 'provider_unavailable'
-  ) {
-    await markSyncfyCredentialSyncError(env, email, credentialId, 'provider_unavailable')
-    return
-  }
-
-  if (result.connectionIssue?.kind === 'unknown') {
-    await markSyncfyCredentialSyncError(env, email, credentialId, 'sync_error')
-    return
-  }
-
-  await markSyncfyCredentialSyncPending(env, email, credentialId)
 }

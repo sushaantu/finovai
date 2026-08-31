@@ -85,6 +85,11 @@ export interface SyncfyCredentialRow {
   syncfy_site_id: string | null
   site_name: string | null
   status: string | null
+  state?: string | null
+  state_changed_at?: string | null
+  attempt_count?: number | null
+  first_failed_at?: string | null
+  deleted_at?: string | null
   last_successful_sync_at: string | null
   last_pull_at: string | null
   last_pull_attempt_at: string | null
@@ -119,9 +124,9 @@ export interface SyncfyErrorRow {
   created_at: string
 }
 
-export type SyncfyConnectionState = 'ready' | 'verifying' | 'action_required' | 'provider_unavailable' | 'support_required'
+export type SyncfyConnectionState = 'ready' | 'verifying' | 'action_required' | 'provider_unavailable' | 'support_required' | 'broken' | 'abandoned'
 
-export type SyncfyConnectionIssueKind = 'action_required' | 'provider_unavailable' | 'rate_limited' | 'unknown'
+export type SyncfyConnectionIssueKind = 'action_required' | 'provider_unavailable' | 'rate_limited' | 'unknown' | 'broken' | 'abandoned' | 'connecting'
 
 type SyncfyConnectionIssueOwner = 'user' | 'provider' | 'finovai'
 
@@ -162,6 +167,8 @@ export interface SyncfyTransactionImportResult {
   skipped: number
   endpoints: string[]
   connectionIssue?: SyncfyConnectionIssue | null
+  vendorStatus?: number | null
+  vendorMessage?: string | null
 }
 
 export interface NormalizedSyncfyTransaction {
