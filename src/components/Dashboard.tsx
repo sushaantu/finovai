@@ -154,15 +154,17 @@ import type {
   DashboardChatResponse,
   DashboardResponse,
   HouseholdInvite,
-  HouseholdResponse,
   SyncfyCredential,
-  TransactionCategoryResponse,
 } from '@finovai/core'
 import {
   queryKeys,
   useHousehold,
+  useInviteSpouse,
+  useSaveManualTransaction,
+  useSaveProfile,
   useSyncfyCredentials,
   useTransactions,
+  useUpdateTransactionCategory,
 } from '@finovai/core/react'
 
 interface DashboardProps {
@@ -1340,23 +1342,18 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [manualDrafts, setManualDrafts] = useState<ManualDraft[]>([])
   const [status, setStatus] = useState(initialNotice || 'Entra con tu correo para conectar tu banco y analizar tus movimientos.')
   const [isIdentifying, setIsIdentifying] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
   const [chatInput, setChatInput] = useState('')
   const [chatMessages, setChatMessages] = useState<DashboardChatMessage[]>([])
   const [pendingChatAnswer, setPendingChatAnswer] = useState<PendingChatAnswer | null>(null)
   const [activePage, setActivePageState] = useState<DashboardPage>(() => getDashboardPageFromPath(initialPath))
   const [dashboardTheme, setDashboardTheme] = useState<DashboardTheme>(() => getStoredDashboardTheme())
   const [spouseEmail, setSpouseEmail] = useState('')
-  const [isInvitingSpouse, setIsInvitingSpouse] = useState(false)
   const [profileForm, setProfileForm] = useState<ProfileForm>({ monthlyIncome: '', monthlyBudget: '' })
   const [categoryBudgetInputs, setCategoryBudgetInputs] = useState<Record<string, string>>({})
-  const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [categoryPeriodFilter, setCategoryPeriodFilter] = useState<CategoryPeriodFilter>('current')
-  const [updatingCategoryId, setUpdatingCategoryId] = useState<string | null>(null)
   const [showIncomePrompt, setShowIncomePrompt] = useState(false)
   const [incomePromptValue, setIncomePromptValue] = useState('')
   const [incomePromptError, setIncomePromptError] = useState('')
-  const [isSavingIncomePrompt, setIsSavingIncomePrompt] = useState(false)
   const chatAnswerTimeoutRef = useRef<number | null>(null)
   const announcedLoadStatusRef = useRef<string | null>(null)
   const chatMessagesEndRef = useRef<HTMLDivElement | null>(null)
@@ -1365,6 +1362,14 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const transactionsQuery = useTransactions(activeEmail, { enabled: queriesEnabled })
   const credentialsQuery = useSyncfyCredentials(activeEmail, { enabled: queriesEnabled })
   const householdQuery = useHousehold(activeEmail, { enabled: queriesEnabled })
+
+  const saveManualTransaction = useSaveManualTransaction(activeEmail ?? '')
+  const updateCategory = useUpdateTransactionCategory(activeEmail ?? '')
+  // Two independent instances: the settings form and the onboarding income
+  // dialog each need their own pending state, and both write the same cache key.
+  const saveProfile = useSaveProfile(activeEmail ?? '')
+  const saveIncomePromptProfile = useSaveProfile(activeEmail ?? '')
+  const inviteSpouse = useInviteSpouse(activeEmail ?? '')
 
   const data = previewEnabled
     ? createPreviewDashboardResponse(activeEmail || previewEmail || 'preview@finov.ai')
@@ -1407,6 +1412,14 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     if (!activeEmail) return
     queryClient.setQueryData(queryKeys.syncfyCredentials(activeEmail), { credentials })
   }
+
+  const isSaving = saveManualTransaction.isPending
+  const isSavingProfile = saveProfile.isPending
+  const isSavingIncomePrompt = saveIncomePromptProfile.isPending
+  const isInvitingSpouse = inviteSpouse.isPending
+  const updatingCategoryId = updateCategory.isPending
+    ? updateCategory.variables?.transactionId ?? null
+    : null
 
   const connectedSyncfyCredentials = syncfyCredentials.filter(syncfyCredentialIsConnected)
   const reconnectCredentialCount = syncfyCredentials.filter(syncfyCredentialNeedsReconnect).length
@@ -1811,17 +1824,9 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
       return
     }
 
-    setIsInvitingSpouse(true)
     try {
-      const response = await apiJson<HouseholdResponse>('/api/household/invite', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: activeEmail,
-          spouseEmail: normalizedSpouseEmail,
-        }),
-      })
+      const response = await inviteSpouse.mutateAsync(normalizedSpouseEmail)
 
-      if (activeEmail) queryClient.setQueryData(queryKeys.household(activeEmail), response)
       setSpouseEmail('')
       setStatus(response.emailSent
         ? `Invitación enviada a ${normalizedSpouseEmail}.`
@@ -1829,8 +1834,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
       )
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'No pudimos guardar la invitación.')
-    } finally {
-      setIsInvitingSpouse(false)
     }
   }
 
@@ -1848,7 +1851,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
       return
     }
 
-    setIsSavingProfile(true)
     try {
       const categoryBudgets = Object.entries(categoryBudgetInputs).reduce<Record<string, number>>((next, [category, value]) => {
         const amount = parseMoneyInput(value)
@@ -1874,22 +1876,15 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
         setStatus('Perfil financiero actualizado.')
         return
       }
-      const response = await apiJson<DashboardResponse>('/api/profile', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          email: activeEmail,
-          currency: chatCurrency,
-          monthlyIncome,
-          monthlyBudget,
-          categoryBudgets,
-        }),
+      const response = await saveProfile.mutateAsync({
+        currency: chatCurrency,
+        monthlyIncome,
+        monthlyBudget,
+        categoryBudgets,
       })
-      setDashboardData(response)
       setStatus(response.message || 'Perfil financiero actualizado.')
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'No pudimos guardar el perfil financiero.')
-    } finally {
-      setIsSavingProfile(false)
     }
   }
 
@@ -1912,7 +1907,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
       return
     }
 
-    setIsSavingIncomePrompt(true)
     setIncomePromptError('')
     try {
       if (previewEnabled) {
@@ -1938,17 +1932,12 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
         return
       }
 
-      const response = await apiJson<DashboardResponse>('/api/profile', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          email: activeEmail,
-          currency: chatCurrency,
-          monthlyIncome,
-          monthlyBudget: profile.monthlyBudget,
-          categoryBudgets: profile.categoryBudgets,
-        }),
+      const response = await saveIncomePromptProfile.mutateAsync({
+        currency: chatCurrency,
+        monthlyIncome,
+        monthlyBudget: profile.monthlyBudget,
+        categoryBudgets: profile.categoryBudgets,
       })
-      setDashboardData(response)
       setProfileForm((current) => ({
         ...current,
         monthlyIncome: moneyInputValue(response.profile?.monthlyIncome ?? monthlyIncome),
@@ -1960,8 +1949,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
       setStatus(response.message || 'Ingreso mensual guardado.')
     } catch (error) {
       setIncomePromptError(error instanceof Error ? error.message : 'No pudimos guardar el ingreso mensual.')
-    } finally {
-      setIsSavingIncomePrompt(false)
     }
   }
 
@@ -2015,56 +2002,36 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     }
 
     const draftsToSave = manualDrafts
-    setIsSaving(true)
     try {
-      let latestResponse: DashboardResponse | null = null
-
+      // Sequential on purpose: the worker recomputes the summary per insert.
       for (const draft of draftsToSave) {
-        latestResponse = await apiJson<DashboardResponse>('/api/transactions/manual', {
-          method: 'POST',
-          body: JSON.stringify({
-            email: activeEmail,
-            date: draft.date,
-            type: draft.type,
-            amount: draft.amount,
-            currency: DEFAULT_FINANCE_CURRENCY,
-            category: draft.category,
-            description: draft.description,
-            merchant: draft.merchant,
-            notes: draft.notes,
-          }),
+        await saveManualTransaction.mutateAsync({
+          date: draft.date,
+          type: draft.type,
+          amount: draft.amount,
+          currency: DEFAULT_FINANCE_CURRENCY,
+          category: draft.category,
+          description: draft.description,
+          merchant: draft.merchant,
+          notes: draft.notes,
         })
       }
 
-      if (latestResponse) setDashboardData(latestResponse)
       setManualDrafts([])
       setStatus(`${draftsToSave.length} ${draftsToSave.length === 1 ? 'movimiento guardado' : 'movimientos guardados'}.`)
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'No pudimos guardar los movimientos.')
-    } finally {
-      setIsSaving(false)
     }
   }
 
   const handleTransactionCategoryChange = async (transaction: FinanceTransaction, category: string) => {
     if (!activeEmail || category === transaction.category || updatingCategoryId) return
 
-    setUpdatingCategoryId(transaction.id)
     try {
-      const response = await apiJson<TransactionCategoryResponse>('/api/transactions/category', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          email: activeEmail,
-          transactionId: transaction.id,
-          category,
-        }),
-      })
-      setDashboardData(response)
+      const response = await updateCategory.mutateAsync({ transactionId: transaction.id, category })
       setStatus(response.message || `Categoría actualizada a ${category}.`)
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'No pudimos actualizar la categoría.')
-    } finally {
-      setUpdatingCategoryId(null)
     }
   }
 
