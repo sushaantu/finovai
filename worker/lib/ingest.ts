@@ -847,15 +847,17 @@ export async function applyConnectionEvent(
     event, now
   )
   const success = event.type === 'sync_succeeded'
+  const stateChanged = result.state !== row.state
   await db.prepare(
     `UPDATE syncfy_credentials
-     SET state = ?, state_changed_at = ?, attempt_count = ?, first_failed_at = ?,
+     SET state = ?, state_changed_at = CASE WHEN ? THEN ? ELSE state_changed_at END,
+         attempt_count = ?, first_failed_at = ?,
          status = ?, last_pull_at = ?,
          last_successful_sync_at = CASE WHEN ? THEN ? ELSE last_successful_sync_at END,
          updated_at = ?
      WHERE email = ? AND syncfy_credential_id = ?`
   ).bind(
-    result.state, now.toISOString(), result.attemptCount, result.firstFailedAt,
+    result.state, stateChanged ? 1 : 0, now.toISOString(), result.attemptCount, result.firstFailedAt,
     LEGACY_STATUS[result.state], now.toISOString(),
     success ? 1 : 0, now.toISOString(), now.toISOString(),
     credential.email, credential.syncfy_credential_id

@@ -206,11 +206,17 @@ export async function storeSyncfyError(
 ): Promise<void> {
   await ensureSyncfyTables(env)
 
+  let userId: string | null = null
+  if (input.email) {
+    const user = await getOrCreateUserByEmail(env.DB, input.email)
+    userId = user.id
+  }
+
   await env.DB.prepare(
     `INSERT INTO syncfy_errors (
-      id, email, syncfy_user_id, syncfy_credential_id, rid, status_code, error_code, message, source, payload_json, created_at
+      id, email, syncfy_user_id, syncfy_credential_id, rid, status_code, error_code, message, source, payload_json, created_at, user_id
     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), ?)`
   )
     .bind(
       crypto.randomUUID(),
@@ -222,7 +228,8 @@ export async function storeSyncfyError(
       input.errorCode || null,
       input.message || null,
       input.source,
-      input.payload === undefined ? null : JSON.stringify(input.payload)
+      input.payload === undefined ? null : JSON.stringify(input.payload),
+      userId
     )
     .run()
 }
@@ -404,11 +411,14 @@ export async function ensureHouseholdTables(env: Env): Promise<void> {
 }
 
 export async function upsertFinancialProfile(env: Env, email: string): Promise<void> {
+  const user = await getOrCreateUserByEmail(env.DB, email)
   await env.DB.prepare(
-    `INSERT INTO financial_profiles (email, currency, created_at)
-     VALUES (?, ?, datetime("now"))
-     ON CONFLICT(email) DO UPDATE SET updated_at = datetime("now")`
+    `INSERT INTO financial_profiles (email, currency, created_at, user_id)
+     VALUES (?, ?, datetime("now"), ?)
+     ON CONFLICT(email) DO UPDATE SET
+       updated_at = datetime("now"),
+       user_id = COALESCE(financial_profiles.user_id, excluded.user_id)`
   )
-    .bind(email, DEFAULT_FINANCE_CURRENCY)
+    .bind(email, DEFAULT_FINANCE_CURRENCY, user.id)
     .run()
 }

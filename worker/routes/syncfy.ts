@@ -952,6 +952,11 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
                 source: 'syncfy-refresh-background',
                 payload: err.responseBody,
               })
+              await applyConnectionEvent(
+                env,
+                { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
+                classifyVendorFailure(err.status, err.message)
+              )
             } else {
               await storeSyncfyError(env, {
                 email: normalizedEmail,
@@ -960,6 +965,11 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
                 message,
                 source: 'syncfy-refresh-background',
               })
+              await applyConnectionEvent(
+                env,
+                { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
+                { type: 'sync_failed', statusCode: null, vendorCode: null }
+              )
             }
             console.error('Syncfy refresh background import failed', {
               email: normalizedEmail,

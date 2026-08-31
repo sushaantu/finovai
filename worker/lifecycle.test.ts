@@ -1,6 +1,8 @@
 // worker/lifecycle.test.ts
 import { test, expect } from 'bun:test'
 import { transition, classifyVendorFailure, type ConnectionSnapshot } from './lib/lifecycle'
+import { resolveLifecycleState } from './lib/syncfy'
+import type { SyncfyCredentialRow } from './lib/shared'
 
 const at = (iso: string) => new Date(iso)
 const snap = (over: Partial<ConnectionSnapshot>): ConnectionSnapshot => ({
@@ -71,4 +73,34 @@ test('classifyVendorFailure: BBVA 400 is sync_failed, not auth; 401 is auth; unk
   // ...and the transition must surface it:
   const r = transition(snap({}), unknown, at('2026-08-02T00:00:00Z'))
   expect(r.alerts).toContain('unmapped_vendor_code')
+})
+
+function credentialForState(over: Partial<SyncfyCredentialRow>): SyncfyCredentialRow {
+  return {
+    id: 'cred-1',
+    email: 'u@x.co',
+    syncfy_user_id: 'su-1',
+    syncfy_credential_id: 'cred-1',
+    syncfy_site_id: null,
+    site_name: null,
+    status: null,
+    last_successful_sync_at: null,
+    last_pull_at: null,
+    last_pull_attempt_at: null,
+    last_rid: null,
+    raw_json: null,
+    created_at: '2026-08-01T00:00:00Z',
+    updated_at: null,
+    ...over,
+  }
+}
+
+test('resolveLifecycleState trusts pending and only falls back when state is unknown', () => {
+  expect(resolveLifecycleState(credentialForState({ state: 'pending', status: 'synced' }))).toBe('pending')
+  expect(resolveLifecycleState(credentialForState({ state: 'pending', status: 'needs_reconnect' }))).toBe('pending')
+  expect(resolveLifecycleState(credentialForState({ state: 'healthy', status: 'pending_transactions' }))).toBe('healthy')
+  expect(resolveLifecycleState(credentialForState({ state: null, status: 'synced' }))).toBe('healthy')
+  expect(resolveLifecycleState(credentialForState({ state: 'unknown', status: 'needs_reconnect' }))).toBe('needs_user')
+  expect(resolveLifecycleState(credentialForState({ state: null, status: 'provider_unavailable' }))).toBe('degraded')
+  expect(resolveLifecycleState(credentialForState({ state: undefined, status: 'sync_error' }))).toBe('abandoned')
 })

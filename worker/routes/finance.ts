@@ -56,6 +56,7 @@ import {
   ensureFinanceTables,
   ensureHouseholdTables,
   ensureSyncfyTables,
+  getOrCreateUserByEmail,
   storeSyncfyError,
   upsertFinancialProfile,
 } from '../lib/db'
@@ -648,12 +649,13 @@ async function insertFinanceTransaction(
   }
 
   const id = crypto.randomUUID()
+  const user = await getOrCreateUserByEmail(env.DB, email)
   await env.DB.prepare(
     `INSERT INTO transactions (
       id, email, date, type, amount, currency, category, description, merchant, notes,
-      source, confidence, category_locked, raw_source, cartola_import_id, created_at, updated_at
+      source, confidence, category_locked, raw_source, cartola_import_id, created_at, updated_at, user_id
     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"), ?)`
   )
     .bind(
       id,
@@ -670,7 +672,8 @@ async function insertFinanceTransaction(
       clampConfidence(confidence),
       categoryLocked,
       rawSource,
-      cartolaImportId
+      cartolaImportId,
+      user.id
     )
     .run()
 

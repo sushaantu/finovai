@@ -403,7 +403,7 @@ const CONNECTION_STATES: ReadonlySet<string> = new Set([
 
 export function resolveLifecycleState(credential: SyncfyCredentialRow): ConnectionState {
   const state = credential.state
-  if (state && CONNECTION_STATES.has(state) && state !== 'pending') {
+  if (state && CONNECTION_STATES.has(state)) {
     return state as ConnectionState
   }
 
@@ -411,7 +411,6 @@ export function resolveLifecycleState(credential: SyncfyCredentialRow): Connecti
   if (isSyncfyReconnectRequiredStatus(credential.status)) return 'needs_user'
   if (credential.status === 'provider_unavailable') return 'degraded'
   if (credential.status === 'sync_error') return 'abandoned'
-  if (state === 'pending') return 'pending'
   return 'pending'
 }
 

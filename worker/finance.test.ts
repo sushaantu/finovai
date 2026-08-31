@@ -29,6 +29,8 @@ import {
 } from './lib/shared'
 import {
   getOrCreateUserByEmail,
+  storeSyncfyError,
+  upsertFinancialProfile,
 } from './lib/db'
 import {
   buildSyncfyExternalId,
@@ -295,6 +297,46 @@ test('getOrCreateUserByEmail is idempotent and normalizes email', async () => {
 
 test('buildSyncfyExternalId encodes user id and version', () => {
   expect(buildSyncfyExternalId('u-123', 3)).toBe('finovai:user:u-123:v3')
+})
+
+test('storeSyncfyError and upsertFinancialProfile stamp user_id without rewriting Syncfy external ids', async () => {
+  const env = createEnv()
+  await seedSyncfyUsers(env.DB, {
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_external_id: 'finovai:user@example.com',
+    name: 'User',
+    mode: 'live',
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: null,
+    last_session_at: null,
+  })
+
+  await upsertFinancialProfile(env as never, 'user@example.com')
+  await storeSyncfyError(env as never, {
+    email: 'user@example.com',
+    syncfyUserId: 'syncfy-user-1',
+    syncfyCredentialId: 'credential-1',
+    message: 'test error',
+    source: 'identity-stamp',
+  })
+
+  const user = await env.DB.prepare('SELECT id FROM users WHERE email = ?')
+    .bind('user@example.com')
+    .first<{ id: string }>()
+  expect(user?.id).toBeTruthy()
+  const profile = await env.DB.prepare('SELECT user_id FROM financial_profiles WHERE email = ?')
+    .bind('user@example.com')
+    .first<{ user_id: string | null }>()
+  expect(profile?.user_id).toBe(user?.id)
+  const errorRow = await env.DB.prepare('SELECT user_id FROM syncfy_errors WHERE email = ?')
+    .bind('user@example.com')
+    .first<{ user_id: string | null }>()
+  expect(errorRow?.user_id).toBe(user?.id)
+  const syncfyUser = await env.DB.prepare('SELECT syncfy_external_id FROM syncfy_users WHERE email = ?')
+    .bind('user@example.com')
+    .first<{ syncfy_external_id: string }>()
+  expect(syncfyUser?.syncfy_external_id).toBe('finovai:user@example.com')
 })
 
 test('getOrCreateSyncfyUser stamps user_id on existing rows without rewriting external id', async () => {
@@ -824,6 +866,15 @@ test('manual transaction endpoint persists and reloads by email', async () => {
   const dashboard = await reload.json() as DashboardResponse
   expect(dashboard.transactions).toHaveLength(1)
   expect(dashboard.summary.monthlySpending).toBe(12500)
+
+  const user = await env.DB.prepare('SELECT id FROM users WHERE email = ?')
+    .bind('user@example.com')
+    .first<{ id: string }>()
+  const stored = await env.DB.prepare('SELECT user_id FROM transactions WHERE email = ?')
+    .bind('user@example.com')
+    .first<{ user_id: string | null }>()
+  expect(user?.id).toBeTruthy()
+  expect(stored?.user_id).toBe(user?.id)
 })
 
 test('profile endpoint stores income, budget, and category budgets', async () => {
@@ -907,6 +958,7 @@ test('syncfy credentials endpoint skips catalogue lookup when a useful site name
     syncfy_site_id: 'unknown-site-id',
     site_name: 'BBVA México',
     status: 'needs_reconnect',
+    state: 'needs_user',
     last_successful_sync_at: null,
     last_pull_at: null,
     last_rid: null,
@@ -1680,6 +1732,73 @@ test('syncfy refresh follows saved job status when direct transactions are still
     expect(data.syncfy?.endpoints).toContain('/jobs/job-1/status?id_user=syncfy-user-1')
     expect((await readSyncfyCredentials(env.DB))[0].status).toBe('synced')
     expect((await readSyncfyCredentials(env.DB))[0].last_successful_sync_at).toBeTruthy()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy refresh waitUntil failure applies a lifecycle event', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  await seedSyncfyCredentials(env.DB, {
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: '56cf5728784806f72b8b4568',
+    site_name: 'Acme Bank',
+    status: 'pending_transactions',
+    state: 'pending',
+    last_successful_sync_at: null,
+    last_pull_at: new Date().toISOString(),
+    last_rid: null,
+    raw_json: null,
+    created_at: '2026-06-07T03:11:19Z',
+    updated_at: '2026-06-07T03:11:19Z',
+  })
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.includes('/credentials?') || (url.includes('/credentials') && !url.includes('/pulls') && !url.includes('/transactions'))) {
+      return new Response(JSON.stringify({
+        status: true,
+        response: [{ id_credential: 'credential-1', is_authorized: 1 }],
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    return new Response(JSON.stringify({
+      status: false,
+      code: 401,
+      message: 'login rejected',
+      response: null,
+    }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  const waitUntilPromises: Promise<unknown>[] = []
+  const ctx = {
+    waitUntil(promise: Promise<unknown>) {
+      waitUntilPromises.push(promise)
+    },
+  } as unknown as ExecutionContext
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env, ctx)
+    expect(response.status).toBe(202)
+    expect(waitUntilPromises).toHaveLength(1)
+    await waitUntilPromises[0]
+
+    const row = (await readSyncfyCredentials(env.DB))[0]
+    expect(row.state).toBe('needs_user')
+    expect(row.status).toBe('needs_reconnect')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -3104,6 +3223,43 @@ test('transaction category endpoint applies the category to matching unlocked me
   expect(data.transactions.filter((transaction) => transaction.merchant === 'Uber Eats').map((transaction) => transaction.category))
     .toEqual(['Transporte', 'Transporte'])
   expect(data.message).toContain('2 movimientos')
+})
+
+test('GET /api/health is admin-gated', async () => {
+  const env = createEnv('production', {
+    SUPPORT_ADMIN_SECRET: 'admin-secret',
+    SYNCFY_ENV: 'sandbox',
+  })
+
+  const unauthenticated = await worker.fetch(new Request('http://local.test/api/health'), env)
+  expect(unauthenticated.status).toBe(404)
+
+  const wrongSecret = await worker.fetch(new Request('http://local.test/api/health', {
+    headers: { 'x-finovai-admin-secret': 'wrong' },
+  }), env)
+  expect(wrongSecret.status).toBe(404)
+
+  const allowed = await worker.fetch(new Request('http://local.test/api/health', {
+    headers: { 'x-finovai-admin-secret': 'admin-secret' },
+  }), env)
+  const data = await allowed.json() as {
+    transactionsLast24h?: number
+    credentialsNoSuccess48h?: number
+    enteredBrokenLast24h?: number
+    unmappedVendorCodesLast24h?: number
+    environment?: string
+    syncfyEnvironment?: string
+  }
+
+  expect(allowed.status).toBe(200)
+  expect(data).toMatchObject({
+    transactionsLast24h: expect.any(Number),
+    credentialsNoSuccess48h: expect.any(Number),
+    enteredBrokenLast24h: expect.any(Number),
+    unmappedVendorCodesLast24h: expect.any(Number),
+    environment: 'production',
+    syncfyEnvironment: 'sandbox',
+  })
 })
 
 test('production dashboard APIs require the browser session secret', async () => {

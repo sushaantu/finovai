@@ -1,6 +1,7 @@
 import { test, expect, afterEach } from 'bun:test'
 import { createTestDb, loadSchema } from './lib/test-d1'
 import { runScheduled } from './cron'
+import { applyConnectionEvent } from './lib/ingest'
 import { setSyncfyFetchForTests } from './lib/syncfy'
 import type { Env } from './lib/shared'
 
@@ -119,6 +120,46 @@ test('health tick alerts when nothing ingested in 24h and a credential has no su
   await runScheduled(env)
   expect(sent.length).toBe(1)
   expect(sent[0].subject).toContain('FinovAI health')
+})
+
+test('applyConnectionEvent keeps state_changed_at when state does not change', async () => {
+  const { db } = createTestDb(await loadSchema())
+  await seedCredential(db, {
+    state: 'broken',
+    attempts: 2,
+    createdAt: '2026-08-27T00:00:00Z',
+  })
+  await db.prepare(
+    `UPDATE syncfy_credentials
+     SET first_failed_at = ?, state_changed_at = ?`
+  ).bind('2026-08-29T00:00:00Z', '2026-08-29T00:00:00Z').run()
+
+  const env = makeEnv(db, () => ({ ok: true, status: 200, message: 'ok' }))
+  await applyConnectionEvent(
+    env,
+    { email: 'u@x.co', syncfy_credential_id: 'cred-1' },
+    { type: 'sync_failed', statusCode: 400, vendorCode: null },
+    new Date('2026-08-30T12:00:00Z')
+  )
+
+  const stuck = await db.prepare(
+    `SELECT state, state_changed_at, attempt_count FROM syncfy_credentials WHERE syncfy_credential_id = ?`
+  ).bind('cred-1').first<{ state: string; state_changed_at: string | null; attempt_count: number }>()
+  expect(stuck?.state).toBe('broken')
+  expect(stuck?.state_changed_at).toBe('2026-08-29T00:00:00Z')
+  expect(stuck?.attempt_count).toBe(3)
+
+  await applyConnectionEvent(
+    env,
+    { email: 'u@x.co', syncfy_credential_id: 'cred-1' },
+    { type: 'sync_succeeded' },
+    new Date('2026-08-30T13:00:00Z')
+  )
+  const recovered = await db.prepare(
+    `SELECT state, state_changed_at FROM syncfy_credentials WHERE syncfy_credential_id = ?`
+  ).bind('cred-1').first<{ state: string; state_changed_at: string | null }>()
+  expect(recovered?.state).toBe('healthy')
+  expect(recovered?.state_changed_at).toBe('2026-08-30T13:00:00.000Z')
 })
 
 test('healthy day sends no email', async () => {
