@@ -40,3 +40,6 @@ nanobanana-output/
 
 # Bun
 bun.lockb
+
+# Local scratch: DB backups, vendor docs, one-off SQL. Never commit.
+tmp/
