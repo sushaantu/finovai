@@ -1,4 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700;800&family=DM+Serif+Display:ital@0;1&display=swap');
+/* Landing display + UI type (Indian Type Foundry, via Fontshare). Requested as
+   whole families rather than pinned weights so the true italics come along —
+   the display headings depend on a real italic, not a synthesised slant. */
+@import url('https://api.fontshare.com/v2/css?f[]=zodiak&f[]=switzer&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Inter+Tight:wght@500;600;700;800&family=Sora:wght@300;400;500;600;700;800&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -65,7 +69,7 @@ body {
 
 /* Elegant serif for accent text */
 .font-serif {
-  font-family: 'DM Serif Display', Georgia, serif;
+  font-family: 'Zodiak', 'Iowan Old Style', Georgia, serif;
   font-weight: 400;
 }
 
@@ -1114,11 +1118,28 @@ body {
   --v2-line-soft: rgba(255, 255, 255, 0.055);
   --v2-blue: #4A90F0;
   --v2-teal: #00D4AA;
-  --v2-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-  --v2-serif: 'DM Serif Display', Georgia, serif;
+  --v2-sans: 'Switzer', 'Inter', system-ui, sans-serif;
+  --v2-serif: 'Zodiak', 'Iowan Old Style', Georgia, serif;
+
+  /* Small caps-y labels used to be monospace; they are now the sans tracked
+     out, which reads as typography rather than as a code snippet. */
+  --v2-label-spacing: 0.14em;
 
   background: var(--v2-bg);
   color: var(--v2-ink);
+  font-family: var(--v2-sans);
+  font-feature-settings: 'ss01';
+}
+
+.landing-v2 button,
+.landing-v2 input {
+  font-family: var(--v2-sans);
+}
+
+/* Figures line up in columns without a monospace. */
+.landing-v2 b,
+.landing-v2 strong {
+  font-variant-numeric: tabular-nums;
 }
 
 .landing-v2 ::selection {
@@ -1192,16 +1213,31 @@ body {
   mask-image: linear-gradient(to bottom, #000 60%, transparent);
 }
 
+/* Wordmark and links sit together on the left; actions are pushed right. No
+   floating centre pill — it reads as a template, and the links are secondary
+   to the one thing this page asks for. */
 .landing-v2 .landing-nav-inner {
+  display: flex;
   max-width: 1240px;
   height: auto;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 34px;
   margin: 0 auto;
   padding: 0;
 }
 
+.landing-v2 .landing-nav-actions {
+  margin-left: auto;
+  gap: 6px;
+}
+
 .landing-v2 .landing-wordmark {
   color: var(--v2-ink);
+  font-family: var(--v2-sans);
   font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
 }
 
 .landing-v2 .landing-wordmark svg {
@@ -1209,29 +1245,28 @@ body {
 }
 
 .landing-v2 .landing-nav-links {
-  gap: 4px;
-  padding: 5px;
-  border: 1px solid var(--v2-line-soft);
-  border-radius: 999px;
-  background: rgba(18, 20, 26, 0.72);
-  backdrop-filter: blur(18px);
+  gap: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  backdrop-filter: none;
 }
 
 .landing-v2 .landing-nav-links a {
-  padding: 7px 14px;
-  border-radius: 999px;
+  padding: 0;
+  border-radius: 0;
   color: var(--v2-ink-muted);
-  font-family: var(--v2-mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  transition: background 160ms ease, color 160ms ease;
+  font-size: 14.5px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  transition: color 160ms ease;
 }
 
 .landing-v2 .landing-nav-links a:hover {
   color: var(--v2-ink);
-  background: rgba(255, 255, 255, 0.07);
+  background: none;
 }
 
 .landing-v2 .landing-menu-button {
@@ -1253,25 +1288,24 @@ body {
 .landing-v2 .landing-mobile-menu a {
   border-bottom-color: var(--v2-line-soft);
   color: var(--v2-ink-muted);
-  font-family: var(--v2-mono);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  text-transform: none;
 }
 
 /* -------------------------------------------------------------- buttons */
 
 .landing-v2 .landing-btn {
   border-radius: 999px;
-  font-family: var(--v2-mono);
-  font-size: 11px;
+  font-size: 14.5px;
   font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: -0.005em;
+  text-transform: none;
 }
 
 .landing-v2 .landing-btn-solid {
-  padding: 11px 18px;
+  padding: 12px 20px;
   border: 0;
   color: #08090C;
   background: var(--v2-ink);
@@ -1284,7 +1318,7 @@ body {
 }
 
 .landing-v2 .landing-btn-ghost {
-  padding: 11px 14px;
+  padding: 12px 14px;
   border: 0;
   color: var(--v2-ink-muted);
   background: transparent;
@@ -1296,7 +1330,7 @@ body {
 }
 
 .landing-v2 .landing-btn-quiet {
-  padding: 10px 18px;
+  padding: 11px 20px;
   border: 1px solid var(--v2-line);
   color: var(--v2-ink-muted);
   background: transparent;
@@ -1309,28 +1343,27 @@ body {
 }
 
 .landing-v2 .landing-btn-lg {
-  padding: 15px 26px;
-  font-size: 12px;
+  padding: 16px 28px;
+  font-size: 15.5px;
 }
 
 .landing-v2 .landing-btn svg {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
 }
 
 /* -------------------------------------------------------------- eyebrow */
 
 .landing-v2 .landing-eyebrow {
   display: block;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
   padding: 0;
   border: 0;
   color: var(--v2-ink-dim);
   background: none;
-  font-family: var(--v2-mono);
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 500;
-  letter-spacing: 0.18em;
+  letter-spacing: var(--v2-label-spacing);
   text-transform: uppercase;
 }
 
@@ -1420,7 +1453,6 @@ body {
   gap: 10px;
   margin-top: 28px;
   color: var(--v2-ink-dim);
-  font-family: var(--v2-mono);
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1634,7 +1666,6 @@ body {
 
 .landing-card-copy > span {
   color: var(--v2-ink-dim);
-  font-family: var(--v2-mono);
   font-size: 10px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -1670,7 +1701,6 @@ body {
 .landing-mock-label {
   margin-bottom: 4px;
   color: var(--v2-ink-dim);
-  font-family: var(--v2-mono);
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -1703,7 +1733,6 @@ body {
 
 .landing-mock-row b {
   color: var(--v2-ink);
-  font-family: var(--v2-mono);
   font-size: 12.5px;
   font-weight: 500;
   white-space: nowrap;
@@ -1738,7 +1767,6 @@ body {
   display: block;
   margin-top: 9px;
   color: var(--v2-teal);
-  font-family: var(--v2-mono);
   font-size: 13px;
   font-weight: 500;
 }
@@ -1766,7 +1794,6 @@ body {
   flex-shrink: 0;
   width: 34px;
   color: var(--v2-ink-muted);
-  font-family: var(--v2-mono);
   font-size: 11px;
   font-weight: 500;
   text-align: right;
@@ -1820,7 +1847,6 @@ body {
   padding: 14px 18px;
   border-bottom: 1px solid var(--v2-line-soft);
   color: var(--v2-ink-dim);
-  font-family: var(--v2-mono);
   font-size: 10.5px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -1961,7 +1987,6 @@ body {
 
 .landing-leak-row b {
   color: var(--v2-ink);
-  font-family: var(--v2-mono);
   font-size: 17px;
   font-weight: 500;
   white-space: nowrap;
@@ -2005,7 +2030,6 @@ body {
   display: block;
   margin-top: 12px;
   color: var(--v2-ink-dim);
-  font-family: var(--v2-mono);
   font-size: 11px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -2130,7 +2154,6 @@ body {
   gap: 8px;
   margin-top: 40px;
   color: var(--v2-ink-muted);
-  font-family: var(--v2-mono);
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -2176,7 +2199,6 @@ body {
   display: block;
   margin-top: 22px;
   color: var(--v2-ink-dim);
-  font-family: var(--v2-mono);
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -2204,7 +2226,6 @@ body {
 
 .landing-v2 .landing-footer-column > strong {
   color: var(--v2-ink);
-  font-family: var(--v2-mono);
   font-size: 10.5px;
   font-weight: 500;
   letter-spacing: 0.16em;
