@@ -407,7 +407,8 @@ function StaticMarketingNav() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const navLinks = [
     { label: 'Inicio', href: '/' },
-    { label: 'Cómo funciona', href: '/#como-funciona' },
+    { label: 'Conectar', href: '/#conectar' },
+    { label: 'Preguntar', href: '/#preguntar' },
     { label: 'Seguridad', href: '/#seguridad' },
     { label: 'Preguntas', href: '/#faq' },
   ]

@@ -42,7 +42,7 @@ export default function Navbar({ email, onDashboard, onLoginSuccess, onLogout }:
           </a>
 
           <div className="hidden items-center gap-8 md:flex">
-            <a href="/#como-funciona" className="text-sm text-[--color-text-muted] transition-colors duration-300 hover:text-[--color-text] focus-visible:outline-none focus-visible:underline">
+            <a href="/#conectar" className="text-sm text-[--color-text-muted] transition-colors duration-300 hover:text-[--color-text] focus-visible:outline-none focus-visible:underline">
               Cómo funciona
             </a>
             <a href="/#herramientas" className="text-sm text-[--color-text-muted] transition-colors duration-300 hover:text-[--color-text] focus-visible:outline-none focus-visible:underline">
@@ -130,7 +130,7 @@ export default function Navbar({ email, onDashboard, onLoginSuccess, onLogout }:
 
       {isMenuOpen && (
         <div className="mx-auto mt-2 max-w-7xl space-y-4 rounded-2xl border border-white/[0.15] bg-white/[0.08] px-6 py-5 shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)] backdrop-blur-2xl md:hidden">
-          <a href="/#como-funciona" className="block py-2 text-[--color-text-muted] transition-colors duration-300 hover:text-[--color-text]">
+          <a href="/#conectar" className="block py-2 text-[--color-text-muted] transition-colors duration-300 hover:text-[--color-text]">
             Cómo funciona
           </a>
           <a href="/#herramientas" className="block py-2 text-[--color-text-muted] transition-colors duration-300 hover:text-[--color-text]">
