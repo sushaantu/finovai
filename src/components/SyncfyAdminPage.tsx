@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { apiClient } from '@/lib/api'
 import {
   Table,
   TableBody,
@@ -137,22 +138,16 @@ export default function SyncfyAdminPage() {
     setError(null)
 
     try {
-      const params = new URLSearchParams({ limit: '75' })
-      if (email.trim()) params.set('email', email.trim())
-      const response = await fetch(`/api/admin/syncfy?${params.toString()}`, {
-        headers: { 'X-FinovAI-Admin-Secret': secret },
+      const payload = await apiClient.getSyncfyAdmin<SyncfyAdminResponse>(secret, {
+        email: email.trim() || undefined,
       })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(typeof payload.error === 'string' ? payload.error : 'No autorizado')
-      }
 
       if (typeof window !== 'undefined') {
         window.sessionStorage.setItem(ADMIN_SECRET_STORAGE_KEY, secret)
       }
-      setData(payload as SyncfyAdminResponse)
+      setData(payload)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No pudimos cargar soporte de conexión.')
+      setError(err instanceof Error && err.message ? err.message : 'No pudimos cargar soporte de conexión.')
       setData(null)
     } finally {
       setIsLoading(false)

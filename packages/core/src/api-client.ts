@@ -87,14 +87,23 @@ export function createApiClient(config: ApiClientConfig) {
     // --- syncfy ---
     getSyncfyCredentials: (email: string) =>
       request<SyncfyCredentialsResponse>(`/api/syncfy/credentials?email=${encodeURIComponent(email)}`),
-    createSyncfySession: (email: string, options?: { credentialId?: string; mode?: string }) =>
+    createSyncfySession: (email: string, options?: { credentialId?: string | null; mode?: string }) =>
       request<SyncfySessionResponse>('/api/syncfy/session', post({ email, credentialId: options?.credentialId, mode: options?.mode })),
     captureSyncfyCredential: (email: string, eventType: string, payload: unknown) =>
       request<SyncfyCredentialCaptureResponse>('/api/syncfy/credential', post({ email, eventType, payload })),
-    refreshSyncfyCredential: (email: string, credentialId: string) =>
+    refreshSyncfyCredential: (email: string, credentialId?: string) =>
       request<SyncfyRefreshResponse>('/api/syncfy/refresh', post({ email, credentialId })),
     deleteSyncfyCredential: (email: string, credentialId: string) =>
       request<SyncfyCredentialDeleteResponse>('/api/syncfy/credential', { method: 'DELETE', body: JSON.stringify({ email, credentialId }) }),
+
+    // --- support admin (its own credential, never the dashboard session secret) ---
+    getSyncfyAdmin: <T>(adminSecret: string, options?: { email?: string; limit?: number }) => {
+      const params = new URLSearchParams({ limit: String(options?.limit ?? 75) })
+      if (options?.email) params.set('email', options.email)
+      return request<T>(`/api/admin/syncfy?${params.toString()}`, {
+        headers: { 'X-FinovAI-Admin-Secret': adminSecret },
+      })
+    },
   }
 }
 

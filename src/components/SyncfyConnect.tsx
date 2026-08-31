@@ -31,15 +31,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
-import { getDashboardAuthHeaders } from '@/lib/dashboard-session'
-import type {
-  SyncfyCredential,
-  SyncfyCredentialCaptureResponse,
-  SyncfyCredentialDeleteResponse,
-  SyncfyCredentialsResponse,
-  SyncfyRefreshResponse,
-  SyncfySessionResponse,
-} from '@finovai/core'
+import { ApiError } from '@finovai/core'
+import { apiClient } from '@/lib/api'
+import type { SyncfyCredential, SyncfySessionResponse } from '@finovai/core'
 
 export type { SyncfyConnectionIssue, SyncfyCredential } from '@finovai/core'
 
@@ -152,28 +146,6 @@ function scheduleSyncfyNotificationCleanup() {
   removeSyncfyFloatingNotifications()
   window.setTimeout(removeSyncfyFloatingNotifications, 100)
   window.setTimeout(removeSyncfyFloatingNotifications, 750)
-}
-
-async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...getDashboardAuthHeaders(),
-      ...init?.headers,
-    },
-  })
-  const data = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    const message = typeof data.error === 'string' ? data.error : 'Error de API'
-    const error = new Error(message) as Error & { data?: unknown; status?: number }
-    error.data = data
-    error.status = response.status
-    throw error
-  }
-
-  return data as T
 }
 
 function formatCooldown(seconds: number) {
@@ -345,9 +317,7 @@ export function SyncfyConnect({
   }
 
   const loadCredentials = async () => {
-    const response = await apiJson<SyncfyCredentialsResponse>(
-      `/api/syncfy/credentials?email=${encodeURIComponent(email)}`
-    )
+    const response = await apiClient.getSyncfyCredentials(email)
     applyCredentials(response.credentials)
     return response.credentials
   }
@@ -430,14 +400,7 @@ export function SyncfyConnect({
     const payload = args.length <= 1 ? args[0] ?? {} : args
 
     try {
-      const response = await apiJson<SyncfyCredentialCaptureResponse>('/api/syncfy/credential', {
-        method: 'POST',
-        body: JSON.stringify({
-          email,
-          eventType,
-          payload,
-        }),
-      })
+      const response = await apiClient.captureSyncfyCredential(email, eventType, payload)
 
       applyCredentials(response.credentials)
       if (response.message) {
@@ -461,11 +424,12 @@ export function SyncfyConnect({
 
       return true
     } catch (error) {
-      const apiError = error as Error & { status?: number }
-      const message = apiError.message || 'No pudimos guardar la institución conectada.'
+      const message = error instanceof Error && error.message
+        ? error.message
+        : 'No pudimos guardar la institución conectada.'
       setMessage(message)
       onStatus?.(message)
-      return apiError.status !== 422
+      return !(error instanceof ApiError) || error.status !== 422
     }
   }
 
@@ -614,14 +578,7 @@ export function SyncfyConnect({
     }
 
     try {
-      const response = await apiJson<SyncfySessionResponse>('/api/syncfy/session', {
-        method: 'POST',
-        body: JSON.stringify({
-          email,
-          credentialId,
-          mode,
-        }),
-      })
+      const response = await apiClient.createSyncfySession(email, { credentialId, mode })
 
       if (!response.widgetEnabled) {
         setMessage(response.error || 'La conexión bancaria no está configurada en este entorno.')
@@ -654,13 +611,7 @@ export function SyncfyConnect({
       : 'Buscando movimientos nuevos.')
 
     try {
-      const response = await apiJson<SyncfyRefreshResponse>('/api/syncfy/refresh', {
-        method: 'POST',
-        body: JSON.stringify({
-          email,
-          credentialId,
-        }),
-      })
+      const response = await apiClient.refreshSyncfyCredential(email, credentialId)
 
       const pendingTransactions = Boolean(response.pendingTransactions)
       const nextMessage = response.message || 'Movimientos sincronizados.'
@@ -687,7 +638,9 @@ export function SyncfyConnect({
       }
       onSynced?.(response)
     } catch (error) {
-      const data = (error as Error & { data?: { credential?: SyncfyCredential; retryAfterSeconds?: number } }).data
+      const data = error instanceof ApiError
+        ? (error.body as { credential?: SyncfyCredential; retryAfterSeconds?: number } | undefined)
+        : undefined
       const isPendingCredential = data?.credential?.status === 'pending_transactions'
       const nextMessage = isPendingCredential
         ? 'Movimientos todavía no disponibles. FinovAI seguirá verificando.'
@@ -712,13 +665,7 @@ export function SyncfyConnect({
     setMessage(`Eliminando ${credentialLabel}.`)
 
     try {
-      const response = await apiJson<SyncfyCredentialDeleteResponse>('/api/syncfy/credential', {
-        method: 'DELETE',
-        body: JSON.stringify({
-          email,
-          credentialId,
-        }),
-      })
+      const response = await apiClient.deleteSyncfyCredential(email, credentialId)
       applyCredentials(response.credentials)
       onSynced?.(response)
       setDeleteCredential(null)

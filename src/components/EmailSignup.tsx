@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { setDashboardSession } from '@/lib/dashboard-session'
+import { apiClient } from '@/lib/api'
 
 interface EmailSignupProps {
   source: string
@@ -54,29 +55,14 @@ export default function EmailSignup({
     setMessage(pendingEmail ? 'Verificando código...' : loadingMessage)
 
     try {
-      const response = await fetch(pendingEmail ? '/api/auth/verify' : '/api/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(pendingEmail
-          ? {
-              email: pendingEmail,
-              code: code.trim(),
+      const data = pendingEmail
+        ? await apiClient.verifyLoginCode(pendingEmail, code.trim(), source)
+        : await apiClient.signup(normalizedEmail, {
+            diagnosticData: JSON.stringify({
               source,
-            }
-          : {
-              email: normalizedEmail,
-              redirectPath: '/dashboard',
-              diagnosticData: JSON.stringify({
-                source,
-                capturedAt: new Date().toISOString(),
-              }),
+              capturedAt: new Date().toISOString(),
             }),
-      })
-
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(data.error || 'No pudimos guardar tu correo.')
-      }
+          })
 
       if (data.verificationRequired) {
         const nextEmail = data.email || normalizedEmail
@@ -95,7 +81,7 @@ export default function EmailSignup({
       onSuccess?.(data.email || normalizedEmail)
     } catch (error) {
       setStatus('error')
-      setMessage(error instanceof Error ? error.message : 'No pudimos guardar tu correo.')
+      setMessage(error instanceof Error && error.message ? error.message : 'No pudimos guardar tu correo.')
     }
   }
 
