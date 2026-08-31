@@ -4,6 +4,8 @@ import { ArrowRight, ArrowUp, ChevronDown, KeyRound, Lock, Menu, Sparkles, Unlin
 interface LandingPageProps {
   email: string | null
   onConnect: () => void
+  onLogin: () => void
+  onSignup: () => void
   onLogout: () => void
 }
 
@@ -94,12 +96,20 @@ const faqItems: FaqItem[] = [
   },
 ]
 
-export default function LandingPage({ email, onConnect, onLogout }: LandingPageProps) {
+export default function LandingPage({ email, onConnect, onLogin, onSignup, onLogout }: LandingPageProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
-  const handleConnect = () => {
+  // Every in-page CTA is the same intent: start. Someone already signed in has
+  // no signup to do, so they go straight to the panel instead.
+  const handleStart = () => {
     setIsMenuOpen(false)
-    onConnect()
+    if (email) onConnect()
+    else onSignup()
+  }
+
+  const handleLogin = () => {
+    setIsMenuOpen(false)
+    onLogin()
   }
 
   return (
@@ -108,17 +118,18 @@ export default function LandingPage({ email, onConnect, onLogout }: LandingPageP
         email={email}
         isMenuOpen={isMenuOpen}
         onToggleMenu={() => setIsMenuOpen((current) => !current)}
-        onConnect={handleConnect}
+        onConnect={handleStart}
+        onLogin={handleLogin}
         onLogout={onLogout}
       />
       <main>
-        <HeroSection onConnect={handleConnect} />
-        <ConnectSection onConnect={handleConnect} />
-        <AskSection onConnect={handleConnect} />
-        <LeaksSection onConnect={handleConnect} />
+        <HeroSection onConnect={handleStart} />
+        <ConnectSection onConnect={handleStart} />
+        <AskSection onConnect={handleStart} />
+        <LeaksSection onConnect={handleStart} />
         <SecuritySection />
         <FaqSection />
-        <FinalCtaSection onConnect={handleConnect} />
+        <FinalCtaSection onConnect={handleStart} />
       </main>
       <LandingFooter />
     </div>
@@ -130,12 +141,14 @@ function LandingNav({
   isMenuOpen,
   onToggleMenu,
   onConnect,
+  onLogin,
   onLogout,
 }: {
   email: string | null
   isMenuOpen: boolean
   onToggleMenu: () => void
   onConnect: () => void
+  onLogin: () => void
   onLogout: () => void
 }) {
   const navLinks = [
@@ -174,7 +187,7 @@ function LandingNav({
             </>
           ) : (
             <>
-              <button className="landing-btn landing-btn-ghost" type="button" onClick={onConnect}>
+              <button className="landing-btn landing-btn-ghost" type="button" onClick={onLogin}>
                 Iniciar sesión
               </button>
               <button className="landing-btn landing-btn-solid" type="button" onClick={onConnect}>

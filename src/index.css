@@ -2388,3 +2388,354 @@ body {
     padding: 22px;
   }
 }
+
+/* ============================================================
+   FINOVAI AUTH V2 — /login and /signup on the landing canvas
+   Inherits the --v2-* tokens by also carrying .landing-v2, so the
+   logged-out entry points read as the same product as the landing.
+   ============================================================ */
+
+.auth-v2 {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+  flex-direction: column;
+}
+
+/* A quiet bar, not the full landing nav: at this point the visitor has
+   already chosen, and marketing links would only offer an exit. */
+.auth-v2 .auth-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+}
+
+.auth-v2 .auth-wordmark {
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.auth-v2 .auth-bar-aside {
+  margin: 0;
+  color: var(--v2-ink-dim);
+  font-size: 14px;
+}
+
+.auth-v2 .auth-bar-aside button {
+  border: 0;
+  background: none;
+  color: var(--v2-ink);
+  cursor: pointer;
+  font-size: 14px;
+  text-decoration: underline;
+  text-decoration-color: var(--v2-line);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 140ms ease;
+}
+
+.auth-v2 .auth-bar-aside button:hover {
+  text-decoration-color: var(--v2-ink-muted);
+}
+
+.auth-v2 .auth-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 24px 72px;
+}
+
+.auth-v2 .auth-panel {
+  width: 100%;
+  max-width: 440px;
+}
+
+/* The bank widget needs room the two form steps do not. */
+.auth-v2 .auth-main-wide .auth-panel {
+  max-width: 760px;
+}
+
+/* ------------------------------------------------------------- steps */
+
+.auth-v2 .auth-steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 30px;
+  padding: 0;
+  list-style: none;
+}
+
+.auth-v2 .auth-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Connector between dots; the first step has nothing to connect back to. */
+.auth-v2 .auth-step + .auth-step::before {
+  content: '';
+  width: 22px;
+  height: 1px;
+  flex-shrink: 0;
+  background: var(--v2-line);
+}
+
+.auth-v2 .auth-step-dot {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--v2-line);
+  border-radius: 50%;
+  color: var(--v2-ink-dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.auth-v2 .auth-step-dot svg {
+  width: 13px;
+  height: 13px;
+}
+
+.auth-v2 .auth-step-label {
+  overflow: hidden;
+  color: var(--v2-ink-dim);
+  font-size: 12px;
+  letter-spacing: var(--v2-label-spacing);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.auth-v2 .auth-step-active .auth-step-dot {
+  border-color: var(--v2-blue);
+  background: var(--v2-blue);
+  color: #fff;
+}
+
+.auth-v2 .auth-step-active .auth-step-label {
+  color: var(--v2-ink);
+}
+
+.auth-v2 .auth-step-done .auth-step-dot {
+  border-color: rgba(0, 212, 170, 0.5);
+  color: var(--v2-teal);
+}
+
+/* Only the current step needs its name on small screens. */
+@media (max-width: 560px) {
+  .auth-v2 .auth-step:not(.auth-step-active) .auth-step-label {
+    display: none;
+  }
+}
+
+/* -------------------------------------------------------------- form */
+
+.auth-v2 .auth-lede {
+  margin: 14px 0 0;
+  color: var(--v2-ink-muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.auth-v2 .auth-lede b {
+  color: var(--v2-ink);
+  font-weight: 500;
+}
+
+.auth-v2 .auth-form {
+  display: flex;
+  flex-direction: column;
+  margin-top: 28px;
+}
+
+.auth-v2 .auth-label {
+  margin-bottom: 8px;
+  color: var(--v2-ink-dim);
+  font-size: 12px;
+  letter-spacing: var(--v2-label-spacing);
+  text-transform: uppercase;
+}
+
+.auth-v2 .auth-input {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--v2-line);
+  border-radius: 12px;
+  background: var(--v2-bg-card);
+  color: var(--v2-ink);
+  font-size: 16px;
+  outline: none;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.auth-v2 .auth-input::placeholder {
+  color: var(--v2-ink-dim);
+}
+
+.auth-v2 .auth-input:focus {
+  border-color: rgba(74, 144, 240, 0.6);
+  background: var(--v2-bg-raise);
+}
+
+.auth-v2 .auth-input-code {
+  font-size: 22px;
+  letter-spacing: 0.36em;
+}
+
+.auth-v2 .auth-submit {
+  margin-top: 16px;
+  justify-content: center;
+  width: 100%;
+}
+
+.auth-v2 .auth-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.auth-v2 .auth-spin {
+  animation: auth-spin 900ms linear infinite;
+}
+
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-v2 .auth-spin {
+    animation-duration: 2400ms;
+  }
+}
+
+/* ------------------------------------------------------ secondary rows */
+
+.auth-v2 .auth-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.auth-v2 .auth-row-end {
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
+.auth-v2 .auth-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  color: var(--v2-ink-dim);
+  cursor: pointer;
+  font-size: 13px;
+  transition: color 140ms ease;
+}
+
+.auth-v2 .auth-link:hover:not(:disabled) {
+  color: var(--v2-ink);
+}
+
+.auth-v2 .auth-link:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.auth-v2 .auth-link svg {
+  width: 14px;
+  height: 14px;
+}
+
+.auth-v2 .auth-submit-inline {
+  width: auto;
+  margin: 0;
+}
+
+/* The widget brings its own card, so this is a bare wrapper — a border here
+   would read as a card inside a card. The token overrides repaint the
+   dashboard's navy surfaces in the landing's neutral near-black. */
+.auth-v2 .auth-connect {
+  margin-top: 24px;
+  --background: var(--v2-bg);
+  --card: var(--v2-bg-card);
+  --popover: var(--v2-bg-raise);
+  --secondary: var(--v2-bg-raise);
+  --muted: var(--v2-bg-raise);
+  --accent: var(--v2-bg-raise);
+  --border: var(--v2-line);
+  --input: var(--v2-line);
+  --foreground: var(--v2-ink);
+  --card-foreground: var(--v2-ink);
+  --muted-foreground: var(--v2-ink-muted);
+  --secondary-foreground: var(--v2-ink);
+  --primary: var(--v2-blue);
+  --primary-foreground: #fff;
+  --ring: var(--v2-blue);
+
+  /* .finovai-dashboard.dark paints a navy base plus two gradient washes on the
+     element itself; this canvas supplies its own ground. */
+  background-color: transparent;
+  background-image: none;
+}
+
+/* The widget's own card supplies the surface; drop its outer chrome so it sits
+   flush on the auth canvas. */
+.auth-v2 .auth-connect > * {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.auth-v2 .auth-status {
+  margin: 18px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--v2-line-soft);
+  border-radius: 12px;
+  background: var(--v2-bg-raise);
+  color: var(--v2-ink-muted);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+/* Top-aligned: this line wraps to two rows in the 440px panel, and a
+   vertically centred icon then floats between them. */
+.auth-v2 .auth-fineprint {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 28px 0 0;
+  color: var(--v2-ink-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.auth-v2 .auth-fineprint svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+@media (max-width: 560px) {
+  .auth-v2 .auth-bar {
+    padding: 16px;
+  }
+
+  .auth-v2 .auth-main {
+    padding: 16px 16px 56px;
+  }
+
+}

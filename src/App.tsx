@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Navbar from './components/Navbar'
 import DashboardApp from './dashboard/DashboardApp'
 import LandingPage from './components/LandingPage'
+import AuthPage, { type AuthMode } from './components/AuthPage'
 import ToolPage, { type ToolSlug } from './components/ToolPage'
 import StaticPage, { getStaticPage } from './components/StaticPage'
 import Footer from './components/Footer'
@@ -84,6 +85,14 @@ function App() {
     setSignupEmail(email)
     navigate('/dashboard')
   }
+  // AuthPage has already persisted the session with the real client secret, so
+  // this only syncs React state. Reusing handleSignupSuccess here would call
+  // setDashboardSession without a secret, which in dev builds replaces that
+  // real secret with the local placeholder.
+  const handleAuthenticated = (email: string) => {
+    setAuthNotice(null)
+    setSignupEmail(email)
+  }
   const handleLogout = () => {
     clearDashboardSession()
     setSignupEmail(null)
@@ -103,12 +112,15 @@ function App() {
   const isDashboard = isDashboardPath(pathname)
   const isSyncfyAdmin = pathname === '/admin/syncfy'
   const staticPage = getStaticPage(pathname)
-  const isHome = !isDashboard && !isSyncfyAdmin && page === 'home'
+  const authMode: AuthMode | null =
+    pathname === '/login' ? 'login' : pathname === '/signup' ? 'signup' : null
+  const isAuthPage = authMode !== null
+  const isHome = !isDashboard && !isSyncfyAdmin && !isAuthPage && page === 'home'
   const isStaticPage = Boolean(staticPage)
 
   return (
-    <div className={isDashboard || isSyncfyAdmin || isStaticPage || isHome ? 'min-h-screen' : 'min-h-screen bg-[--color-bg]'}>
-      {!isDashboard && !isSyncfyAdmin && !isHome && !isStaticPage ? (
+    <div className={isDashboard || isSyncfyAdmin || isStaticPage || isHome || isAuthPage ? 'min-h-screen' : 'min-h-screen bg-[--color-bg]'}>
+      {!isDashboard && !isSyncfyAdmin && !isHome && !isStaticPage && !isAuthPage ? (
         <Navbar
           email={signupEmail}
           onDashboard={() => navigate('/dashboard')}
@@ -117,7 +129,14 @@ function App() {
         />
       ) : null}
 
-      {isDashboard ? (
+      {authMode ? (
+        <AuthPage
+          mode={authMode}
+          initialEmail={signupEmail ?? ''}
+          onAuthenticated={handleAuthenticated}
+          onNavigate={navigate}
+        />
+      ) : isDashboard ? (
         <DashboardApp
           email={signupEmail}
           initialNotice={authNotice}
@@ -133,13 +152,15 @@ function App() {
         <LandingPage
           email={signupEmail}
           onConnect={() => navigate('/dashboard')}
+          onLogin={() => navigate('/login')}
+          onSignup={() => navigate('/signup')}
           onLogout={handleLogout}
         />
       ) : (
         <ToolPage tool={page} />
       )}
 
-      {!isDashboard && !isSyncfyAdmin && !isHome && !isStaticPage ? <Footer /> : null}
+      {!isDashboard && !isSyncfyAdmin && !isHome && !isStaticPage && !isAuthPage ? <Footer /> : null}
     </div>
   )
 }

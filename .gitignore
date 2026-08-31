@@ -43,3 +43,6 @@ bun.lockb
 
 # Local scratch: DB backups, vendor docs, one-off SQL. Never commit.
 tmp/
+
+# Playwright MCP scratch output
+.playwright-mcp/
