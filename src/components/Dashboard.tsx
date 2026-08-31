@@ -110,7 +110,7 @@ import {
 import { MessageResponse } from '@/components/ai-elements/message-response'
 import { Shimmer } from '@/components/ai-elements/shimmer'
 import { FinovaiLogo } from './LandingPage'
-import { SyncfyConnect, type SyncfyCredential } from '@/components/SyncfyConnect'
+import { SyncfyConnect } from '@/components/SyncfyConnect'
 import { cn } from '@/lib/utils'
 import {
   clearDashboardSession,
@@ -149,6 +149,15 @@ import {
   type FinanceTransactionType,
   type FinancialProfile,
 } from '../../shared/finance-core'
+import type {
+  DashboardChatResponse,
+  DashboardResponse,
+  HouseholdInvite,
+  HouseholdResponse,
+  SyncfyCredential,
+  SyncfyCredentialsResponse,
+  TransactionCategoryResponse,
+} from '@finovai/core'
 
 interface DashboardProps {
   email: string | null
@@ -165,24 +174,6 @@ type DashboardTheme = 'light' | 'dark'
 type CategoryPeriodFilter = 'current' | 'previous' | 'all'
 
 type BudgetStatus = CategoryBudgetStatus
-
-interface DashboardResponse {
-  success: boolean
-  email: string
-  transactions: FinanceTransaction[]
-  profile?: FinancialProfile
-  summary: FinanceSummary
-  categoryAnalysis?: CategoryAnalysis
-  insights: FinanceInsight[]
-  actionPlan?: FinanceActionPlan
-  message?: string
-}
-
-interface SyncfyCredentialsResponse {
-  success: boolean
-  email: string
-  credentials: SyncfyCredential[]
-}
 
 interface ManualForm {
   type: TransactionType
@@ -213,40 +204,12 @@ interface DashboardChatMessage {
   reasoningDuration?: number
 }
 
-interface DashboardChatResponse {
-  success: boolean
-  answer: string
-  model: string
-  source: 'anthropic'
-}
-
-interface TransactionCategoryResponse extends DashboardResponse {
-  transaction: FinanceTransaction
-}
-
 type DashboardChatChartType = 'categories' | 'daily-spend' | 'savings' | 'recurring' | 'category-trend'
 
 interface PendingChatAnswer {
   question: string
   reasoning: string
   startedAt: number
-}
-
-interface HouseholdInvite {
-  id: string
-  inviterEmail: string
-  inviteeEmail: string
-  status: 'pending' | 'accepted' | 'cancelled'
-  created_at: string
-}
-
-interface HouseholdResponse {
-  success: boolean
-  email: string
-  invite?: HouseholdInvite
-  invites: HouseholdInvite[]
-  emailSent?: boolean
-  message?: string
 }
 
 type AnalysisTransaction = FinanceAnalysisTransaction

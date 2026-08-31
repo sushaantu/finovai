@@ -32,6 +32,16 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { getDashboardAuthHeaders } from '@/lib/dashboard-session'
+import type {
+  SyncfyCredential,
+  SyncfyCredentialCaptureResponse,
+  SyncfyCredentialDeleteResponse,
+  SyncfyCredentialsResponse,
+  SyncfyRefreshResponse,
+  SyncfySessionResponse,
+} from '@finovai/core'
+
+export type { SyncfyConnectionIssue, SyncfyCredential } from '@finovai/core'
 
 interface SyncfyConnectProps {
   email: string
@@ -40,83 +50,6 @@ interface SyncfyConnectProps {
   onStatus?: (message: string) => void
   onSynced?: (dashboard: unknown) => void
   onCredentialsChange?: (credentials: SyncfyCredential[]) => void
-}
-
-export interface SyncfyConnectionIssue {
-  kind: 'action_required' | 'provider_unavailable' | 'rate_limited' | 'unknown' | 'broken' | 'abandoned' | 'connecting'
-  owner: 'user' | 'provider' | 'finovai'
-  action: 'update_access' | 'retry_later' | 'contact_support'
-  title: string
-  message: string
-  supportCode: string | null
-  statusCode: number | null
-  occurredAt: string
-  source: string
-}
-
-export interface SyncfyCredential {
-  id: string
-  syncfyCredentialId: string
-  siteName: string | null
-  status: string | null
-  lastSuccessfulSyncAt: string | null
-  lastPullAt: string | null
-  cooldownSeconds: number
-  ready: boolean
-  needsReconnect?: boolean
-  connectionState?: 'ready' | 'verifying' | 'action_required' | 'provider_unavailable' | 'support_required' | 'broken' | 'abandoned'
-  connectionIssue?: SyncfyConnectionIssue | null
-}
-
-interface SyncfyCredentialsResponse {
-  credentials: SyncfyCredential[]
-}
-
-interface SyncfyImportSummary {
-  fetched: number
-  imported: number
-  skipped: number
-}
-
-interface SyncfyCredentialCaptureResponse {
-  success: boolean
-  credential?: SyncfyCredential | null
-  credentials: SyncfyCredential[]
-  message?: string
-  transactions?: unknown[]
-  pendingTransactions?: boolean
-  syncfy?: SyncfyImportSummary | null
-}
-
-interface SyncfySessionResponse {
-  success: boolean
-  token: string | null
-  widgetEnabled: boolean
-  widgetEnableTestMode?: boolean
-  widgetConfig: Record<string, unknown>
-  credentialId: string | null
-  error?: string
-}
-
-interface SyncfyRefreshResponse {
-  success: boolean
-  message?: string
-  error?: string
-  retryAfterSeconds?: number
-  credential?: SyncfyCredential
-  transactions?: unknown[]
-  pendingTransactions?: boolean
-  syncfy?: SyncfyImportSummary | null
-}
-
-interface SyncfyCredentialDeleteResponse {
-  success: boolean
-  credentials: SyncfyCredential[]
-  message?: string
-  deletedTransactions?: number
-  syncfyCredentialDeleteAttempted?: boolean
-  syncfyCredentialDeleted?: boolean
-  transactions?: unknown[]
 }
 
 type WidgetMode = 'create' | 'update'
