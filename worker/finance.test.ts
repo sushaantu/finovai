@@ -6,6 +6,7 @@ import {
 } from './dashboard-chat-benchmark'
 
 import worker from './index'
+import { createTestDb, loadSchema } from './lib/test-d1'
 import {
   buildActionPlan,
   buildCategoryAnalysis,
@@ -36,8 +37,6 @@ import {
   buildDashboardChatContext,
   classifyDashboardQuestionStage,
 } from './routes/finance'
-
-type BoundParams = Array<string | number | null>
 
 interface DashboardResponse {
   email: string
@@ -101,604 +100,210 @@ interface SyncfyCredentialsApiResponse {
   }>
 }
 
-class MockD1 {
-  leads = new Map<string, Record<string, unknown>>()
-  profiles = new Map<string, {
-    email: string
-    currency: string
-    monthly_income?: number | null
-    monthly_budget?: number | null
-    category_budgets_json?: string | null
-  }>()
-  dashboardSessions = new Map<string, { email: string; client_secret_hash: string }>()
-  loginChallenges: Record<string, unknown>[] = []
-  transactions: Record<string, unknown>[] = []
-  syncfyUsers: Record<string, unknown>[] = []
-  syncfyCredentials: Record<string, unknown>[] = []
-  syncfyWebhookEvents: Record<string, unknown>[] = []
-  syncfyErrors: Record<string, unknown>[] = []
-  invites: Record<string, unknown>[] = []
+// Tests run against real in-memory SQLite loaded from worker/schema.sql, through the same D1
+// interface the Worker uses in production (see worker/lib/test-d1.ts). Seed helpers write rows
+// with real INSERTs; read helpers assert with real SELECTs.
+const SCHEMA_SQL = await loadSchema()
 
-  prepare(sql: string) {
-    const db = this
+type TestD1 = ReturnType<typeof createTestDb>['db']
+type TestSqlite = ReturnType<typeof createTestDb>['sqlite']
+type SeedRow = Record<string, unknown>
 
-    return {
-      bind(...params: BoundParams) {
-        return {
-          async run() {
-            return db.run(sql, params)
-          },
-          async first<T>() {
-            return db.first<T>(sql, params)
-          },
-          async all<T>() {
-            return db.all<T>(sql, params)
-          },
-        }
-      },
-      async run() {
-        return db.run(sql, [])
-      },
-      async first<T>() {
-        return db.first<T>(sql, [])
-      },
-      async all<T>() {
-        return db.all<T>(sql, [])
-      },
-    }
+const sqliteByTestDb = new WeakMap<TestD1, TestSqlite>()
+
+function createTestD1(): TestD1 {
+  const { db, sqlite } = createTestDb(SCHEMA_SQL)
+  sqliteByTestDb.set(db, sqlite)
+  return db
+}
+
+function toSqlValue(value: unknown): string | number | null {
+  if (value === undefined || value === null) return null
+  if (typeof value === 'number' || typeof value === 'string') return value
+  if (typeof value === 'boolean') return value ? 1 : 0
+  return JSON.stringify(value)
+}
+
+// Test fixtures were written against the old in-memory mock, so some rows carry the camelCase
+// shape of `sampleTransaction` (`rawSource`) and some the column shape (`raw_source`).
+function seedField(row: SeedRow, keys: string[], fallback: unknown = null): string | number | null {
+  for (const key of keys) {
+    if (row[key] !== undefined) return toSqlValue(row[key])
   }
+  return toSqlValue(fallback)
+}
 
-  async run(sql: string, params: BoundParams) {
-    if (sql.includes('INSERT INTO financial_profiles')) {
-      const [email, currency] = params
-      const current = this.profiles.get(String(email))
-      this.profiles.set(String(email), {
-        email: String(email),
-        currency: String(currency),
-        monthly_income: current?.monthly_income ?? null,
-        monthly_budget: current?.monthly_budget ?? null,
-        category_budgets_json: current?.category_budgets_json ?? null,
-      })
-    }
+async function readTable(db: TestD1, table: string): Promise<SeedRow[]> {
+  // rowid order == insertion order, which is what the replaced mock's arrays gave us.
+  const { results } = await db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all<SeedRow>()
+  return results
+}
 
-    if (sql.includes('UPDATE financial_profiles')) {
-      const [currency, monthlyIncome, monthlyBudget, categoryBudgetsJson, email] = params
-      const current = this.profiles.get(String(email)) || {
-        email: String(email),
-        currency: 'MXN',
-      }
-      this.profiles.set(String(email), {
-        ...current,
-        currency: String(currency),
-        monthly_income: monthlyIncome === null ? null : Number(monthlyIncome),
-        monthly_budget: monthlyBudget === null ? null : Number(monthlyBudget),
-        category_budgets_json: categoryBudgetsJson === null ? null : String(categoryBudgetsJson),
-      })
-    }
+// Synchronous SELECT against the same SQLite handle the adapter writes to. Only for assertions
+// that must observe state at an exact point in the microtask queue — e.g. right after a webhook
+// responds but before its ctx.waitUntil() task has run. An `await` there would itself yield and
+// let the background task finish first, which is precisely what the assertion is checking has not
+// happened yet.
+function readTableSync(db: TestD1, table: string): SeedRow[] {
+  const sqlite = sqliteByTestDb.get(db)
+  if (!sqlite) throw new Error(`No SQLite handle registered for this test D1 instance`)
+  return sqlite.query(`SELECT * FROM ${table} ORDER BY rowid`).all() as SeedRow[]
+}
 
-    if (sql.includes('INSERT INTO leads')) {
-      const [email, name, diagnosticData] = params
-      this.leads.set(String(email), {
-        id: 1,
-        email,
-        name,
-        diagnostic_data: diagnosticData,
-        stage: 'stage_0',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-    }
-
-    if (sql.includes('INSERT INTO dashboard_sessions')) {
-      const [email, clientSecretHash] = params
-      this.dashboardSessions.set(String(email), {
-        email: String(email),
-        client_secret_hash: String(clientSecretHash),
-      })
-    }
-
-    if (sql.includes('UPDATE dashboard_sessions')) {
-      return { success: true, meta: { last_row_id: 1 } }
-    }
-
-    if (sql.includes('INSERT INTO email_login_challenges')) {
-      const [id, email, tokenHash, codeHash, source, redirectPath, createdAt, expiresAt] = params
-      this.loginChallenges.push({
-        id,
-        email,
-        token_hash: tokenHash,
-        code_hash: codeHash,
-        source,
-        redirect_path: redirectPath,
-        attempts: 0,
-        created_at: createdAt,
-        expires_at: expiresAt,
-        consumed_at: null,
-      })
-    }
-
-    if (sql.includes('UPDATE email_login_challenges SET attempts = attempts + 1')) {
-      const [id] = params
-      const challenge = this.loginChallenges.find((item) => item.id === id)
-      if (challenge) challenge.attempts = Number(challenge.attempts || 0) + 1
-    }
-
-    if (sql.includes('UPDATE email_login_challenges SET consumed_at = ?')) {
-      const [consumedAt, id] = params
-      const challenge = this.loginChallenges.find((item) => item.id === id)
-      if (challenge) challenge.consumed_at = consumedAt
-    }
-
-    if (sql.includes('UPDATE transactions') && sql.includes('AND merchant = ?')) {
-      const [category, email, type, merchant, excludedId, previousCategory] = params
-      let changes = 0
-      for (const transaction of this.transactions) {
-        if (
-          transaction.email === email &&
-          transaction.type === type &&
-          transaction.merchant === merchant &&
-          transaction.id !== excludedId &&
-          (Number(transaction.category_locked || 0) === 0 || transaction.category === previousCategory)
-        ) {
-          transaction.category = category
-          transaction.category_locked = 1
-          transaction.updated_at = new Date().toISOString()
-          changes += 1
-        }
-      }
-      return { success: true, meta: { changes } }
-    }
-
-    if (sql.includes('UPDATE transactions') && sql.includes('SET category = ?')) {
-      const [category, id, email] = params
-      const transaction = this.transactions.find((item) => item.id === id && item.email === email)
-      if (transaction) {
-        transaction.category = category
-        transaction.category_locked = 1
-        transaction.updated_at = new Date().toISOString()
-        return { success: true, meta: { changes: 1 } }
-      }
-      return { success: true, meta: { changes: 0 } }
-    }
-
-    if (sql.includes('INSERT INTO transactions') && sql.includes("'syncfy'")) {
-      const [
-        id,
-        email,
-        date,
-        type,
-        amount,
-        currency,
-        category,
-        description,
-        merchant,
-        rawSource,
-      ] = params
-
-      const existing = this.transactions.find((item) => item.id === id)
-      if (existing) {
-        existing.email = email
-        existing.date = date
-        existing.type = type
-        existing.amount = amount
-        existing.currency = currency
-        existing.category = category
-        existing.description = description
-        existing.merchant = merchant
-        existing.raw_source = rawSource
-        existing.updated_at = new Date().toISOString()
-        return { success: true, meta: { last_row_id: 1 } }
-      }
-
-      this.transactions.push({
-        id,
-        email,
-        date,
-        type,
-        amount,
-        currency,
-        category,
-        description,
-        merchant,
-        notes: null,
-        source: 'syncfy',
-        confidence: 0.9,
-        category_locked: 0,
-        raw_source: rawSource,
-        cartola_import_id: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      return { success: true, meta: { last_row_id: 1 } }
-    }
-
-    if (sql.includes('DELETE FROM transactions') && sql.includes("source = 'syncfy'")) {
-      if (params.length === 1) {
-        const [email] = params
-        const before = this.transactions.length
-        this.transactions = this.transactions.filter((item) => item.email !== email || item.source !== 'syncfy')
-        return { success: true, meta: { changes: before - this.transactions.length } }
-      }
-
-      const [email, rawPattern, idPattern] = params
-      const rawNeedle = String(rawPattern).replaceAll('%', '')
-      const idNeedle = String(idPattern).replaceAll('%', '')
-      const before = this.transactions.length
-      this.transactions = this.transactions.filter((item) => {
-        if (item.email !== email || item.source !== 'syncfy') return true
-
-        const rawSource = String(item.raw_source || item.rawSource || '')
-        const id = String(item.id || '')
-        return !rawSource.includes(rawNeedle) && !id.includes(idNeedle)
-      })
-      return { success: true, meta: { changes: before - this.transactions.length } }
-    }
-
-    if (sql.includes('DELETE FROM syncfy_credentials') && !sql.includes('syncfy_credential_id')) {
-      const [email] = params
-      const before = this.syncfyCredentials.length
-      this.syncfyCredentials = this.syncfyCredentials.filter((item) => item.email !== email)
-      return { success: true, meta: { changes: before - this.syncfyCredentials.length } }
-    }
-
-    if (sql.includes('DELETE FROM syncfy_credentials')) {
-      const [email, credentialId] = params
-      const before = this.syncfyCredentials.length
-      this.syncfyCredentials = this.syncfyCredentials.filter(
-        (item) => !(item.email === email && item.syncfy_credential_id === credentialId)
+async function seedTransactions(db: TestD1, ...rows: SeedRow[]): Promise<void> {
+  for (const row of rows) {
+    const createdAt = seedField(row, ['created_at'], '2026-05-01T00:00:00Z')
+    const email = seedField(row, ['email'], 'user@example.com')
+    // transactions.email is a real foreign key to financial_profiles(email), and the adapter
+    // enforces it the way D1 does. Production always upserts the profile first; fixtures must too.
+    await db
+      .prepare(
+        `INSERT INTO financial_profiles (email, currency, created_at)
+         VALUES (?, 'MXN', ?)
+         ON CONFLICT(email) DO NOTHING`
       )
-      return { success: true, meta: { changes: before - this.syncfyCredentials.length } }
-    }
-
-    if (sql.includes('INSERT INTO syncfy_users')) {
-      const [email, syncfyUserId, externalId, name] = params
-      const existing = this.syncfyUsers.find((item) => item.email === email)
-      const next = {
-        email,
-        syncfy_user_id: syncfyUserId,
-        syncfy_external_id: externalId,
-        name,
-        mode: 'live',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        last_session_at: existing?.last_session_at || null,
-      }
-      if (existing) {
-        Object.assign(existing, next)
-      } else {
-        this.syncfyUsers.push(next)
-      }
-      return { success: true, meta: { last_row_id: 1, changes: 1 } }
-    }
-
-    if (sql.includes('INSERT INTO syncfy_credentials')) {
-      const [
-        id,
-        email,
-        syncfyUserId,
-        syncfyCredentialId,
-        syncfySiteId,
-        siteName,
-        status,
-        lastSuccessfulSyncAt,
-        lastPullAt,
-        lastRid,
-        rawJson,
-      ] = params
-      const existing = this.syncfyCredentials.find(
-        (item) => item.email === email && item.syncfy_credential_id === syncfyCredentialId
+      .bind(email, createdAt)
+      .run()
+    await db
+      .prepare(
+        `INSERT INTO transactions (
+          id, email, date, type, amount, currency, category, description, merchant, notes,
+          source, confidence, category_locked, raw_source, cartola_import_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      const next = {
-        id,
+      .bind(
+        seedField(row, ['id'], crypto.randomUUID()),
         email,
-        syncfy_user_id: syncfyUserId,
-        syncfy_credential_id: syncfyCredentialId,
-        syncfy_site_id: syncfySiteId,
-        site_name: siteName,
-        status,
-        last_successful_sync_at: lastSuccessfulSyncAt,
-        last_pull_at: lastPullAt,
-        last_rid: lastRid,
-        raw_json: rawJson,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }
-      if (existing) {
-        Object.assign(existing, next)
-      } else {
-        this.syncfyCredentials.push(next)
-      }
-      return { success: true, meta: { last_row_id: 1 } }
-    }
-
-    if (sql.includes('UPDATE syncfy_credentials')) {
-      const credentialId = String(params.at(-1))
-      const email = String(params.at(-2))
-      const credential = this.syncfyCredentials.find(
-        (item) => item.email === email && item.syncfy_credential_id === credentialId
+        seedField(row, ['date'], '2026-05-01'),
+        seedField(row, ['type'], 'expense'),
+        seedField(row, ['amount'], 1000),
+        seedField(row, ['currency'], 'MXN'),
+        seedField(row, ['category'], 'Otro'),
+        seedField(row, ['description'], 'Movimiento'),
+        seedField(row, ['merchant']),
+        seedField(row, ['notes']),
+        seedField(row, ['source'], 'manual'),
+        seedField(row, ['confidence'], 1),
+        seedField(row, ['category_locked', 'categoryLocked'], 0),
+        seedField(row, ['raw_source', 'rawSource']),
+        seedField(row, ['cartola_import_id', 'cartolaImportId']),
+        createdAt,
+        seedField(row, ['updated_at'], createdAt)
       )
-      if (credential) {
-        if (sql.includes('raw_json = ?')) {
-          credential.raw_json = params[0]
-        }
-        if (sql.includes('site_name = COALESCE') || sql.includes('site_name = CASE')) {
-          const nextSiteId = params[0]
-          const nextSiteName = params[1]
-          if (nextSiteId != null) credential.syncfy_site_id = nextSiteId
-          if (nextSiteName != null) credential.site_name = nextSiteName
-        }
-        if (sql.includes("status = 'synced'") || sql.includes("status = COALESCE(NULLIF(status, ''), 'synced')")) {
-          credential.status = 'synced'
-          credential.last_pull_at = new Date().toISOString()
-          credential.last_successful_sync_at = new Date().toISOString()
-        } else if (sql.includes("status = 'pending_transactions'")) {
-          credential.status = 'pending_transactions'
-          if (sql.includes('last_pull_at')) {
-            credential.last_pull_at = new Date().toISOString()
-          }
-        }
-        credential.updated_at = new Date().toISOString()
-      }
-      return { success: true, meta: { changes: credential ? 1 : 0 } }
-    }
-
-    if (sql.includes('INSERT INTO syncfy_webhook_events')) {
-      const [id, eventType, syncfyUserId, syncfyCredentialId, rid, payloadJson] = params
-      this.syncfyWebhookEvents.push({
-        id,
-        event_type: eventType,
-        syncfy_user_id: syncfyUserId,
-        syncfy_credential_id: syncfyCredentialId,
-        rid,
-        payload_json: payloadJson,
-        processed_at: null,
-        created_at: new Date().toISOString(),
-      })
-      return { success: true, meta: { last_row_id: 1 } }
-    }
-
-    if (sql.includes('UPDATE syncfy_webhook_events')) {
-      const [eventId] = params
-      const event = this.syncfyWebhookEvents.find((item) => item.id === eventId)
-      if (event) event.processed_at = new Date().toISOString()
-      return { success: true, meta: { changes: event ? 1 : 0 } }
-    }
-
-    if (sql.includes('INSERT INTO syncfy_errors')) {
-      const [id, email, syncfyUserId, syncfyCredentialId, rid, statusCode, errorCode, message, source, payloadJson] = params
-      this.syncfyErrors.push({
-        id,
-        email,
-        syncfy_user_id: syncfyUserId,
-        syncfy_credential_id: syncfyCredentialId,
-        rid,
-        status_code: statusCode,
-        error_code: errorCode,
-        message,
-        source,
-        payload_json: payloadJson,
-        created_at: new Date().toISOString(),
-      })
-      return { success: true, meta: { last_row_id: 1 } }
-    }
-
-    if (sql.includes('INSERT INTO transactions')) {
-      const [
-        id,
-        email,
-        date,
-        type,
-        amount,
-        currency,
-        category,
-        description,
-        merchant,
-        notes,
-        source,
-        confidence,
-        categoryLocked,
-        rawSource,
-        cartolaImportId,
-      ] = params
-
-      const existing = this.transactions.find((item) => item.id === id)
-      if (existing && sql.includes('ON CONFLICT(id)')) {
-        const previousType = existing.type
-        existing.email = email
-        existing.date = date
-        existing.type = type
-        existing.amount = amount
-        existing.currency = currency
-        if (!existing.category_locked || previousType !== type) {
-          existing.category = category
-          existing.category_locked = previousType === type ? existing.category_locked : 0
-        }
-        existing.description = description
-        existing.merchant = merchant
-        existing.raw_source = rawSource
-        existing.updated_at = new Date().toISOString()
-        return { success: true, meta: { last_row_id: 1 } }
-      }
-
-      this.transactions.push({
-        id,
-        email,
-        date,
-        type,
-        amount,
-        currency,
-        category,
-        description,
-        merchant,
-        notes,
-        source,
-        confidence,
-        category_locked: categoryLocked,
-        raw_source: rawSource,
-        cartola_import_id: cartolaImportId,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-    }
-
-    if (sql.includes('INSERT INTO household_invites')) {
-      const [id, inviterEmail, inviteeEmail] = params
-      const existing = this.invites.find(
-        (item) => item.inviter_email === inviterEmail && item.invitee_email === inviteeEmail
-      )
-
-      if (existing) {
-        existing.status = 'pending'
-        existing.updated_at = new Date().toISOString()
-      } else {
-        this.invites.push({
-          id,
-          inviter_email: inviterEmail,
-          invitee_email: inviteeEmail,
-          status: 'pending',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-      }
-    }
-
-    return { success: true, meta: { last_row_id: 1 } }
-  }
-
-  async first<T>(sql: string, params: BoundParams): Promise<T | null> {
-    if (sql.includes('SELECT * FROM financial_profiles WHERE email = ?')) {
-      const [email] = params
-      return (this.profiles.get(String(email)) || null) as T | null
-    }
-
-    if (sql.includes('SELECT COUNT(*) AS count') && sql.includes('FROM transactions') && sql.includes("source = 'syncfy'")) {
-      const [email, rawNeedle] = params
-      const count = this.transactions.filter((item) => (
-        item.email === email &&
-        item.source === 'syncfy' &&
-        String(item.raw_source || item.rawSource || '').includes(rawNeedle)
-      )).length
-      return ({ count } as T)
-    }
-
-    if (sql.includes('SELECT * FROM transactions WHERE id = ? AND email = ?')) {
-      const [id, email] = params
-      return (this.transactions.find((item) => item.id === id && item.email === email) || null) as T | null
-    }
-
-    if (sql.includes('SELECT * FROM leads WHERE email = ?')) {
-      const [email] = params
-      return (this.leads.get(String(email)) || null) as T | null
-    }
-
-    if (sql.includes('SELECT email FROM syncfy_users WHERE syncfy_user_id = ?')) {
-      const [syncfyUserId] = params
-      const user = this.syncfyUsers.find((item) => item.syncfy_user_id === syncfyUserId)
-      return (user ? { email: user.email } : null) as T | null
-    }
-
-    if (sql.includes('SELECT * FROM syncfy_users WHERE email = ?')) {
-      const [email] = params
-      return (this.syncfyUsers.find((item) => item.email === email) || null) as T | null
-    }
-
-    if (sql.includes('SELECT * FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ?')) {
-      const [email, credentialId] = params
-      return (this.syncfyCredentials.find(
-        (item) => item.email === email && item.syncfy_credential_id === credentialId
-      ) || null) as T | null
-    }
-
-    if (sql.includes('SELECT id, event_type, syncfy_user_id, syncfy_credential_id, rid, processed_at, created_at FROM syncfy_webhook_events WHERE id = ?')) {
-      const [id] = params
-      return (this.syncfyWebhookEvents.find((item) => item.id === id) || null) as T | null
-    }
-
-    if (sql.includes('SELECT client_secret_hash FROM dashboard_sessions WHERE email = ?')) {
-      const [email] = params
-      return (this.dashboardSessions.get(String(email)) || null) as T | null
-    }
-
-    if (sql.includes('SELECT * FROM email_login_challenges') && sql.includes('token_hash = ?')) {
-      const [email, tokenHash, now] = params
-      return (this.loginChallenges.find(
-        (item) =>
-          item.email === email &&
-          item.token_hash === tokenHash &&
-          item.consumed_at === null &&
-          Number(item.expires_at) > Number(now)
-      ) || null) as T | null
-    }
-
-    if (sql.includes('SELECT * FROM email_login_challenges')) {
-      const [email, now] = params
-      const challenges = this.loginChallenges
-        .filter(
-          (item) =>
-            item.email === email &&
-            item.consumed_at === null &&
-            Number(item.expires_at) > Number(now)
-        )
-        .sort((a, b) => Number(b.created_at) - Number(a.created_at))
-      return (challenges[0] || null) as T | null
-    }
-
-    if (sql.includes('SELECT * FROM household_invites') && sql.includes('invitee_email = ?')) {
-      const [inviterEmail, inviteeEmail] = params
-      return (this.invites.find(
-        (item) => item.inviter_email === inviterEmail && item.invitee_email === inviteeEmail
-      ) || null) as T | null
-    }
-
-    return null
-  }
-
-  async all<T>(sql: string, params: BoundParams): Promise<{ results: T[] }> {
-    if (sql.includes('SELECT * FROM syncfy_credentials')) {
-      const [email] = params
-      const results = this.syncfyCredentials
-        .filter((item) => item.email === email)
-        .sort((a, b) => String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at))) as T[]
-      return { results }
-    }
-
-    if (sql.includes('FROM syncfy_errors')) {
-      const [email, syncfyUserId] = params
-      const results = this.syncfyErrors
-        .filter((item) => item.email === email || item.syncfy_user_id === syncfyUserId)
-        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))) as T[]
-      return { results }
-    }
-
-    if (sql.includes('FROM syncfy_webhook_events') && sql.includes('WHERE syncfy_user_id = ?')) {
-      const [syncfyUserId] = params
-      const results = this.syncfyWebhookEvents
-        .filter((item) => item.syncfy_user_id === syncfyUserId)
-        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))) as T[]
-      return { results }
-    }
-
-    if (sql.includes('SELECT * FROM transactions')) {
-      const [email] = params
-      const results = this.transactions
-        .filter((item) => item.email === email)
-        .sort((a, b) => String(b.date).localeCompare(String(a.date))) as T[]
-      return { results }
-    }
-
-    if (sql.includes('SELECT * FROM household_invites')) {
-      const [email] = params
-      const results = this.invites.filter((item) => item.inviter_email === email) as T[]
-      return { results }
-    }
-
-    return { results: [] }
+      .run()
   }
 }
 
+async function seedSyncfyCredentials(db: TestD1, ...rows: SeedRow[]): Promise<void> {
+  for (const row of rows) {
+    const createdAt = seedField(row, ['created_at'], '2026-06-01T00:00:00Z')
+    await db
+      .prepare(
+        `INSERT INTO syncfy_credentials (
+          id, email, syncfy_user_id, syncfy_credential_id, syncfy_site_id, site_name, status,
+          last_successful_sync_at, last_pull_at, last_pull_attempt_at, last_rid, raw_json,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        seedField(row, ['id'], crypto.randomUUID()),
+        seedField(row, ['email'], 'user@example.com'),
+        seedField(row, ['syncfy_user_id'], 'syncfy-user-1'),
+        seedField(row, ['syncfy_credential_id'], 'credential-1'),
+        seedField(row, ['syncfy_site_id']),
+        seedField(row, ['site_name']),
+        seedField(row, ['status']),
+        seedField(row, ['last_successful_sync_at']),
+        seedField(row, ['last_pull_at']),
+        seedField(row, ['last_pull_attempt_at']),
+        seedField(row, ['last_rid']),
+        seedField(row, ['raw_json']),
+        createdAt,
+        seedField(row, ['updated_at'], createdAt)
+      )
+      .run()
+  }
+}
+
+async function seedSyncfyUsers(db: TestD1, ...rows: SeedRow[]): Promise<void> {
+  for (const row of rows) {
+    await db
+      .prepare(
+        `INSERT INTO syncfy_users (
+          email, syncfy_user_id, syncfy_external_id, name, mode, created_at, updated_at, last_session_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        seedField(row, ['email'], 'user@example.com'),
+        seedField(row, ['syncfy_user_id'], 'syncfy-user-1'),
+        seedField(row, ['syncfy_external_id'], 'finovai:user@example.com'),
+        seedField(row, ['name']),
+        seedField(row, ['mode'], 'live'),
+        seedField(row, ['created_at'], '2026-06-01T00:00:00Z'),
+        seedField(row, ['updated_at']),
+        seedField(row, ['last_session_at'])
+      )
+      .run()
+  }
+}
+
+async function seedSyncfyErrors(db: TestD1, ...rows: SeedRow[]): Promise<void> {
+  for (const row of rows) {
+    await db
+      .prepare(
+        `INSERT INTO syncfy_errors (
+          id, email, syncfy_user_id, syncfy_credential_id, rid, status_code, error_code, message,
+          source, payload_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        seedField(row, ['id'], crypto.randomUUID()),
+        seedField(row, ['email']),
+        seedField(row, ['syncfy_user_id']),
+        seedField(row, ['syncfy_credential_id']),
+        seedField(row, ['rid']),
+        seedField(row, ['status_code']),
+        seedField(row, ['error_code']),
+        seedField(row, ['message']),
+        seedField(row, ['source'], 'test'),
+        seedField(row, ['payload_json']),
+        seedField(row, ['created_at'], new Date().toISOString())
+      )
+      .run()
+  }
+}
+
+const readTransactions = (db: TestD1) => readTable(db, 'transactions')
+const readSyncfyCredentials = (db: TestD1) => readTable(db, 'syncfy_credentials')
+const readSyncfyUsers = (db: TestD1) => readTable(db, 'syncfy_users')
+const readSyncfyErrors = (db: TestD1) => readTable(db, 'syncfy_errors')
+const readSyncfyWebhookEvents = (db: TestD1) => readTable(db, 'syncfy_webhook_events')
+
+test('test-d1 adapter runs real schema and round-trips a row', async () => {
+  const { db } = createTestDb(await loadSchema())
+  await db.prepare(`INSERT INTO leads (email, created_at, updated_at) VALUES (?, datetime('now'), datetime('now'))`)
+    .bind('a@b.co').run()
+  const row = await db.prepare('SELECT email FROM leads WHERE email = ?').bind('a@b.co').first<{ email: string }>()
+  expect(row?.email).toBe('a@b.co')
+})
+
+test('test-d1 adapter accepts D1 double-quoted string literals and reports meta.changes', async () => {
+  const { db } = createTestDb(await loadSchema())
+  // Production code writes `datetime("now")` (double quotes) in several places; D1 accepts it and
+  // the adapter has to as well, otherwise those statements would only fail in production.
+  await db.prepare(`INSERT INTO leads (email, created_at) VALUES (?, datetime("now"))`).bind('dq@b.co').run()
+  const row = await db.prepare('SELECT created_at FROM leads WHERE email = ?').bind('dq@b.co').first<{ created_at: string }>()
+  expect(row?.created_at).toMatch(/^\d{4}-\d{2}-\d{2} /)
+
+  const update = await db.prepare(`UPDATE leads SET name = ? WHERE email = ?`).bind('dq', 'dq@b.co').run()
+  expect(update.meta.changes).toBe(1)
+  const noop = await db.prepare(`UPDATE leads SET name = ? WHERE email = ?`).bind('dq', 'missing@b.co').run()
+  expect(noop.meta.changes).toBe(0)
+})
+
 function createEnv(environment = 'test', overrides: Record<string, unknown> = {}) {
   return {
-    DB: new MockD1(),
+    DB: createTestD1(),
     AI: { run: async () => ({ response: '' }) },
     ENVIRONMENT: environment,
     ...overrides,
@@ -766,7 +371,7 @@ test('inferFinanceCategory recognizes common Mexico cartola merchants', () => {
 
 test('syncfy rows without provider categories are reclassified from raw transaction text on read', async () => {
   const env = createEnv()
-  env.DB.transactions.push(
+  await seedTransactions(env.DB, 
     {
       ...sampleTransaction({
         id: 'syncfy:walmart',
@@ -1217,7 +822,7 @@ test('dashboard category analysis compares current month to budget and previous 
       },
     }),
   }), env)
-  env.DB.transactions.push(
+  await seedTransactions(env.DB, 
     sampleTransaction({ date: '2026-04-02', type: 'income', amount: 100000, category: 'Sueldo', description: 'Nomina' }),
     sampleTransaction({ date: '2026-04-08', type: 'expense', amount: 20000, category: 'Deuda', description: 'Pago credito' }),
     sampleTransaction({ date: '2026-04-12', type: 'expense', amount: 5000, category: 'Comida fuera', description: 'Restaurante' }),
@@ -1248,7 +853,7 @@ test('dashboard category analysis compares current month to budget and previous 
 
 test('syncfy credentials endpoint skips catalogue lookup when a useful site name is cached', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -1291,7 +896,7 @@ test('syncfy credentials endpoint skips catalogue lookup when a useful site name
 
 test('syncfy credentials endpoint exposes actionable institution errors instead of indefinite pending', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -1306,7 +911,7 @@ test('syncfy credentials endpoint exposes actionable institution errors instead 
     created_at: '2026-07-28T03:18:10Z',
     updated_at: '2026-07-29T04:00:51Z',
   })
-  env.DB.syncfyErrors.push({
+  await seedSyncfyErrors(env.DB, {
     id: 'error-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -1339,7 +944,7 @@ test('syncfy credentials endpoint exposes actionable institution errors instead 
 
 test('syncfy credentials endpoint replaces auth-channel labels with organization catalogue names', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -1399,7 +1004,7 @@ test('syncfy credentials endpoint replaces auth-channel labels with organization
       syncfyCredentialId: 'credential-1',
       siteName: 'BBVA México',
     })
-    expect(env.DB.syncfyCredentials[0].site_name).toBe('BBVA México')
+    expect((await readSyncfyCredentials(env.DB))[0].site_name).toBe('BBVA México')
     expect(calls.some((url) => url.includes('/catalogues/site_organizations'))).toBe(true)
     expect(calls.some((url) => url.includes('/catalogues/organizations/sites'))).toBe(false)
   } finally {
@@ -1409,7 +1014,7 @@ test('syncfy credentials endpoint replaces auth-channel labels with organization
 
 test('syncfy credentials endpoint keeps channel labels when catalogue enrichment fails', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -1445,7 +1050,7 @@ test('syncfy credentials endpoint keeps channel labels when catalogue enrichment
       syncfyCredentialId: 'credential-1',
       siteName: 'Personal',
     })
-    expect(env.DB.syncfyCredentials[0].site_name).toBe('Personal')
+    expect((await readSyncfyCredentials(env.DB))[0].site_name).toBe('Personal')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -1453,7 +1058,7 @@ test('syncfy credentials endpoint keeps channel labels when catalogue enrichment
 
 test('syncfy credential delete removes one connection and its imported transactions', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push(
+  await seedSyncfyCredentials(env.DB, 
     {
       id: 'credential-row-1',
       email: 'user@example.com',
@@ -1485,7 +1090,7 @@ test('syncfy credential delete removes one connection and its imported transacti
       updated_at: '2026-06-02T00:00:00Z',
     }
   )
-  env.DB.transactions.push(
+  await seedTransactions(env.DB, 
     {
       ...sampleTransaction({
         id: 'syncfy:credential-1:restaurant',
@@ -1538,8 +1143,8 @@ test('syncfy credential delete removes one connection and its imported transacti
     expect(calls[0].method).toBe('DELETE')
     expect(calls[0].url).toContain('/credentials/credential-1?id_user=syncfy-user-1')
     expect(data.credentials.map((credential) => credential.syncfyCredentialId)).toEqual(['credential-2'])
-    expect(env.DB.syncfyCredentials.map((credential) => credential.syncfy_credential_id)).toEqual(['credential-2'])
-    expect(env.DB.transactions.map((transaction) => transaction.id)).toEqual([
+    expect((await readSyncfyCredentials(env.DB)).map((credential) => credential.syncfy_credential_id)).toEqual(['credential-2'])
+    expect((await readTransactions(env.DB)).map((transaction) => transaction.id)).toEqual([
       'syncfy:credential-2:grocery',
       'manual:rent',
     ])
@@ -1554,7 +1159,7 @@ test('syncfy credential delete removes one connection and its imported transacti
 
 test('syncfy credential delete preserves local state when upstream delete has retryable failure', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -1569,7 +1174,7 @@ test('syncfy credential delete preserves local state when upstream delete has re
     created_at: '2026-06-02T00:00:00Z',
     updated_at: '2026-06-02T00:00:00Z',
   })
-  env.DB.transactions.push({
+  await seedTransactions(env.DB, {
     ...sampleTransaction({
       id: 'syncfy:credential-1:restaurant',
       source: 'syncfy',
@@ -1605,10 +1210,10 @@ test('syncfy credential delete preserves local state when upstream delete has re
     expect(data.success).toBe(false)
     expect(data.localStateDeleted).toBe(false)
     expect(data.rid).toBe('delete-rid-1')
-    expect(env.DB.syncfyCredentials.map((credential) => credential.syncfy_credential_id)).toEqual(['credential-1'])
-    expect(env.DB.transactions.map((transaction) => transaction.id)).toEqual(['syncfy:credential-1:restaurant'])
-    expect(env.DB.syncfyErrors).toHaveLength(1)
-    expect(env.DB.syncfyErrors[0]).toMatchObject({
+    expect((await readSyncfyCredentials(env.DB)).map((credential) => credential.syncfy_credential_id)).toEqual(['credential-1'])
+    expect((await readTransactions(env.DB)).map((transaction) => transaction.id)).toEqual(['syncfy:credential-1:restaurant'])
+    expect(await readSyncfyErrors(env.DB)).toHaveLength(1)
+    expect((await readSyncfyErrors(env.DB))[0]).toMatchObject({
       email: 'user@example.com',
       syncfy_credential_id: 'credential-1',
       rid: 'delete-rid-1',
@@ -1622,7 +1227,7 @@ test('syncfy credential delete preserves local state when upstream delete has re
 
 test('syncfy credential delete cleans local stale rows when upstream credential is already gone', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -1637,7 +1242,7 @@ test('syncfy credential delete cleans local stale rows when upstream credential 
     created_at: '2026-06-02T00:00:00Z',
     updated_at: '2026-06-02T00:00:00Z',
   })
-  env.DB.transactions.push({
+  await seedTransactions(env.DB, {
     ...sampleTransaction({
       id: 'syncfy:credential-1:restaurant',
       source: 'syncfy',
@@ -1677,10 +1282,10 @@ test('syncfy credential delete cleans local stale rows when upstream credential 
     expect(data.syncfyCredentialDeleteAttempted).toBe(true)
     expect(data.syncfyCredentialDeleted).toBe(false)
     expect(data.credentials).toEqual([])
-    expect(env.DB.syncfyCredentials).toEqual([])
-    expect(env.DB.transactions).toEqual([])
-    expect(env.DB.syncfyErrors).toHaveLength(1)
-    expect(env.DB.syncfyErrors[0]).toMatchObject({
+    expect(await readSyncfyCredentials(env.DB)).toEqual([])
+    expect(await readTransactions(env.DB)).toEqual([])
+    expect(await readSyncfyErrors(env.DB)).toHaveLength(1)
+    expect((await readSyncfyErrors(env.DB))[0]).toMatchObject({
       rid: 'delete-rid-2',
       status_code: 404,
       source: 'syncfy-delete-credential',
@@ -1692,7 +1297,7 @@ test('syncfy credential delete cleans local stale rows when upstream credential 
 
 test('syncfy credential delete cleans local stale rows for Syncfy status-false 200 response', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -1738,8 +1343,8 @@ test('syncfy credential delete cleans local stale rows for Syncfy status-false 2
     expect(data.syncfyCredentialDeleteAttempted).toBe(true)
     expect(data.syncfyCredentialDeleted).toBe(false)
     expect(data.credentials).toEqual([])
-    expect(env.DB.syncfyCredentials).toEqual([])
-    expect(env.DB.syncfyErrors[0]).toMatchObject({
+    expect(await readSyncfyCredentials(env.DB)).toEqual([])
+    expect((await readSyncfyErrors(env.DB))[0]).toMatchObject({
       rid: 'delete-rid-3',
       status_code: 200,
       source: 'syncfy-delete-credential',
@@ -1774,9 +1379,9 @@ test('syncfy widget error without credential is logged without creating a local 
   expect(data.success).toBe(false)
   expect(data.rid).toBe('rid-widget-error')
   expect(data.credentials).toEqual([])
-  expect(env.DB.syncfyCredentials).toEqual([])
-  expect(env.DB.syncfyErrors).toHaveLength(1)
-  expect(env.DB.syncfyErrors[0]).toMatchObject({
+  expect(await readSyncfyCredentials(env.DB)).toEqual([])
+  expect(await readSyncfyErrors(env.DB)).toHaveLength(1)
+  expect((await readSyncfyErrors(env.DB))[0]).toMatchObject({
     email: 'user@example.com',
     rid: 'rid-widget-error',
     status_code: 402,
@@ -1942,7 +1547,7 @@ test('syncfy production sessions do not enable Syncfy widget test mode', async (
 
 test('syncfy refresh follows saved job status when direct transactions are still empty', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -2026,8 +1631,8 @@ test('syncfy refresh follows saved job status when direct transactions are still
     expect(calls.some((url) => url.includes('/jobs/job-1/status') && url.includes('id_user=syncfy-user-1'))).toBe(true)
     expect(calls.find((url) => url.includes('from_job=1'))).not.toContain('id_user=')
     expect(data.syncfy?.endpoints).toContain('/jobs/job-1/status?id_user=syncfy-user-1')
-    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
-    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+    expect((await readSyncfyCredentials(env.DB))[0].status).toBe('synced')
+    expect((await readSyncfyCredentials(env.DB))[0].last_successful_sync_at).toBeTruthy()
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -2035,7 +1640,7 @@ test('syncfy refresh follows saved job status when direct transactions are still
 
 test('syncfy pending refresh polls job status during pull cooldown without starting another pull', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -2125,8 +1730,8 @@ test('syncfy pending refresh polls job status during pull cooldown without start
     expect(data.transactions).toHaveLength(1)
     expect(calls.some((call) => call.url.includes('/credentials/credential-1/pulls'))).toBe(false)
     expect(calls.some((call) => call.url.includes('/jobs/job-during-cooldown/status'))).toBe(true)
-    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
-    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+    expect((await readSyncfyCredentials(env.DB))[0].status).toBe('synced')
+    expect((await readSyncfyCredentials(env.DB))[0].last_successful_sync_at).toBeTruthy()
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -2134,7 +1739,7 @@ test('syncfy pending refresh polls job status during pull cooldown without start
 
 test('syncfy synced refresh still respects provider pull cooldown', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -2178,7 +1783,7 @@ test('syncfy synced refresh still respects provider pull cooldown', async () => 
 
 test('syncfy refresh starts credential pull and imports transactions from returned job', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -2271,9 +1876,9 @@ test('syncfy refresh starts credential pull and imports transactions from return
       }),
     ]))
     expect(data.syncfy?.endpoints).toContain('/credentials/credential-1/pulls?id_user=syncfy-user-1')
-    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
-    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
-    expect(String(env.DB.syncfyCredentials[0].raw_json)).toContain('job-from-pull')
+    expect((await readSyncfyCredentials(env.DB))[0].status).toBe('synced')
+    expect((await readSyncfyCredentials(env.DB))[0].last_successful_sync_at).toBeTruthy()
+    expect(String((await readSyncfyCredentials(env.DB))[0].raw_json)).toContain('job-from-pull')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -2281,7 +1886,7 @@ test('syncfy refresh starts credential pull and imports transactions from return
 
 test('syncfy refresh imports direct transactions when a new pull is rate-limited', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -2361,12 +1966,12 @@ test('syncfy refresh imports direct transactions when a new pull is rate-limited
         method: 'GET',
       }),
     ]))
-    expect(env.DB.syncfyErrors[0]).toMatchObject({
+    expect((await readSyncfyErrors(env.DB))[0]).toMatchObject({
       rid: 'pull-rate-limit-rid',
       status_code: 429,
       source: 'syncfy-pull',
     })
-    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
+    expect((await readSyncfyCredentials(env.DB))[0].status).toBe('synced')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -2374,7 +1979,7 @@ test('syncfy refresh imports direct transactions when a new pull is rate-limited
 
 test('syncfy refresh recovers stale needs_reconnect when transactions are readable', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -2418,8 +2023,8 @@ test('syncfy refresh recovers stale needs_reconnect when transactions are readab
     expect(response.status).toBe(200)
     expect(data.pendingTransactions).toBe(false)
     expect(data.transactions).toHaveLength(1)
-    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
-    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+    expect((await readSyncfyCredentials(env.DB))[0].status).toBe('synced')
+    expect((await readSyncfyCredentials(env.DB))[0].last_successful_sync_at).toBeTruthy()
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -2430,7 +2035,7 @@ test('syncfy refresh allows support admin to recover a production credential wit
     SUPPORT_ADMIN_SECRET: 'admin-secret',
     SYNCFY_API_KEY: 'test-key',
   })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -2484,8 +2089,8 @@ test('syncfy refresh allows support admin to recover a production credential wit
     expect(allowed.status).toBe(200)
     expect(data.pendingTransactions).toBe(false)
     expect(data.transactions).toHaveLength(1)
-    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
-    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+    expect((await readSyncfyCredentials(env.DB))[0].status).toBe('synced')
+    expect((await readSyncfyCredentials(env.DB))[0].last_successful_sync_at).toBeTruthy()
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -2493,7 +2098,7 @@ test('syncfy refresh allows support admin to recover a production credential wit
 
 test('syncfy refresh records pending pull attempts when Syncfy returns no transactions', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -2532,9 +2137,9 @@ test('syncfy refresh records pending pull attempts when Syncfy returns no transa
     expect(response.status).toBe(202)
     expect(data.pendingTransactions).toBe(true)
     expect(data.message).toContain('movimientos todavía se están preparando')
-    expect(env.DB.syncfyCredentials[0].status).toBe('pending_transactions')
-    expect(env.DB.syncfyCredentials[0].last_pull_at).toBeTruthy()
-    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeNull()
+    expect((await readSyncfyCredentials(env.DB))[0].status).toBe('pending_transactions')
+    expect((await readSyncfyCredentials(env.DB))[0].last_pull_at).toBeTruthy()
+    expect((await readSyncfyCredentials(env.DB))[0].last_successful_sync_at).toBeNull()
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -2542,7 +2147,7 @@ test('syncfy refresh records pending pull attempts when Syncfy returns no transa
 
 test('syncfy refresh treats webhook-imported transactions as complete when polling is empty', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -2557,7 +2162,7 @@ test('syncfy refresh treats webhook-imported transactions as complete when polli
     created_at: '2026-06-07T03:11:19Z',
     updated_at: '2026-06-07T03:11:19Z',
   })
-  env.DB.transactions.push({
+  await seedTransactions(env.DB, {
     ...sampleTransaction({
       id: 'syncfy:txn-from-webhook',
       email: 'user@example.com',
@@ -2591,8 +2196,8 @@ test('syncfy refresh treats webhook-imported transactions as complete when polli
     expect(response.status).toBe(200)
     expect(data.pendingTransactions).toBe(false)
     expect(data.message).toBe('1 movimientos sincronizados.')
-    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
-    expect(env.DB.syncfyCredentials[0].last_successful_sync_at).toBeTruthy()
+    expect((await readSyncfyCredentials(env.DB))[0].status).toBe('synced')
+    expect((await readSyncfyCredentials(env.DB))[0].last_successful_sync_at).toBeTruthy()
     expect(upstreamCalls).toBe(0)
   } finally {
     globalThis.fetch = originalFetch
@@ -2638,7 +2243,7 @@ test('syncfy webhook acknowledges before importing transactions in the backgroun
     SYNCFY_API_KEY: 'test-key',
     SYNCFY_WEBHOOK_SECRET: 'webhook-secret',
   })
-  env.DB.syncfyUsers.push({
+  await seedSyncfyUsers(env.DB, {
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
     syncfy_external_id: 'finovai:user@example.com',
@@ -2712,16 +2317,16 @@ test('syncfy webhook acknowledges before importing transactions in the backgroun
     expect(response.status).toBe(202)
     expect(data.processingQueued).toBe(true)
     expect(waitUntilPromises).toHaveLength(1)
-    expect(env.DB.syncfyWebhookEvents).toHaveLength(1)
-    expect(env.DB.syncfyWebhookEvents[0].processed_at).toBeNull()
-    expect(env.DB.transactions).toHaveLength(0)
+    expect(await readSyncfyWebhookEvents(env.DB)).toHaveLength(1)
+    expect((await readSyncfyWebhookEvents(env.DB))[0].processed_at).toBeNull()
+    expect(await readTransactions(env.DB)).toHaveLength(0)
 
     releaseTransactions()
     await waitUntilPromises[0]
 
-    expect(env.DB.syncfyWebhookEvents[0].processed_at).toBeTruthy()
-    expect(env.DB.transactions).toHaveLength(1)
-    expect(env.DB.syncfyCredentials[0].status).toBe('synced')
+    expect((await readSyncfyWebhookEvents(env.DB))[0].processed_at).toBeTruthy()
+    expect(await readTransactions(env.DB)).toHaveLength(1)
+    expect((await readSyncfyCredentials(env.DB))[0].status).toBe('synced')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -2732,7 +2337,7 @@ test('syncfy deleted webhook removes local credential instead of recreating it',
     SYNCFY_API_KEY: 'test-key',
     SYNCFY_WEBHOOK_SECRET: 'webhook-secret',
   })
-  env.DB.syncfyUsers.push({
+  await seedSyncfyUsers(env.DB, {
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
     syncfy_external_id: 'finovai:user@example.com',
@@ -2742,7 +2347,7 @@ test('syncfy deleted webhook removes local credential instead of recreating it',
     updated_at: null,
     last_session_at: null,
   })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -2757,7 +2362,7 @@ test('syncfy deleted webhook removes local credential instead of recreating it',
     created_at: '2026-06-10T02:48:14Z',
     updated_at: '2026-06-10T02:48:14Z',
   })
-  env.DB.transactions.push({
+  await seedTransactions(env.DB, {
     ...sampleTransaction({
       id: 'syncfy:credential-1:expense',
       email: 'user@example.com',
@@ -2781,8 +2386,14 @@ test('syncfy deleted webhook removes local credential instead of recreating it',
     }],
   }
   const waitUntilPromises: Promise<unknown>[] = []
+  const credentialsWhenDeferred: SeedRow[][] = []
   const ctx = {
     waitUntil(promise: Promise<unknown>) {
+      // Captured synchronously at the moment the handler hands work to waitUntil, which is the
+      // deterministic proof that the deletion is deferred rather than done inline before the ack.
+      // (Reading after `await response.json()` is not: awaiting yields the microtask queue to the
+      // background task, so what it observes depends on the promise plumbing, not on behaviour.)
+      credentialsWhenDeferred.push(readTableSync(env.DB, 'syncfy_credentials'))
       waitUntilPromises.push(promise)
     },
   } as unknown as ExecutionContext
@@ -2804,13 +2415,13 @@ test('syncfy deleted webhook removes local credential instead of recreating it',
   expect(data.eventType).toBe('credentials.deleted')
   expect(data.credentialStored).toBe(false)
   expect(waitUntilPromises).toHaveLength(1)
-  expect(env.DB.syncfyCredentials).toHaveLength(1)
+  expect(credentialsWhenDeferred[0]).toHaveLength(1)
 
   await waitUntilPromises[0]
 
-  expect(env.DB.syncfyCredentials).toEqual([])
-  expect(env.DB.transactions).toEqual([])
-  expect(env.DB.syncfyWebhookEvents[0].processed_at).toBeTruthy()
+  expect(await readSyncfyCredentials(env.DB)).toEqual([])
+  expect(await readTransactions(env.DB)).toEqual([])
+  expect((await readSyncfyWebhookEvents(env.DB))[0].processed_at).toBeTruthy()
 })
 
 test('syncfy status probe is protected and returns sanitized upstream checks', async () => {
@@ -2818,7 +2429,7 @@ test('syncfy status probe is protected and returns sanitized upstream checks', a
     SUPPORT_ADMIN_SECRET: 'admin-secret',
     SYNCFY_API_KEY: 'test-key',
   })
-  env.DB.syncfyUsers.push({
+  await seedSyncfyUsers(env.DB, {
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
     syncfy_external_id: 'finovai:user@example.com',
@@ -2828,7 +2439,7 @@ test('syncfy status probe is protected and returns sanitized upstream checks', a
     updated_at: null,
     last_session_at: null,
   })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'syncfy-user-1',
@@ -2902,7 +2513,7 @@ test('syncfy reset allows support admin to recreate a stale user without browser
     SUPPORT_ADMIN_SECRET: 'admin-secret',
     SYNCFY_API_KEY: 'test-key',
   })
-  env.DB.syncfyUsers.push({
+  await seedSyncfyUsers(env.DB, {
     email: 'user@example.com',
     syncfy_user_id: 'stale-user',
     syncfy_external_id: 'finovai:user@example.com:reset:old',
@@ -2912,7 +2523,7 @@ test('syncfy reset allows support admin to recreate a stale user without browser
     updated_at: null,
     last_session_at: null,
   })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'stale-user',
@@ -2927,7 +2538,7 @@ test('syncfy reset allows support admin to recreate a stale user without browser
     created_at: '2026-06-10T02:49:34Z',
     updated_at: '2026-06-10T02:49:34Z',
   })
-  env.DB.transactions.push(
+  await seedTransactions(env.DB, 
     sampleTransaction({
       id: 'syncfy:credential-1:txn-1',
       email: 'user@example.com',
@@ -2986,9 +2597,9 @@ test('syncfy reset allows support admin to recreate a stale user without browser
     expect(data.deletedTransactions).toBe(2)
     expect(data.deletedCredentials).toBe(1)
     expect(data.credentials).toEqual([])
-    expect(env.DB.syncfyCredentials).toEqual([])
-    expect(env.DB.transactions.map((item) => item.id)).toEqual(['manual:rent'])
-    expect(env.DB.syncfyUsers.find((item) => item.email === 'user@example.com')?.syncfy_user_id)
+    expect(await readSyncfyCredentials(env.DB)).toEqual([])
+    expect((await readTransactions(env.DB)).map((item) => item.id)).toEqual(['manual:rent'])
+    expect((await readSyncfyUsers(env.DB)).find((item) => item.email === 'user@example.com')?.syncfy_user_id)
       .toBe('fresh-user')
   } finally {
     globalThis.fetch = originalFetch
@@ -2999,7 +2610,7 @@ test('syncfy session stale-user recovery clears old local syncfy state', async (
   const env = createEnv('test', {
     SYNCFY_API_KEY: 'test-key',
   })
-  env.DB.syncfyUsers.push({
+  await seedSyncfyUsers(env.DB, {
     email: 'user@example.com',
     syncfy_user_id: 'stale-user',
     syncfy_external_id: 'finovai:user@example.com',
@@ -3009,7 +2620,7 @@ test('syncfy session stale-user recovery clears old local syncfy state', async (
     updated_at: null,
     last_session_at: null,
   })
-  env.DB.syncfyCredentials.push({
+  await seedSyncfyCredentials(env.DB, {
     id: 'credential-row-1',
     email: 'user@example.com',
     syncfy_user_id: 'stale-user',
@@ -3024,7 +2635,7 @@ test('syncfy session stale-user recovery clears old local syncfy state', async (
     created_at: '2026-06-10T02:49:34Z',
     updated_at: '2026-06-10T02:49:34Z',
   })
-  env.DB.transactions.push(
+  await seedTransactions(env.DB, 
     sampleTransaction({
       id: 'syncfy:credential-1:txn-1',
       email: 'user@example.com',
@@ -3090,9 +2701,9 @@ test('syncfy session stale-user recovery clears old local syncfy state', async (
     expect(data.syncfyUserId).toBe('fresh-user')
     expect(data.token).toBe('fresh-token')
     expect(sessionAttempts).toBe(2)
-    expect(env.DB.syncfyCredentials).toEqual([])
-    expect(env.DB.transactions.map((item) => item.id)).toEqual(['manual:rent'])
-    expect(env.DB.syncfyErrors[0]).toMatchObject({
+    expect(await readSyncfyCredentials(env.DB)).toEqual([])
+    expect((await readTransactions(env.DB)).map((item) => item.id)).toEqual(['manual:rent'])
+    expect((await readSyncfyErrors(env.DB))[0]).toMatchObject({
       rid: 'stale-rid',
       source: 'syncfy-session-stale-user',
       syncfy_user_id: 'stale-user',
