@@ -11,6 +11,7 @@ import {
   getStoredDashboardEmail,
   setDashboardSession,
 } from './lib/dashboard-session'
+import { apiClient } from './lib/api'
 
 const DASHBOARD_APP_PATHS = new Set([
   '/dashboard',
@@ -48,18 +49,11 @@ function App() {
     if (!email || !token) return
 
     let cancelled = false
-    fetch('/api/auth/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, token, source: 'magic-link' }),
-    })
-      .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
-      .then(({ ok, data }) => {
+    apiClient.verifyLoginToken(email, token)
+      .then((data) => {
         if (cancelled) return
-        if (!ok || !data.clientSecret) {
-          setAuthNotice(typeof data.error === 'string'
-            ? data.error
-            : 'No pudimos validar el enlace. Pide un nuevo código.')
+        if (!data.clientSecret) {
+          setAuthNotice('No pudimos validar el enlace. Pide un nuevo código.')
           window.history.replaceState({}, '', '/dashboard')
           setPathname('/dashboard')
           return
@@ -70,9 +64,11 @@ function App() {
         window.history.replaceState({}, '', '/dashboard')
         setPathname('/dashboard')
       })
-      .catch(() => {
+      .catch((error) => {
         if (cancelled) return
-        setAuthNotice('No pudimos validar el enlace. Pide un nuevo código.')
+        setAuthNotice(error instanceof Error && error.message
+          ? error.message
+          : 'No pudimos validar el enlace. Pide un nuevo código.')
         window.history.replaceState({}, '', '/dashboard')
         setPathname('/dashboard')
       })
