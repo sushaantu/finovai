@@ -8,6 +8,7 @@ import {
   numberField,
   requestJson as requestJsonWithTimeout,
   stringField,
+  supportAdminHeaders,
   type JsonRecord,
 } from './smoke-utils'
 
@@ -109,7 +110,9 @@ function requestJson<T extends JsonRecord>(baseUrl: string, path: string, init?:
   return requestJsonWithTimeout<T>(baseUrl, path, init, requestTimeoutMs)
 }
 
-const health = await requestJson<JsonRecord>(apiBaseUrl, '/api/health')
+const health = await requestJson<JsonRecord>(apiBaseUrl, '/api/health', {
+  headers: supportAdminHeaders(),
+})
 assert(health.status === 200, `Health failed with ${health.status}`)
 assert(health.data.environment !== 'production', 'Refusing full UX smoke against production without an explicit manual test window.')
 assert(health.data.syncfyEnvironment === 'sandbox', `Refusing full UX smoke outside Syncfy sandbox: ${String(health.data.syncfyEnvironment || 'missing')}`)

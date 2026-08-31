@@ -20,6 +20,11 @@ export function numberField(record: JsonRecord, key: string) {
   return typeof record[key] === 'number' ? record[key] : null
 }
 
+export function supportAdminHeaders(): Record<string, string> {
+  const secret = process.env.FINOVAI_SUPPORT_ADMIN_SECRET || process.env.SUPPORT_ADMIN_SECRET
+  return secret ? { 'x-finovai-admin-secret': secret } : {}
+}
+
 export async function requestJson<T extends JsonRecord>(
   apiBaseUrl: string,
   path: string,

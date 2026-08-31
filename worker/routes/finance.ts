@@ -1114,7 +1114,11 @@ export async function handleFinanceRoutes(request: Request, env: Env, url: URL):
       if (!(await verifySupportAdminAccess(request, env))) {
         return error('Not found', 404)
       }
-      return json(await collectHealthMetrics(env.DB))
+      return json({
+        ...(await collectHealthMetrics(env.DB)),
+        environment: env.ENVIRONMENT || 'unknown',
+        syncfyEnvironment: env.SYNCFY_ENV || 'unlabeled',
+      })
     }
 
   return null

@@ -1,6 +1,7 @@
 import {
   assert,
   requestJson as requestJsonBase,
+  supportAdminHeaders,
   type JsonRecord,
 } from './smoke-utils'
 
@@ -49,7 +50,9 @@ assert(
   'Refusing to run: set SYNCFY_ENV=sandbox in .dev.vars or the shell before testing Syncfy locally.'
 )
 
-const health = await requestJson('/api/health')
+const health = await requestJson('/api/health', {
+  headers: supportAdminHeaders(),
+})
 assert(health.status === 200, `Health check failed with ${health.status}: ${health.data.error || 'unknown error'}`)
 assert(health.data.environment === 'sandbox', `Expected API ENVIRONMENT=sandbox, got ${health.data.environment || 'missing'}.`)
 assert(

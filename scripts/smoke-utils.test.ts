@@ -6,6 +6,7 @@ import {
   numberField,
   requestJson,
   stringField,
+  supportAdminHeaders,
 } from './smoke-utils'
 
 const originalFetch = globalThis.fetch
@@ -30,6 +31,25 @@ test('record helpers return safe primitive fields', () => {
   expect(numberField(record, 'name')).toBeNull()
   expect(booleanField(record, 'enabled')).toBe(true)
   expect(booleanField(record, 'missing')).toBe(false)
+})
+
+test('supportAdminHeaders sends the admin secret when configured', () => {
+  const previousFinovai = process.env.FINOVAI_SUPPORT_ADMIN_SECRET
+  const previousSupport = process.env.SUPPORT_ADMIN_SECRET
+  delete process.env.FINOVAI_SUPPORT_ADMIN_SECRET
+  delete process.env.SUPPORT_ADMIN_SECRET
+  expect(supportAdminHeaders()).toEqual({})
+
+  process.env.SUPPORT_ADMIN_SECRET = 'from-support'
+  expect(supportAdminHeaders()).toEqual({ 'x-finovai-admin-secret': 'from-support' })
+
+  process.env.FINOVAI_SUPPORT_ADMIN_SECRET = 'from-finovai'
+  expect(supportAdminHeaders()).toEqual({ 'x-finovai-admin-secret': 'from-finovai' })
+
+  if (previousFinovai === undefined) delete process.env.FINOVAI_SUPPORT_ADMIN_SECRET
+  else process.env.FINOVAI_SUPPORT_ADMIN_SECRET = previousFinovai
+  if (previousSupport === undefined) delete process.env.SUPPORT_ADMIN_SECRET
+  else process.env.SUPPORT_ADMIN_SECRET = previousSupport
 })
 
 test('requestJson sends json headers and parses json responses', async () => {
