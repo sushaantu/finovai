@@ -125,7 +125,7 @@ The 30-minute UI/manual cooldown protects user-triggered refreshes. Healthy cred
 
 `POST /api/syncfy/refresh` must not block the browser on long Syncfy pulls when the credential is already inside the provider cooldown. If credential-scoped transaction rows already exist in D1, the endpoint returns success from stored evidence without calling Syncfy again. If the credential is `pending_transactions` and still cooling down, the endpoint returns `202` quickly and continues job-status/direct-transaction import in `ctx.waitUntil`.
 
-Syncfy HTTP register status is transport-level evidence only. A `200` on `/credentials/:id/pulls`, `/jobs/:id/status`, or `/transactions` means Syncfy accepted and answered the API request; it does not prove that the institution produced readable movements. FinovAI treats `200` plus zero transactions as `pending_transactions`, records `last_pull_at`, and waits for scheduled/support refresh.
+Syncfy HTTP register status is transport-level evidence only. A `200` on `/credentials/:id/pulls`, `/jobs/:id/status`, or `/transactions` means Syncfy accepted and answered the API request; it does not prove that the institution produced readable movements. FinovAI treats `200` plus zero transactions as `pending_transactions`, records `last_pull_at`, and waits for scheduled/support refresh. Terminal errors are classified from the latest `syncfy_errors` row: rejected credentials become user-action errors, while institution/provider availability failures remain provider-owned and retryable.
 
 New institution connection has an earlier hard gate: Syncfy must allow `POST /v1/credentials/pulls`. If Syncfy returns `402 Payment Required` there, the account/API key cannot create the credential at all. No webhook, transaction import, or chat behavior can fix that because no usable provider credential exists yet. Validate this with `bun run probe:syncfy:credential --site all`, which mirrors Paybook's official sample sequence.
 
@@ -135,9 +135,13 @@ New institution connection has an earlier hard gate: Syncfy must allow `POST /v1
 | --- | --- |
 | `synced` | Credential has successful transaction evidence and a successful sync timestamp. |
 | `pending_transactions` | Credential exists, but Syncfy has not yet yielded readable transaction data. |
-| `needs_reconnect` | Syncfy rejected refresh/import or the credential is no longer usable. User should reconnect. |
+| `needs_reconnect` | Syncfy rejected the stored access or the credential is no longer usable. User should update access. |
+| `provider_unavailable` | Syncfy or the institution cannot synchronize temporarily. FinovAI should retry without asking the user to re-enter credentials. |
+| `sync_error` | The response is not safely attributable to the user or provider. FinovAI support should review it. |
 
-For support, check transaction counts as well as credential status. Historical transaction rows can exist even when the current credential is `needs_reconnect`.
+`GET /api/syncfy/credentials` also exposes the user-facing `connectionState` (`ready`, `verifying`, `action_required`, `provider_unavailable`, or `support_required`) plus a structured `connectionIssue` with owner, next action, plain-language message, occurrence time, and support code.
+
+For support, check transaction counts as well as credential status. Historical transaction rows can exist even when the current credential is `needs_reconnect`, `provider_unavailable`, or `sync_error`.
 
 ## Operations
 

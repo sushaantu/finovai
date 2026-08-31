@@ -12,6 +12,7 @@ import worker, {
   buildFinancialInsights,
   buildFinancialSummary,
   classifyDashboardQuestionStage,
+  classifySyncfyConnectionIssue,
   classifySyncfyCredentialBlocker,
   extractSyncfyEventType,
   extractSyncfySiteMetadata,
@@ -100,6 +101,12 @@ interface SyncfyCredentialsApiResponse {
     siteName: string | null
     ready: boolean
     needsReconnect?: boolean
+    connectionState?: 'ready' | 'verifying' | 'action_required' | 'provider_unavailable' | 'support_required'
+    connectionIssue?: {
+      kind: 'action_required' | 'provider_unavailable' | 'rate_limited' | 'unknown'
+      supportCode: string | null
+      message: string
+    } | null
   }>
 }
 
@@ -1437,6 +1444,54 @@ test('syncfy credentials endpoint skips catalogue lookup when a useful site name
   }
 })
 
+test('syncfy credentials endpoint exposes actionable institution errors instead of indefinite pending', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  env.DB.syncfyCredentials.push({
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: 'amex-site',
+    site_name: 'American Express',
+    status: 'pending_transactions',
+    last_successful_sync_at: null,
+    last_pull_at: '2026-07-29T04:00:51Z',
+    last_rid: 'password-rid',
+    raw_json: null,
+    created_at: '2026-07-28T03:18:10Z',
+    updated_at: '2026-07-29T04:00:51Z',
+  })
+  env.DB.syncfyErrors.push({
+    id: 'error-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    rid: 'password-rid',
+    status_code: 400,
+    error_code: '400',
+    message: 'Credential error, please consider updating credential password',
+    source: 'syncfy-pull',
+    created_at: new Date().toISOString(),
+  })
+
+  const response = await worker.fetch(
+    new Request('http://local.test/api/syncfy/credentials?email=user@example.com'),
+    env
+  )
+  const data = await response.json() as SyncfyCredentialsApiResponse
+
+  expect(response.status).toBe(200)
+  expect(data.credentials[0]).toMatchObject({
+    connectionState: 'action_required',
+    needsReconnect: true,
+    connectionIssue: {
+      kind: 'action_required',
+      supportCode: 'password-rid',
+    },
+  })
+  expect(data.credentials[0].connectionIssue?.message).toContain('contraseña')
+})
+
 test('syncfy credentials endpoint replaces auth-channel labels with organization catalogue names', async () => {
   const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
   env.DB.syncfyCredentials.push({
@@ -1883,6 +1938,69 @@ test('syncfy widget error without credential is logged without creating a local 
     error_code: '402',
     source: 'syncfy-widget-error',
   })
+})
+
+test('syncfy widget credential callback polls the existing job without starting a duplicate pull', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  const calls: Array<{ url: string; method: string }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    calls.push({ url, method: init?.method || 'GET' })
+
+    if (url.includes('/jobs/widget-job-1/status')) {
+      return new Response(JSON.stringify({
+        status: true,
+        response: {},
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    if (url.includes('/transactions')) {
+      return new Response(JSON.stringify({
+        status: true,
+        response: [],
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    return new Response(JSON.stringify({
+      status: false,
+      message: 'Unexpected provider request',
+      response: null,
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/credential', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        eventType: 'widget.success',
+        payload: {
+          rid: 'widget-rid-1',
+          id_user: 'syncfy-user-1',
+          id_credential: 'credential-1',
+          id_site: 'amex-site',
+          institution_name: 'American Express',
+          id_job: 'widget-job-1',
+          is_executing: 1,
+        },
+      }),
+    }), env)
+    const data = await response.json() as SyncfyCredentialsApiResponse & {
+      pendingTransactions?: boolean
+    }
+
+    expect(response.status).toBe(200)
+    expect(data.pendingTransactions).toBe(true)
+    expect(data.credentials[0]?.connectionState).toBe('verifying')
+    expect(calls.some((call) => call.url.includes('/jobs/widget-job-1/status'))).toBe(true)
+    expect(calls.some((call) => call.url.includes('/credentials/credential-1/pulls'))).toBe(false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('syncfy sandbox sessions enable Syncfy widget test mode', async () => {
@@ -3467,6 +3585,45 @@ test('classifySyncfyCredentialBlocker does not block healthy or in-progress cred
   expect(classifySyncfyCredentialBlocker({ found: false, code: null, isAuthorized: null, isTwofa: false }))
     .toBe(null)
   expect(classifySyncfyCredentialBlocker(null)).toBe(null)
+})
+
+test('classifySyncfyConnectionIssue separates user action from provider incidents', () => {
+  expect(classifySyncfyConnectionIssue({
+    rid: 'password-rid',
+    status_code: 400,
+    message: 'Credential error, please consider updating credential password',
+    source: 'syncfy-pull',
+    created_at: '2026-07-29T04:00:51Z',
+  })).toMatchObject({
+    kind: 'action_required',
+    owner: 'user',
+    action: 'update_access',
+    supportCode: 'password-rid',
+  })
+
+  expect(classifySyncfyConnectionIssue({
+    rid: 'provider-rid',
+    status_code: 400,
+    message: "Credential can't be sync at this moment",
+    source: 'syncfy-pull',
+    created_at: '2026-07-29T04:00:50Z',
+  })).toMatchObject({
+    kind: 'provider_unavailable',
+    owner: 'provider',
+    action: 'retry_later',
+    supportCode: 'provider-rid',
+  })
+
+  expect(classifySyncfyConnectionIssue({
+    rid: 'rate-rid',
+    status_code: 429,
+    message: 'Credential Rate Limit exceeded. Try again in 58 s',
+    source: 'syncfy-pull',
+    created_at: '2026-07-28T03:18:12Z',
+  })).toMatchObject({
+    kind: 'rate_limited',
+    owner: 'provider',
+  })
 })
 
 test('isSyncfyProviderPullRetryDue backs off provider retries to 24 hours', () => {

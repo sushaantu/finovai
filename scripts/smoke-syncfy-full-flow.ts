@@ -9,13 +9,16 @@ import {
 } from './smoke-utils'
 
 const DEFAULT_API_BASE_URL = 'https://finovai-preview.my-cloudflare-711.workers.dev'
-const ACME_NORMAL_SITE_ID = '56cf5728784806f72b8b4568'
+// Use Syncfy's dedicated sample-data institution for release gates. The normal
+// demo institution can leave valid sandbox jobs pending indefinitely.
+const SYNCFY_SAMPLE_DATA_SITE_ID = '61aec45361f37158fad6e44b'
 
 function transactionCount(data: JsonRecord) {
   return Array.isArray(data.transactions) ? data.transactions.length : 0
 }
 
 const apiBaseUrl = (process.env.FINOVAI_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '')
+const syncfySiteId = process.env.SYNCFY_FULL_FLOW_SITE_ID || SYNCFY_SAMPLE_DATA_SITE_ID
 const pollAttempts = Number(process.env.SYNCFY_FULL_FLOW_POLL_ATTEMPTS || 12)
 const pollDelayMs = Number(process.env.SYNCFY_FULL_FLOW_POLL_DELAY_MS || 5000)
 const requestTimeoutMs = Number(process.env.FINOVAI_SMOKE_REQUEST_TIMEOUT_MS || 20_000)
@@ -74,7 +77,7 @@ const createResponse = await fetch('https://opendata-api.syncfy.com/v1/credentia
     Authorization: `Bearer ${token}`,
   },
   body: JSON.stringify({
-    id_site: ACME_NORMAL_SITE_ID,
+    id_site: syncfySiteId,
     credentials: {
       username: 'test',
       password: 'test',
@@ -166,6 +169,7 @@ console.log(JSON.stringify({
     widgetEnableTestMode: booleanField(session.data, 'widgetEnableTestMode'),
   },
   syncfyCredentialCreate: {
+    siteId: syncfySiteId,
     httpStatus: createResponse.status,
     code: numberField(createPayload, 'code'),
     rid: stringField(createPayload, 'rid'),

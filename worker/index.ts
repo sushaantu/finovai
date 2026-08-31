@@ -177,6 +177,7 @@ interface SyncfyCredentialRow {
   raw_json: string | null
   created_at: string
   updated_at: string | null
+  connection_issue?: SyncfyConnectionIssue | null
 }
 
 interface SyncfyWebhookEventRow {
@@ -202,6 +203,23 @@ interface SyncfyErrorRow {
   created_at: string
 }
 
+type SyncfyConnectionState = 'ready' | 'verifying' | 'action_required' | 'provider_unavailable' | 'support_required'
+type SyncfyConnectionIssueKind = 'action_required' | 'provider_unavailable' | 'rate_limited' | 'unknown'
+type SyncfyConnectionIssueOwner = 'user' | 'provider' | 'finovai'
+type SyncfyConnectionIssueAction = 'update_access' | 'retry_later' | 'contact_support'
+
+interface SyncfyConnectionIssue {
+  kind: SyncfyConnectionIssueKind
+  owner: SyncfyConnectionIssueOwner
+  action: SyncfyConnectionIssueAction
+  title: string
+  message: string
+  supportCode: string | null
+  statusCode: number | null
+  occurredAt: string
+  source: string
+}
+
 interface SyncfyCredentialPayload {
   syncfyUserId: string | null
   syncfyCredentialId: string | null
@@ -224,6 +242,7 @@ interface SyncfyTransactionImportResult {
   imported: number
   skipped: number
   endpoints: string[]
+  connectionIssue?: SyncfyConnectionIssue | null
 }
 
 interface NormalizedSyncfyTransaction {
@@ -252,6 +271,8 @@ interface SyncfyCredentialsResponse {
     cooldownSeconds: number
     ready: boolean
     needsReconnect: boolean
+    connectionState: SyncfyConnectionState
+    connectionIssue: SyncfyConnectionIssue | null
   }>
 }
 
@@ -1894,6 +1915,10 @@ function getSyncfyTransactionImportMessage(result: SyncfyTransactionImportResult
     return `${result.imported} movimientos sincronizados.`
   }
 
+  if (result.connectionIssue) {
+    return result.connectionIssue.message
+  }
+
   if (result.fetched > 0 && result.skipped >= result.fetched) {
     return 'La conexión devolvió movimientos, pero FinovAI todavía no pudo leer el formato de esa institución. El equipo debe revisar esa respuesta.'
   }
@@ -2078,9 +2103,28 @@ export function getSyncfyCredentialBlockerMessage(
   return 'La institución está fallando al iniciar sesión. FinovAI seguirá reintentando automáticamente.'
 }
 
+function getSyncfyConnectionState(credential: SyncfyCredentialRow): SyncfyConnectionState {
+  if (credential.status === 'synced') return 'ready'
+  if (credential.connection_issue?.kind === 'action_required' || isSyncfyReconnectRequiredStatus(credential.status)) {
+    return 'action_required'
+  }
+  if (
+    credential.connection_issue?.kind === 'provider_unavailable' ||
+    credential.status === 'provider_unavailable'
+  ) {
+    return 'provider_unavailable'
+  }
+  if (credential.connection_issue?.kind === 'unknown' || credential.status === 'sync_error') {
+    return 'support_required'
+  }
+
+  return 'verifying'
+}
+
 function syncfyCredentialToApi(credential: SyncfyCredentialRow): SyncfyCredentialsResponse['credentials'][number] {
   const cooldownSeconds = getSyncfyCredentialCooldownSeconds(credential)
-  const needsReconnect = isSyncfyReconnectRequiredStatus(credential.status)
+  const connectionState = getSyncfyConnectionState(credential)
+  const needsReconnect = connectionState === 'action_required'
 
   return {
     id: credential.id,
@@ -2092,6 +2136,8 @@ function syncfyCredentialToApi(credential: SyncfyCredentialRow): SyncfyCredentia
     cooldownSeconds,
     ready: cooldownSeconds === 0,
     needsReconnect,
+    connectionState,
+    connectionIssue: credential.connection_issue || null,
   }
 }
 
@@ -2442,34 +2488,80 @@ async function enrichSyncfyCredentialInstitutionById(
   return enrichSyncfyCredentialInstitution(env, credential, metadata)
 }
 
+async function attachSyncfyConnectionIssues(
+  env: Env,
+  email: string,
+  credentials: SyncfyCredentialRow[]
+): Promise<SyncfyCredentialRow[]> {
+  const unresolvedCredentialIds = new Set(
+    credentials
+      .filter((credential) => credential.status !== 'synced')
+      .map((credential) => credential.syncfy_credential_id)
+  )
+  if (unresolvedCredentialIds.size === 0) return credentials
+
+  const errors = await env.DB.prepare(
+    `SELECT id, email, syncfy_user_id, syncfy_credential_id, rid, status_code,
+            error_code, message, source, created_at
+     FROM syncfy_errors
+     WHERE email = ?
+       AND syncfy_credential_id IS NOT NULL
+       AND created_at >= datetime('now', '-30 days')
+     ORDER BY created_at DESC
+     LIMIT 100`
+  )
+    .bind(email)
+    .all<SyncfyErrorRow>()
+  const issues = new Map<string, SyncfyConnectionIssue>()
+
+  for (const error of errors.results) {
+    const credentialId = error.syncfy_credential_id
+    if (!credentialId || !unresolvedCredentialIds.has(credentialId) || issues.has(credentialId)) continue
+    issues.set(credentialId, classifySyncfyConnectionIssue(error))
+  }
+
+  return credentials.map((credential) => ({
+    ...credential,
+    connection_issue: credential.status === 'synced'
+      ? null
+      : issues.get(credential.syncfy_credential_id) || null,
+  }))
+}
+
 async function loadDisplaySyncfyCredentialsForEmail(env: Env, email: string): Promise<SyncfyCredentialRow[]> {
   const credentials = await loadSyncfyCredentialsForEmail(env, email)
   const missingLabels = credentials.filter((credential) => (
     !credential.site_name || !isUsefulSyncfyInstitutionName(credential.site_name)
   ))
-  if (missingLabels.length === 0) return credentials
+  let displayCredentials = credentials
 
-  const sharedTransactionMetadata = missingLabels.length === 1
-    ? await findSyncfySiteMetadataFromTransactions(env, email)
-    : null
-  let changed = false
+  if (missingLabels.length > 0) {
+    const sharedTransactionMetadata = missingLabels.length === 1
+      ? await findSyncfySiteMetadataFromTransactions(env, email)
+      : null
+    let changed = false
 
-  for (const credential of missingLabels) {
-    const credentialTransactionMetadata = await findSyncfySiteMetadataFromTransactions(
-      env,
-      email,
-      credential.syncfy_credential_id
-    )
-    const metadata = mergeSyncfySiteMetadata(
-      getSyncfyCredentialStoredMetadata(credential),
-      credentialTransactionMetadata || sharedTransactionMetadata
-    )
+    for (const credential of missingLabels) {
+      const credentialTransactionMetadata = await findSyncfySiteMetadataFromTransactions(
+        env,
+        email,
+        credential.syncfy_credential_id
+      )
+      const metadata = mergeSyncfySiteMetadata(
+        getSyncfyCredentialStoredMetadata(credential),
+        credentialTransactionMetadata || sharedTransactionMetadata
+      )
 
-    if (!metadata.siteName && !metadata.syncfySiteId && !metadata.syncfySiteOrganizationId) continue
-    changed = await enrichSyncfyCredentialInstitution(env, credential, metadata) || changed
+      if (!metadata.siteName && !metadata.syncfySiteId && !metadata.syncfySiteOrganizationId) continue
+      changed = await enrichSyncfyCredentialInstitution(env, credential, metadata) || changed
+    }
+
+    if (changed) {
+      displayCredentials = await loadSyncfyCredentialsForEmail(env, email)
+    }
   }
 
-  return changed ? loadSyncfyCredentialsForEmail(env, email) : credentials
+  return attachSyncfyConnectionIssues(env, email, displayCredentials)
 }
 
 async function loadDueSyncfyCredentials(env: Env): Promise<SyncfyCredentialRow[]> {
@@ -2712,6 +2804,77 @@ function buildSyncfyUserMessage(error: SyncfyRequestError): string {
   return 'No pudimos completar la conexión con la institución. Revisa los datos o intenta otra vez.'
 }
 
+export function classifySyncfyConnectionIssue(
+  error: Pick<SyncfyErrorRow, 'rid' | 'status_code' | 'message' | 'source' | 'created_at'>
+): SyncfyConnectionIssue {
+  const text = `${error.message || ''}`.toLowerCase()
+  const actionRequired = (
+    /credential error.*password/.test(text) ||
+    /update|updating|actualiza/.test(text) && /password|contrase|credential|acceso/.test(text) ||
+    /invalid|incorrect|rejected|rechaz/.test(text) && /password|contrase|credential|login|access|acceso/.test(text) ||
+    /two.?factor|2fa|verification code|c[oó]digo de seguridad|otp/.test(text)
+  )
+  const providerUnavailable = (
+    (error.status_code !== null && error.status_code >= 500) ||
+    /can't be sync at this moment|cannot be sync at this moment|temporar|unavailable|maintenance|mantenimiento/.test(text)
+  )
+  const rateLimited = error.status_code === 429 || /rate limit|too many requests|limit exceeded/.test(text)
+
+  if (actionRequired) {
+    return {
+      kind: 'action_required',
+      owner: 'user',
+      action: 'update_access',
+      title: 'Actualiza el acceso de esta institución',
+      message: 'La institución rechazó el acceso guardado. La contraseña pudo cambiar o puede faltar una verificación de seguridad.',
+      supportCode: error.rid,
+      statusCode: error.status_code,
+      occurredAt: error.created_at,
+      source: error.source,
+    }
+  }
+
+  if (providerUnavailable) {
+    return {
+      kind: 'provider_unavailable',
+      owner: 'provider',
+      action: 'retry_later',
+      title: 'La institución no está disponible',
+      message: 'La conexión de esta institución está fallando temporalmente. No necesitas volver a ingresar tu contraseña; FinovAI reintentará automáticamente.',
+      supportCode: error.rid,
+      statusCode: error.status_code,
+      occurredAt: error.created_at,
+      source: error.source,
+    }
+  }
+
+  if (rateLimited) {
+    return {
+      kind: 'rate_limited',
+      owner: 'provider',
+      action: 'retry_later',
+      title: 'La institución sigue procesando la conexión',
+      message: 'La institución limitó temporalmente las verificaciones. FinovAI volverá a intentar sin que tengas que reconectar.',
+      supportCode: error.rid,
+      statusCode: error.status_code,
+      occurredAt: error.created_at,
+      source: error.source,
+    }
+  }
+
+  return {
+    kind: 'unknown',
+    owner: 'finovai',
+    action: 'contact_support',
+    title: 'No pudimos completar esta conexión',
+    message: 'La institución respondió con un error que necesita revisión. Intenta otra vez o comparte el código de soporte con el equipo.',
+    supportCode: error.rid,
+    statusCode: error.status_code,
+    occurredAt: error.created_at,
+    source: error.source,
+  }
+}
+
 function getSyncfySecretFromRequest(request: Request): string | null {
   const headerSecret = request.headers.get('x-finovai-webhook-secret') || request.headers.get('x-syncfy-webhook-secret')
   if (headerSecret) return headerSecret
@@ -2787,11 +2950,13 @@ async function processSyncfyWebhookEvent(
             webhookCredentialId,
             importResult
           )
-          if (importState.complete) {
-            await markSyncfyCredentialSyncSuccess(env, webhookEmail, webhookCredentialId)
-          } else {
-            await markSyncfyCredentialSyncPending(env, webhookEmail, webhookCredentialId)
-          }
+          await markSyncfyCredentialFromImportResult(
+            env,
+            webhookEmail,
+            webhookCredentialId,
+            importResult,
+            importState
+          )
         }
       }
     }
@@ -3377,12 +3542,29 @@ function mergeSyncfyTransactionImportResults(
   left: SyncfyTransactionImportResult,
   right: SyncfyTransactionImportResult
 ): SyncfyTransactionImportResult {
+  const issuePriority: Record<SyncfyConnectionIssueKind, number> = {
+    action_required: 4,
+    provider_unavailable: 3,
+    unknown: 2,
+    rate_limited: 1,
+  }
+  const leftIssue = left.connectionIssue || null
+  const rightIssue = right.connectionIssue || null
+  const connectionIssue = !leftIssue
+    ? rightIssue
+    : !rightIssue
+      ? leftIssue
+      : issuePriority[rightIssue.kind] > issuePriority[leftIssue.kind]
+        ? rightIssue
+        : leftIssue
+
   return {
     credentialId: left.credentialId || right.credentialId,
     fetched: left.fetched + right.fetched,
     imported: left.imported + right.imported,
     skipped: left.skipped + right.skipped,
     endpoints: [...left.endpoints, ...right.endpoints],
+    connectionIssue,
   }
 }
 
@@ -3524,6 +3706,13 @@ async function importSyncfyTransactionsForCredential(
         imported: 0,
         skipped: 0,
         endpoints: [pullPath],
+        connectionIssue: classifySyncfyConnectionIssue({
+          rid: err.rid,
+          status_code: err.status,
+          message: err.message,
+          source: 'syncfy-pull',
+          created_at: new Date().toISOString(),
+        }),
       }
       result = result ? mergeSyncfyTransactionImportResults(result, failedPullResult) : failedPullResult
     }
@@ -3592,6 +3781,38 @@ async function markSyncfyCredentialSyncError(
     .run()
 }
 
+async function markSyncfyCredentialFromImportResult(
+  env: Env,
+  email: string,
+  credentialId: string,
+  result: SyncfyTransactionImportResult,
+  state: { complete: boolean }
+): Promise<void> {
+  if (state.complete) {
+    await markSyncfyCredentialSyncSuccess(env, email, credentialId)
+    return
+  }
+
+  if (result.connectionIssue?.kind === 'action_required') {
+    await markSyncfyCredentialSyncError(env, email, credentialId, 'needs_reconnect')
+    return
+  }
+
+  if (
+    result.connectionIssue?.kind === 'provider_unavailable'
+  ) {
+    await markSyncfyCredentialSyncError(env, email, credentialId, 'provider_unavailable')
+    return
+  }
+
+  if (result.connectionIssue?.kind === 'unknown') {
+    await markSyncfyCredentialSyncError(env, email, credentialId, 'sync_error')
+    return
+  }
+
+  await markSyncfyCredentialSyncPending(env, email, credentialId)
+}
+
 async function refreshDueSyncfyCredentials(env: Env): Promise<{
   checked: number
   imported: number
@@ -3654,11 +3875,13 @@ async function refreshDueSyncfyCredentials(env: Env): Promise<{
         credential.syncfy_credential_id,
         result
       )
-      if (importState.complete) {
-        await markSyncfyCredentialSyncSuccess(env, credential.email, credential.syncfy_credential_id)
-      } else {
-        await markSyncfyCredentialSyncPending(env, credential.email, credential.syncfy_credential_id)
-      }
+      await markSyncfyCredentialFromImportResult(
+        env,
+        credential.email,
+        credential.syncfy_credential_id,
+        result,
+        importState
+      )
     } catch (err) {
       failed += 1
       if (err instanceof SyncfyRequestError) {
@@ -6673,7 +6896,12 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
             normalizedEmail,
             credential.syncfy_user_id,
             credential.syncfy_credential_id,
-            { jobStatusPaths: importResult ? [] : jobStatusPaths }
+            {
+              jobStatusPaths: importResult ? [] : jobStatusPaths,
+              // The widget has already started this provider job. Starting another
+              // pull while it is executing creates false 429/400 failures.
+              startPull: jobStatusPaths.length === 0,
+            }
           )
           importResult = importResult
             ? mergeSyncfyTransactionImportResults(importResult, pullImportResult)
@@ -6704,11 +6932,13 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
           credential.syncfy_credential_id,
           importResult
         )
-        if (importState.complete) {
-          await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
-        } else {
-          await markSyncfyCredentialSyncPending(env, normalizedEmail, credential.syncfy_credential_id)
-        }
+        await markSyncfyCredentialFromImportResult(
+          env,
+          normalizedEmail,
+          credential.syncfy_credential_id,
+          importResult,
+          importState
+        )
       }
 
       const credentials = await loadDisplaySyncfyCredentialsForEmail(env, normalizedEmail)
@@ -6840,11 +7070,13 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
               importResult
             )
 
-            if (importState.complete) {
-              await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
-            } else {
-              await markSyncfyCredentialSyncPending(env, normalizedEmail, credential.syncfy_credential_id)
-            }
+            await markSyncfyCredentialFromImportResult(
+              env,
+              normalizedEmail,
+              credential.syncfy_credential_id,
+              importResult,
+              importState
+            )
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             if (err instanceof SyncfyRequestError) {
@@ -6917,11 +7149,13 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
           importResult
         )
         const importComplete = importState.complete
-        if (importComplete) {
-          await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
-        } else {
-          await markSyncfyCredentialSyncPending(env, normalizedEmail, credential.syncfy_credential_id)
-        }
+        await markSyncfyCredentialFromImportResult(
+          env,
+          normalizedEmail,
+          credential.syncfy_credential_id,
+          importResult,
+          importState
+        )
         const dashboard = await getFinanceDashboard(env, normalizedEmail)
 
         return json({
@@ -7095,11 +7329,13 @@ async function handleAPI(request: Request, env: Env, url: URL, ctx?: ExecutionCo
               credential.syncfy_credential_id,
               importResult
             )
-            if (importState.complete) {
-              await markSyncfyCredentialSyncSuccess(env, normalizedEmail, credential.syncfy_credential_id)
-            } else {
-              await markSyncfyCredentialSyncPending(env, normalizedEmail, credential.syncfy_credential_id)
-            }
+            await markSyncfyCredentialFromImportResult(
+              env,
+              normalizedEmail,
+              credential.syncfy_credential_id,
+              importResult,
+              importState
+            )
           }
 
           const persisted = await loadFinanceTransactions(env, normalizedEmail)

@@ -56,7 +56,8 @@ Read contract:
 
 - A credential row alone does not mean transaction data is usable.
 - Support must check credential status and transaction count separately.
-- Historical transactions can exist for a user whose current credential is `needs_reconnect`.
+- Historical transactions can exist for a user whose current credential is `needs_reconnect`, `provider_unavailable`, or `sync_error`.
+- The credentials read response includes `connectionState` and `connectionIssue`; user-facing recovery must use these fields instead of treating every unsynced credential as pending.
 
 ## Update
 
@@ -75,7 +76,9 @@ Update status rules:
 - A new pull failure does not automatically block import. If Syncfy rate-limits `/credentials/:id/pulls` but direct `/transactions` returns rows, import those rows and log the pull error in `syncfy_errors`.
 - A `200` response with zero readable transactions is still a pull attempt. Keep the credential in `pending_transactions`, update `last_pull_at`, and apply the normal cooldown so repeated empty polls do not flood Syncfy HTTP logs.
 - A Syncfy widget `error` event is not enough to mark the FinovAI connection failed if a credential was created. Re-read credentials first; if one exists, continue refresh/import and keep the state as `pending_transactions` until transaction evidence arrives or Syncfy returns a terminal credential error.
-- `needs_reconnect`: Syncfy reports invalid/expired/failed credential state.
+- `needs_reconnect`: Syncfy reports rejected, invalid, or expired access. The user must update access.
+- `provider_unavailable`: Syncfy or the institution cannot synchronize temporarily. Preserve the credential and retry later without asking the user to re-enter access.
+- `sync_error`: the response is not safely attributable to the user or provider. Show the support code and route the issue to FinovAI.
 
 ## Delete
 

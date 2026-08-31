@@ -112,7 +112,7 @@ import {
 import { MessageResponse } from '@/components/ai-elements/message-response'
 import { Shimmer } from '@/components/ai-elements/shimmer'
 import { FinovaiLogo } from './LandingPage'
-import { SyncfyConnect } from '@/components/SyncfyConnect'
+import { SyncfyConnect, type SyncfyCredential } from '@/components/SyncfyConnect'
 import { cn } from '@/lib/utils'
 import {
   getDashboardAuthHeaders,
@@ -191,18 +191,6 @@ interface DashboardResponse {
   insights: FinanceInsight[]
   actionPlan?: FinanceActionPlan
   message?: string
-}
-
-interface SyncfyCredential {
-  id: string
-  syncfyCredentialId: string
-  siteName: string | null
-  status: string | null
-  lastSuccessfulSyncAt: string | null
-  lastPullAt: string | null
-  cooldownSeconds: number
-  ready: boolean
-  needsReconnect?: boolean
 }
 
 interface SyncfyCredentialsResponse {
@@ -599,7 +587,23 @@ function getCategoryTrendChartData(
 }
 
 function syncfyCredentialNeedsReconnect(credential: SyncfyCredential) {
-  return credential.needsReconnect === true || credential.status === 'needs_reconnect'
+  return credential.connectionState === 'action_required' ||
+    credential.needsReconnect === true ||
+    credential.status === 'needs_reconnect'
+}
+
+function syncfyCredentialIsConnected(credential: SyncfyCredential) {
+  return credential.connectionState === 'ready' || credential.status === 'synced'
+}
+
+function syncfyCredentialHasProviderIssue(credential: SyncfyCredential) {
+  return credential.connectionState === 'provider_unavailable' ||
+    credential.status === 'provider_unavailable'
+}
+
+function syncfyCredentialNeedsSupport(credential: SyncfyCredential) {
+  return credential.connectionState === 'support_required' ||
+    credential.status === 'sync_error'
 }
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -1441,11 +1445,30 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [isSavingIncomePrompt, setIsSavingIncomePrompt] = useState(false)
   const chatAnswerTimeoutRef = useRef<number | null>(null)
   const chatMessagesEndRef = useRef<HTMLDivElement | null>(null)
-  const activeSyncfyCredentials = syncfyCredentials.filter((credential) => !syncfyCredentialNeedsReconnect(credential))
-  const reconnectCredentialCount = syncfyCredentials.length - activeSyncfyCredentials.length
-  const connectedInstitutionCount = activeSyncfyCredentials.length
+  const connectedSyncfyCredentials = syncfyCredentials.filter(syncfyCredentialIsConnected)
+  const reconnectCredentialCount = syncfyCredentials.filter(syncfyCredentialNeedsReconnect).length
+  const providerIssueCredentialCount = syncfyCredentials.filter(syncfyCredentialHasProviderIssue).length
+  const supportCredentialCount = syncfyCredentials.filter(syncfyCredentialNeedsSupport).length
+  const verifyingCredentialCount = syncfyCredentials.length -
+    connectedSyncfyCredentials.length -
+    reconnectCredentialCount -
+    providerIssueCredentialCount -
+    supportCredentialCount
+  const connectedInstitutionCount = connectedSyncfyCredentials.length
   const hasConnectedInstitution = connectedInstitutionCount > 0
   const hasReconnectRequiredCredential = reconnectCredentialCount > 0
+  const hasProviderIssueCredential = providerIssueCredentialCount > 0
+  const hasSupportIssueCredential = supportCredentialCount > 0
+  const hasVerifyingCredential = verifyingCredentialCount > 0
+  const hasUnresolvedCredential = hasReconnectRequiredCredential ||
+    hasProviderIssueCredential ||
+    hasSupportIssueCredential ||
+    hasVerifyingCredential
+  const connectActionLabel = hasReconnectRequiredCredential
+    ? 'Actualizar acceso'
+    : hasUnresolvedCredential
+      ? 'Revisar conexión'
+      : 'Conectar cuenta'
   const showConnectNudge = !hasConnectedInstitution && activePage !== 'syncfy'
 
   useEffect(() => {
@@ -1514,11 +1537,17 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
         setData(response)
         setStatus(response.transactions.length > 0
           ? 'Transacciones listas para análisis.'
-          : hasConnectedInstitution
-            ? 'Institución conectada. Esperando movimientos.'
-            : hasReconnectRequiredCredential
-              ? 'Ve a Conectar cuenta y sigue los pasos para reconectar tu institución.'
-            : 'Ve a Conectar cuenta y sigue los pasos para analizar tus datos reales.')
+          : hasReconnectRequiredCredential
+            ? 'La institución rechazó el acceso. Ve a Conectar cuenta para actualizarlo.'
+            : hasSupportIssueCredential
+              ? 'La conexión necesita revisión de FinovAI. Ve a Conectar cuenta para consultar el código de soporte.'
+            : hasProviderIssueCredential
+              ? 'La institución está fallando temporalmente. Ve a Conectar cuenta para revisar el detalle.'
+              : hasVerifyingCredential
+                ? 'La credencial está guardada, pero la institución todavía está verificando el acceso.'
+                : hasConnectedInstitution
+                  ? 'Institución conectada, pero todavía no hay movimientos disponibles.'
+                  : 'Ve a Conectar cuenta y sigue los pasos para analizar tus datos reales.')
       })
       .catch((error: Error) => {
         if (cancelled) return
@@ -1531,7 +1560,17 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     return () => {
       cancelled = true
     }
-  }, [activeEmail, hasConnectedInstitution, hasReconnectRequiredCredential, loadingPreviewEnabled, previewEmail, previewEnabled])
+  }, [
+    activeEmail,
+    hasConnectedInstitution,
+    hasProviderIssueCredential,
+    hasReconnectRequiredCredential,
+    hasSupportIssueCredential,
+    hasVerifyingCredential,
+    loadingPreviewEnabled,
+    previewEmail,
+    previewEnabled,
+  ])
 
   useEffect(() => {
     let cancelled = false
@@ -2439,11 +2478,20 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
       : hasReconnectRequiredCredential
         ? {
             id: 'reconnect',
-            label: 'Reconectar cuenta',
-            body: 'Ve a Conectar cuenta y sigue los pasos para autorizar la lectura de movimientos.',
+            label: 'Actualizar acceso',
+            body: 'La institución rechazó el acceso guardado. Actualízalo para continuar.',
             target: 'connect',
           } satisfies FinanceActionPlan['nextActions'][number]
-        : {
+        : hasUnresolvedCredential
+          ? {
+            id: 'review-connection',
+            label: 'Revisar conexión',
+            body: hasSupportIssueCredential
+              ? 'Consulta el motivo y comparte el código de soporte con FinovAI.'
+              : 'Consulta el estado, el motivo y el próximo paso de la institución.',
+            target: 'connect',
+          } satisfies FinanceActionPlan['nextActions'][number]
+          : {
             id: 'connect',
             label: 'Conectar cuenta',
             body: 'Ve a Conectar cuenta y sigue los pasos para traer movimientos reales.',
@@ -2889,7 +2937,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
             disabled={Boolean(pendingChatAnswer)}
           >
             <Landmark data-icon="inline-start" />
-            {hasReconnectRequiredCredential ? 'Reconectar cuenta' : 'Conectar cuenta'}
+            {connectActionLabel}
           </PromptSuggestion>
           ) : null}
           {questions.map((question) => (
@@ -3240,7 +3288,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                       <div className="flex flex-wrap gap-2">
                         <Button type="button" onClick={() => setActivePage('syncfy')}>
                           <Landmark data-icon="inline-start" />
-                          {hasReconnectRequiredCredential ? 'Reconectar cuenta' : 'Conectar cuenta'}
+                          {connectActionLabel}
                         </Button>
                       </div>
                     ) : null}
@@ -3731,15 +3779,21 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                       {hasConnectedInstitution
                         ? 'La institución ya está conectada. Todavía no hay movimientos para este historial.'
                         : hasReconnectRequiredCredential
-                          ? 'Reconecta la institución para volver a llenar este historial con movimientos reales.'
-                        : 'Ve a Conectar cuenta y sigue los pasos para llenar este historial con movimientos reales.'}
+                          ? 'La institución rechazó el acceso. Actualízalo para volver a importar movimientos.'
+                          : hasSupportIssueCredential
+                            ? 'La conexión necesita revisión de FinovAI. Consulta y comparte el código de soporte.'
+                          : hasProviderIssueCredential
+                            ? 'La institución está fallando temporalmente. Revisa el detalle y el código de soporte.'
+                            : hasVerifyingCredential
+                              ? 'La credencial está guardada, pero la institución todavía está verificando el acceso.'
+                              : 'Ve a Conectar cuenta y sigue los pasos para llenar este historial con movimientos reales.'}
                     </CardDescription>
                   </CardHeader>
                   {!hasConnectedInstitution ? (
                     <CardContent>
                       <Button type="button" onClick={() => setActivePage('syncfy')}>
                         <Landmark data-icon="inline-start" />
-                        {hasReconnectRequiredCredential ? 'Reconectar cuenta' : 'Conectar cuenta'}
+                        {connectActionLabel}
                       </Button>
                     </CardContent>
                   ) : null}

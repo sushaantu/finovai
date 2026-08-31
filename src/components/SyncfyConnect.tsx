@@ -42,7 +42,19 @@ interface SyncfyConnectProps {
   onCredentialsChange?: (credentials: SyncfyCredential[]) => void
 }
 
-interface SyncfyCredential {
+export interface SyncfyConnectionIssue {
+  kind: 'action_required' | 'provider_unavailable' | 'rate_limited' | 'unknown'
+  owner: 'user' | 'provider' | 'finovai'
+  action: 'update_access' | 'retry_later' | 'contact_support'
+  title: string
+  message: string
+  supportCode: string | null
+  statusCode: number | null
+  occurredAt: string
+  source: string
+}
+
+export interface SyncfyCredential {
   id: string
   syncfyCredentialId: string
   siteName: string | null
@@ -52,6 +64,8 @@ interface SyncfyCredential {
   cooldownSeconds: number
   ready: boolean
   needsReconnect?: boolean
+  connectionState?: 'ready' | 'verifying' | 'action_required' | 'provider_unavailable' | 'support_required'
+  connectionIssue?: SyncfyConnectionIssue | null
 }
 
 interface SyncfyCredentialsResponse {
@@ -255,7 +269,44 @@ function getCredentialLogoText(credential: SyncfyCredential) {
   return (words[0] || label).slice(0, 2).toUpperCase()
 }
 
+function getCredentialConnectionState(credential: SyncfyCredential) {
+  if (credential.connectionState) return credential.connectionState
+  if (credential.status === 'synced') return 'ready'
+  if (credential.needsReconnect || credential.status === 'needs_reconnect') return 'action_required'
+  if (credential.status === 'provider_unavailable') {
+    return 'provider_unavailable'
+  }
+  if (credential.status === 'sync_error') return 'support_required'
+  return 'verifying'
+}
+
+function formatConnectionIssueTime(value: string) {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return value
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
 function getCredentialStatusText(credential: SyncfyCredential) {
+  if (credential.connectionIssue) {
+    return credential.connectionIssue.message
+  }
+
+  const connectionState = getCredentialConnectionState(credential)
+  if (connectionState === 'action_required') {
+    return 'La institución necesita que actualices el acceso antes de importar movimientos.'
+  }
+  if (connectionState === 'provider_unavailable') {
+    return 'La institución está fallando temporalmente. FinovAI reintentará automáticamente.'
+  }
+  if (connectionState === 'support_required') {
+    return 'La conexión respondió con un error que el equipo de FinovAI debe revisar.'
+  }
+
   if (credential.status === 'pending_transactions') {
     return credential.ready
       ? 'FinovAI está trayendo movimientos; puedes verificar ahora.'
@@ -274,6 +325,18 @@ function getCredentialStatusText(credential: SyncfyCredential) {
 }
 
 function getDefaultConnectMessage(credentials: SyncfyCredential[]) {
+  if (credentials.some((credential) => getCredentialConnectionState(credential) === 'action_required')) {
+    return 'Una institución necesita que actualices el acceso para continuar.'
+  }
+
+  if (credentials.some((credential) => getCredentialConnectionState(credential) === 'provider_unavailable')) {
+    return 'Una institución está fallando temporalmente. Puedes revisar el detalle y el código de soporte aquí.'
+  }
+
+  if (credentials.some((credential) => getCredentialConnectionState(credential) === 'support_required')) {
+    return 'Una conexión necesita revisión de FinovAI. Comparte el código de soporte con el equipo.'
+  }
+
   if (credentials.some((credential) => credential.status === 'pending_transactions')) {
     return 'FinovAI está trayendo movimientos. Puedes ir a Chat; el análisis estará listo cuando lleguen.'
   }
@@ -317,9 +380,15 @@ export function SyncfyConnect({
   const hasCredentials = credentials.length > 0
   const isBusy = isLoading || isRefreshing || Boolean(isDeletingCredentialId)
   const hasPendingTransactions = credentials.some((credential) => credential.status === 'pending_transactions')
-  const hasReconnectRequired = credentials.some((credential) => (
-    credential.needsReconnect || credential.status === 'needs_reconnect'
-  ))
+  const hasReconnectRequired = credentials.some(
+    (credential) => getCredentialConnectionState(credential) === 'action_required'
+  )
+  const hasProviderUnavailable = credentials.some(
+    (credential) => getCredentialConnectionState(credential) === 'provider_unavailable'
+  )
+  const hasSupportRequired = credentials.some(
+    (credential) => getCredentialConnectionState(credential) === 'support_required'
+  )
 
   const applyCredentials = (nextCredentials: SyncfyCredential[]) => {
     setCredentials(nextCredentials)
@@ -726,27 +795,43 @@ export function SyncfyConnect({
       <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <CardTitle>
-            {hasPendingTransactions
-              ? 'Preparando movimientos'
-              : hasCredentials
-                ? 'Instituciones conectadas'
-                : 'Conecta una institución'}
+            {hasReconnectRequired
+              ? 'Una conexión requiere atención'
+              : hasSupportRequired
+                ? 'Una conexión necesita revisión'
+              : hasProviderUnavailable
+                ? 'Hay una incidencia con una institución'
+                : hasPendingTransactions
+                  ? 'Verificando conexiones'
+                  : hasCredentials
+                    ? 'Instituciones conectadas'
+                    : 'Conecta una institución'}
           </CardTitle>
           <CardDescription>
-            {hasPendingTransactions
-              ? 'La institución ya está vinculada. FinovAI está trayendo movimientos; puedes seguir en Chat mientras llegan.'
-              : hasReconnectRequired
-                ? 'Actualiza el acceso de la institución para volver a leer movimientos.'
-                : hasCredentials
-                  ? 'Bancos, SAT, Bitso, American Express y fuentes compatibles en México.'
-                  : 'Conecta tu banco para traer movimientos. Empieza con Conectar institución.'}
+            {hasReconnectRequired
+              ? 'Revisa el motivo y actualiza el acceso desde la acción principal.'
+              : hasSupportRequired
+                ? 'Comparte el código de soporte para que FinovAI pueda revisar la respuesta.'
+              : hasProviderUnavailable
+                ? 'No necesitas volver a ingresar tu contraseña. FinovAI seguirá reintentando.'
+                : hasPendingTransactions
+                  ? 'La credencial está guardada, pero la institución todavía no confirma que los movimientos estén disponibles.'
+                  : hasCredentials
+                    ? 'Bancos, SAT, Bitso, American Express y fuentes compatibles en México.'
+                    : 'Conecta tu banco para traer movimientos. Empieza con Conectar institución.'}
           </CardDescription>
         </div>
         <Badge variant={credentials.length > 0 ? 'secondary' : 'outline'}>
           {isLoadingCredentials
             ? 'Cargando'
-            : hasPendingTransactions
-              ? 'Preparando'
+            : hasReconnectRequired
+              ? 'Acción requerida'
+              : hasSupportRequired
+                ? 'Revisión necesaria'
+              : hasProviderUnavailable
+                ? 'Incidencia'
+                : hasPendingTransactions
+                  ? 'Verificando'
               : credentials.length > 0
                 ? `${credentials.length} credencial${credentials.length === 1 ? '' : 'es'}`
                 : 'Sin conexión'}
@@ -781,109 +866,152 @@ export function SyncfyConnect({
           <div className="grid gap-2">
             {credentials.map((credential) => {
               const menuId = `credential-menu-${credential.syncfyCredentialId}`
-              const needsReconnect = credential.needsReconnect || credential.status === 'needs_reconnect'
-              const isPendingTransactions = credential.status === 'pending_transactions'
-              const primaryActionLabel = isPendingTransactions
-                ? credential.ready ? 'Verificar ahora' : 'Esperando'
-                : 'Sincronizar'
-              const primaryActionDisabled = isBusy || !credential.ready
+              const connectionState = getCredentialConnectionState(credential)
+              const issue = credential.connectionIssue
+              const needsReconnect = connectionState === 'action_required'
+              const providerUnavailable = connectionState === 'provider_unavailable'
+              const supportRequired = connectionState === 'support_required'
+              const isVerifying = connectionState === 'verifying'
+              const primaryActionLabel = needsReconnect
+                ? 'Actualizar acceso'
+                : providerUnavailable
+                  ? credential.ready ? 'Reintentar' : 'Reintentaremos'
+                  : supportRequired
+                    ? credential.ready ? 'Reintentar' : 'Reintentar más tarde'
+                  : isVerifying
+                    ? credential.ready ? 'Verificar ahora' : 'Verificando'
+                    : 'Sincronizar'
+              const primaryActionDisabled = isBusy || (!needsReconnect && !credential.ready)
 
               return (
                 <div
                   key={credential.syncfyCredentialId}
-                  className={cn(FINANCE_CONNECT_INSET_CLASS, 'flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between')}
+                  className={cn(FINANCE_CONNECT_INSET_CLASS, 'grid gap-3 p-3')}
                 >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)]">
-                      {getCredentialLogoText(credential)}
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)]">
+                        {getCredentialLogoText(credential)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{getCredentialLabel(credential)}</p>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {needsReconnect
+                            ? 'La institución rechazó el acceso'
+                            : providerUnavailable
+                              ? 'Incidencia en la institución'
+                              : supportRequired
+                                ? 'FinovAI necesita revisar la respuesta'
+                              : isVerifying
+                                ? 'Credencial guardada; verificando acceso'
+                                : 'Movimientos importados'}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {getCredentialStatusText(credential)}
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{getCredentialLabel(credential)}</p>
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                        {isPendingTransactions
-                          ? 'Institución conectada; movimientos en camino'
-                          : needsReconnect
-                            ? 'Acceso requiere actualización'
-                            : 'Movimientos importados'}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {getCredentialStatusText(credential)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <Button
-                      type="button"
-                      variant={needsReconnect ? 'outline' : 'ghost'}
-                      size="sm"
-                      onClick={() => void refreshTransactions(credential.syncfyCredentialId, 0)}
-                      disabled={primaryActionDisabled}
-                    >
-                      {isRefreshing
-                        ? <Loader2 className="size-4 animate-spin" />
-                        : <RefreshCw data-icon="inline-start" />}
-                      {primaryActionLabel}
-                    </Button>
-                    <div className="relative" data-syncfy-credential-menu-root="true">
+                    <div className="flex shrink-0 items-center gap-1.5">
                       <Button
                         type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Más opciones para ${getCredentialLabel(credential)}`}
-                        aria-haspopup="menu"
-                        aria-expanded={openCredentialMenuId === credential.syncfyCredentialId}
-                        aria-controls={menuId}
-                        onPointerDown={(event) => {
-                          event.preventDefault()
-                          setOpenCredentialMenuId((current) => (
-                            current === credential.syncfyCredentialId ? null : credential.syncfyCredentialId
-                          ))
+                        variant={needsReconnect ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => {
+                          if (needsReconnect) {
+                            void createSession('update', credential.syncfyCredentialId)
+                            return
+                          }
+                          void refreshTransactions(credential.syncfyCredentialId, 0)
                         }}
-                        onKeyDown={(event) => {
-                          if (event.key !== 'Enter' && event.key !== ' ') return
-                          event.preventDefault()
-                          setOpenCredentialMenuId((current) => (
-                            current === credential.syncfyCredentialId ? null : credential.syncfyCredentialId
-                          ))
-                        }}
-                        disabled={isBusy}
+                        disabled={primaryActionDisabled}
                       >
-                        <MoreHorizontal className="size-4" />
+                        {isRefreshing
+                          ? <Loader2 className="size-4 animate-spin" />
+                          : <RefreshCw data-icon="inline-start" />}
+                        {primaryActionLabel}
                       </Button>
-                      {openCredentialMenuId === credential.syncfyCredentialId ? (
-                        <div
-                          id={menuId}
-                          role="menu"
-                          className="absolute right-0 top-[calc(100%+0.35rem)] z-20 grid min-w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                      <div className="relative" data-syncfy-credential-menu-root="true">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Más opciones para ${getCredentialLabel(credential)}`}
+                          aria-haspopup="menu"
+                          aria-expanded={openCredentialMenuId === credential.syncfyCredentialId}
+                          aria-controls={menuId}
+                          onPointerDown={(event) => {
+                            event.preventDefault()
+                            setOpenCredentialMenuId((current) => (
+                              current === credential.syncfyCredentialId ? null : credential.syncfyCredentialId
+                            ))
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter' && event.key !== ' ') return
+                            event.preventDefault()
+                            setOpenCredentialMenuId((current) => (
+                              current === credential.syncfyCredentialId ? null : credential.syncfyCredentialId
+                            ))
+                          }}
+                          disabled={isBusy}
                         >
-                          <div className="px-3 py-2 text-xs text-muted-foreground">
-                            Estado: {credential.status || 'Pendiente'}
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                        {openCredentialMenuId === credential.syncfyCredentialId ? (
+                          <div
+                            id={menuId}
+                            role="menu"
+                            className="absolute right-0 top-[calc(100%+0.35rem)] z-20 grid min-w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                          >
+                            <div className="px-3 py-2 text-xs text-muted-foreground">
+                              Estado: {connectionState}
+                            </div>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
+                              onClick={() => void createSession('update', credential.syncfyCredentialId)}
+                            >
+                              <RefreshCw className="size-4" />
+                              Actualizar acceso
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10 focus:bg-destructive/10 focus:outline-none"
+                              onClick={() => {
+                                setOpenCredentialMenuId(null)
+                                setDeleteCredential(credential)
+                              }}
+                            >
+                              <Trash2 className="size-4" />
+                              Eliminar institución
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
-                            onClick={() => void createSession('update', credential.syncfyCredentialId)}
-                          >
-                            <RefreshCw className="size-4" />
-                            Actualizar acceso
-                          </button>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10 focus:bg-destructive/10 focus:outline-none"
-                            onClick={() => {
-                              setOpenCredentialMenuId(null)
-                              setDeleteCredential(credential)
-                            }}
-                          >
-                            <Trash2 className="size-4" />
-                            Eliminar institución
-                          </button>
-                        </div>
-                      ) : null}
+                        ) : null}
+                      </div>
                     </div>
                   </div>
+                  {issue ? (
+                    <div
+                      className={cn(
+                        'flex items-start gap-2 rounded-xl border p-3 text-sm',
+                        issue.kind === 'action_required'
+                          ? 'border-destructive/20 bg-destructive/5 text-destructive'
+                          : 'border-amber-500/20 bg-amber-500/8 text-amber-800 dark:text-amber-200'
+                      )}
+                      role={issue.kind === 'action_required' ? 'alert' : 'status'}
+                    >
+                      <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-medium">{issue.title}</p>
+                        <p className="mt-1 leading-relaxed text-current/80">{issue.message}</p>
+                        <p className="mt-2 text-xs text-current/70">
+                          Último intento: {formatConnectionIssueTime(issue.occurredAt)}
+                          {issue.supportCode ? ` · Código de soporte: ${issue.supportCode}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               )
             })}
