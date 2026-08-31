@@ -682,7 +682,7 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
         }, isWidgetError ? 409 : 422)
       }
 
-      await applyConnectionEvent(env.DB, {
+      await applyConnectionEvent(env, {
         email: normalizedEmail,
         syncfy_credential_id: credential.syncfy_credential_id,
       }, { type: 'user_reconnected' })
@@ -790,12 +790,12 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
           importResult
         )
         if (importState.complete) {
-          await applyConnectionEvent(env.DB, {
+          await applyConnectionEvent(env, {
             email: normalizedEmail,
             syncfy_credential_id: credential.syncfy_credential_id,
           }, { type: 'sync_succeeded' })
         } else if (importResult.vendorStatus != null || importResult.vendorMessage) {
-          await applyConnectionEvent(env.DB, {
+          await applyConnectionEvent(env, {
             email: normalizedEmail,
             syncfy_credential_id: credential.syncfy_credential_id,
           }, classifyVendorFailure(importResult.vendorStatus ?? null, importResult.vendorMessage ?? null))
@@ -849,7 +849,7 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
         credential.syncfy_credential_id
       )
       if (storedTransactions > 0) {
-        await applyConnectionEvent(env.DB, {
+        await applyConnectionEvent(env, {
           email: normalizedEmail,
           syncfy_credential_id: credential.syncfy_credential_id,
         }, { type: 'sync_succeeded' })
@@ -892,7 +892,7 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
       const blocker = classifySyncfyCredentialBlocker(health)
 
       if (blocker === 'needs_reconnect') {
-        await applyConnectionEvent(env.DB, {
+        await applyConnectionEvent(env, {
           email: normalizedEmail,
           syncfy_credential_id: credential.syncfy_credential_id,
         }, { type: 'auth_required' })
@@ -934,7 +934,7 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
             )
 
             await applyPollOutcome(
-              env.DB,
+              env,
               { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
               connectionEventFromPoll(importResult, importState, blocker, credential.state)
             )
@@ -1011,7 +1011,7 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
         )
         const importComplete = importState.complete
         await applyPollOutcome(
-          env.DB,
+          env,
           { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
           connectionEventFromPoll(importResult, importState, blocker, credential.state)
         )
@@ -1040,7 +1040,7 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
             payload: err.responseBody,
           })
           await applyConnectionEvent(
-            env.DB,
+            env,
             { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
             classifyVendorFailure(err.status, err.message)
           )

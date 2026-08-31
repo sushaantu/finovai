@@ -27,6 +27,7 @@ export interface Env {
   EMAIL?: SendEmail
   EMAIL_AUTH_REQUIRED?: string
   EMAIL_FROM?: string
+  OPS_ALERT_EMAIL?: string
   APP_ORIGIN?: string
   SESSION_SECRET?: string
   SYNCFY_API_KEY?: string
@@ -48,6 +49,7 @@ export interface Env {
   CLOUDFLARE_AI_GATEWAY_BYOK_ALIAS?: string
   CLOUDFLARE_AI_GATEWAY_COMPAT_ENDPOINT?: string
   CLOUDFLARE_AI_GATEWAY_COMPAT_MODEL?: string
+  __testUtcHour?: number
 }
 
 export interface Message {

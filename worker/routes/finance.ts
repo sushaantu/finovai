@@ -37,6 +37,7 @@ import {
   normalizeSignupEmail,
   resolveFinanceCategory,
   verifyDashboardEmailAccess,
+  verifySupportAdminAccess,
 } from '../lib/shared'
 import type {
   DashboardQuestionBenchmark,
@@ -79,6 +80,7 @@ import {
   resolveSyncfyStoredTransactionType,
   resolveSyncfyTransactionImportState,
 } from '../lib/ingest'
+import { collectHealthMetrics } from '../cron'
 
 const SAMPLE_EXPENSES: Expense[] = [
   {
@@ -1042,7 +1044,7 @@ export async function handleFinanceRoutes(request: Request, env: Env, url: URL):
               importResult
             )
             await applyPollOutcome(
-              env.DB,
+              env,
               { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
               connectionEventFromPoll(importResult, importState, null, credential.state)
             )
@@ -1109,12 +1111,10 @@ export async function handleFinanceRoutes(request: Request, env: Env, url: URL):
     }
 
     if (url.pathname === '/api/health') {
-      return json({
-        status: 'ok',
-        environment: env.ENVIRONMENT || 'unknown',
-        syncfyEnvironment: env.SYNCFY_ENV || 'unlabeled',
-        timestamp: new Date().toISOString(),
-      })
+      if (!(await verifySupportAdminAccess(request, env))) {
+        return error('Not found', 404)
+      }
+      return json(await collectHealthMetrics(env.DB))
     }
 
   return null

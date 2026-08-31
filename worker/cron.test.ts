@@ -96,3 +96,40 @@ test('needs_user and abandoned are excluded from due selection', async () => {
   await runScheduled(env)
   expect(vendorCalls).toBe(0)
 })
+
+async function seedRecentSyncfyTransaction(db: { prepare: (sql: string) => { bind: (...args: unknown[]) => { run: () => Promise<unknown> } } }) {
+  const email = 'u@x.co'
+  const now = new Date().toISOString()
+  await db.prepare(
+    `INSERT INTO financial_profiles (email, currency, created_at) VALUES (?, 'MXN', ?) ON CONFLICT(email) DO NOTHING`
+  ).bind(email, now).run()
+  await db.prepare(
+    `INSERT INTO transactions (
+      id, email, date, type, amount, currency, category, description, source, confidence, category_locked, created_at
+    ) VALUES (?, ?, ?, 'expense', 100, 'MXN', 'Otro', 'Test', 'syncfy', 1, 0, datetime('now'))`
+  ).bind('txn-health-1', email, now.slice(0, 10)).run()
+}
+
+test('health tick alerts when nothing ingested in 24h and a credential has no success in 48h', async () => {
+  const { db } = createTestDb(await loadSchema())
+  await seedCredential(db, { state: 'broken', createdAt: '2026-06-10T00:00:00Z' })
+  const sent: { subject: string }[] = []
+  const vendorOk = () => ({ ok: true, status: 200, message: 'ok' })
+  const env = makeEnv(db, vendorOk, { onEmail: (msg) => sent.push(msg), utcHour: 12 })
+  await runScheduled(env)
+  expect(sent.length).toBe(1)
+  expect(sent[0].subject).toContain('FinovAI health')
+})
+
+test('healthy day sends no email', async () => {
+  const { db } = createTestDb(await loadSchema())
+  await seedCredential(db, { state: 'healthy', createdAt: new Date().toISOString() })
+  await seedRecentSyncfyTransaction(db)
+  const sent: { subject: string }[] = []
+  const env = makeEnv(db, () => ({ ok: true, status: 200, message: 'ok' }), {
+    onEmail: (msg) => sent.push(msg),
+    utcHour: 12,
+  })
+  await runScheduled(env)
+  expect(sent.length).toBe(0)
+})

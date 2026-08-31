@@ -55,6 +55,7 @@ import {
   type ConnectionState,
   type TransitionResult,
 } from './lifecycle'
+import { sendOpsAlertEmail } from './email'
 
 // Backoff for re-running provider pulls after Syncfy-side scrape failures (code 5xx).
 const SYNCFY_PROVIDER_RETRY_INTERVAL_SECONDS = 24 * 60 * 60
@@ -780,13 +781,23 @@ const LEGACY_STATUS: Record<ConnectionState, string> = {
   broken: 'provider_unavailable', needs_user: 'needs_reconnect', abandoned: 'sync_error',
 }
 
-function emitLifecycleAlerts(
+async function emitLifecycleAlerts(
+  env: Env,
   result: TransitionResult,
   credential: { email: string; syncfy_credential_id: string }
-): void {
-  if (result.alerts.includes('entered_broken') || result.alerts.includes('unmapped_vendor_code')) {
-    console.error('LIFECYCLE_ALERT', result.alerts, credential.syncfy_credential_id)
+): Promise<void> {
+  if (!result.alerts.includes('entered_broken') && !result.alerts.includes('unmapped_vendor_code')) {
+    return
   }
+  await sendOpsAlertEmail(
+    env,
+    `FinovAI lifecycle: ${result.alerts.join(', ')}`,
+    [
+      `credential: ${credential.syncfy_credential_id}`,
+      `email: ${credential.email}`,
+      `alerts: ${result.alerts.join(', ')}`,
+    ]
+  )
 }
 
 export function connectionEventFromPoll(
@@ -805,11 +816,12 @@ export function connectionEventFromPoll(
 }
 
 export async function applyConnectionEvent(
-  db: D1Database,
+  env: Env,
   credential: { email: string; syncfy_credential_id: string },
   event: ConnectionEvent,
   now: Date = new Date()
 ): Promise<TransitionResult> {
+  const db = env.DB
   const row = await db.prepare(
     `SELECT state, attempt_count, first_failed_at, last_successful_sync_at, created_at
      FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ? AND deleted_at IS NULL`
@@ -848,16 +860,16 @@ export async function applyConnectionEvent(
     success ? 1 : 0, now.toISOString(), now.toISOString(),
     credential.email, credential.syncfy_credential_id
   ).run()
-  emitLifecycleAlerts(result, credential)
+  await emitLifecycleAlerts(env, result, credential)
   return result
 }
 
 export async function applyPollOutcome(
-  db: D1Database,
+  env: Env,
   credential: { email: string; syncfy_credential_id: string },
   event: ConnectionEvent
 ): Promise<TransitionResult> {
-  return applyConnectionEvent(db, credential, event)
+  return applyConnectionEvent(env, credential, event)
 }
 
 export async function refreshSyncfyCredential(
@@ -890,7 +902,7 @@ export async function refreshSyncfyCredential(
           : 'Syncfy credential login rejected by institution; waiting for reconnect.',
         source: 'syncfy-credential-state',
       })
-      await applyConnectionEvent(env.DB, key, { type: 'auth_required' })
+      await applyConnectionEvent(env, key, { type: 'auth_required' })
       return { imported: 0, failed: true }
     }
 
@@ -912,7 +924,7 @@ export async function refreshSyncfyCredential(
       result
     )
     await applyConnectionEvent(
-      env.DB,
+      env,
       key,
       connectionEventFromPoll(result, importState, blocker, credential.state)
     )
@@ -930,7 +942,7 @@ export async function refreshSyncfyCredential(
         source: 'syncfy-scheduled-refresh',
         payload: err.responseBody,
       })
-      await applyConnectionEvent(env.DB, key, classifyVendorFailure(err.status, err.message))
+      await applyConnectionEvent(env, key, classifyVendorFailure(err.status, err.message))
       return { imported: 0, failed: true }
     }
     throw err
