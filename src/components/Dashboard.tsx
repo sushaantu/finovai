@@ -1,4 +1,4 @@
-import { type CSSProperties, type FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Area,
@@ -15,17 +15,10 @@ import {
 
 import {
   ArrowLeft,
-  ArrowRightLeft,
-  Banknote,
   Bot,
-  Car,
   ChartPie,
   Check,
-  CircleDollarSign,
   FileSearch,
-  Film,
-  HeartPulse,
-  Home,
   Landmark,
   Loader2,
   LogOut,
@@ -34,20 +27,14 @@ import {
   PiggyBank,
   Plus,
   ReceiptText,
-  Repeat2,
   SendHorizontal,
-  Settings,
-  ShoppingBag,
-  ShoppingCart,
   SlidersHorizontal,
   Sun,
   Trash2,
   TrendingDown,
   TrendingUp,
-  Utensils,
   UserPlus,
   WalletCards,
-  type LucideIcon,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -63,7 +50,6 @@ import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-  type ChartConfig,
 } from '@/components/ui/chart'
 import {
   Dialog,
@@ -110,13 +96,11 @@ import {
 } from '@/components/ai-elements/reasoning'
 import { MessageResponse } from '@/components/ai-elements/message-response'
 import { Shimmer } from '@/components/ai-elements/shimmer'
-import { FinovaiLogo } from './LandingPage'
 import { SyncfyConnect } from '@/components/SyncfyConnect'
 import { cn } from '@/lib/utils'
+import { apiClient } from '@/lib/api'
 import {
   clearDashboardSession,
-  getDashboardAuthHeaders,
-  getStoredDashboardEmail,
   setDashboardSession,
 } from '@/lib/dashboard-session'
 import {
@@ -126,35 +110,116 @@ import {
 import {
   DEFAULT_FINANCE_CURRENCY,
   DEFAULT_INVESTMENT_ASSUMPTION,
-  DISCRETIONARY_CATEGORIES,
   EXPENSE_CATEGORIES,
   INVESTMENT_CATEGORY,
   buildCategoryAnalysis,
-  buildDashboardDebtGate,
   buildDashboardIncomeGuidance,
   buildFinanceDataCoverage,
-  buildFinancialSummary,
   finalizeDashboardChatAnswer,
   getBudgetStatus,
   getFinanceCategoriesForType,
-  projectInvestmentContribution,
   roundMoney,
-  type CategoryAnalysis,
-  type CategoryBudgetStatus,
   type FinanceActionPlan,
-  type FinanceAnalysisTransaction,
-  type FinanceInsight,
-  type FinanceSummary,
   type FinanceTransaction,
-  type FinanceTransactionSource,
-  type FinanceTransactionType,
   type FinancialProfile,
 } from '../../shared/finance-core'
 import type {
   DashboardResponse,
-  HouseholdInvite,
   SyncfyCredential,
 } from '@finovai/core'
+import { CategorySearchSelect } from '@/dashboard/components/CategorySearchSelect'
+import { DashboardBrandWordmark } from '@/dashboard/components/DashboardBrandWordmark'
+import {
+  DASHBOARD_PAGES,
+  DASHBOARD_PAGE_PATHS,
+  PAGE_META,
+  getDashboardPageFromPath,
+  shouldCanonicalizeDashboardPath,
+  type DashboardPage,
+} from '@/dashboard/lib/routing'
+import type {
+  AnalysisTransaction,
+  CategoryPeriodFilter,
+  DashboardChatMessage,
+  DashboardTheme,
+  ManualDraft,
+  DashboardChatChartType,
+  ManualForm,
+  PendingChatAnswer,
+  ProfileForm,
+} from '@/dashboard/lib/types'
+import {
+  CASHFLOW_CHART_CONFIG,
+  CHAT_TOOLTIP_CLASS,
+  CHAT_TOOLTIP_POSITION,
+  CHAT_TOOLTIP_WRAPPER_STYLE,
+  FINANCE_APP_SHELL_CLASS,
+  FINANCE_ARTIFACT_CARD_CLASS,
+  FINANCE_ARTIFACT_INSET_CLASS,
+  FINANCE_ARTIFACT_TILE_CLASS,
+  FINANCE_SCROLLBAR_CLASS,
+  PANEL_VALUE_CLASS,
+  SINGLE_VALUE_CHART_CONFIG,
+} from '@/dashboard/lib/styles'
+import {
+  DASHBOARD_THEME_STORAGE_KEY,
+  EMPTY_ACTION_PLAN,
+  EMPTY_CATEGORY_ANALYSIS,
+  EMPTY_HOUSEHOLD_INVITES,
+  EMPTY_INSIGHTS,
+  EMPTY_PROFILE,
+  EMPTY_SUMMARY,
+  EMPTY_SYNCFY_CREDENTIALS,
+  EMPTY_TRANSACTIONS,
+  createManualForm,
+  getDashboardLoadingPreviewEnabled,
+  getDashboardPreviewEnabled,
+  getStoredDashboardTheme,
+  getStoredEmail,
+} from '@/dashboard/lib/constants'
+import {
+  formatCardCurrency,
+  formatCurrency,
+  formatDataCoverage,
+  formatDate,
+  formatMonth,
+  formatShortMonth,
+  formatTransactionSource,
+  getBudgetStatusClass,
+  getBudgetStatusLabel,
+  getCategoryIcon,
+  getInsightToneClasses,
+  moneyInputValue,
+  parseMoneyInput,
+} from '@/dashboard/lib/format'
+import {
+  getBreakdownTotal,
+  getCategoryChartData,
+  getCategoryTrendChartData,
+  getDailyFlowChartData,
+  getExpenseBreakdown,
+  getRecurringChartData,
+  getSavingsChartData,
+  getSavingsProjection,
+  getTopTransactions,
+} from '@/dashboard/lib/analytics'
+import {
+  syncfyCredentialHasProviderIssue,
+  syncfyCredentialIsConnected,
+  syncfyCredentialNeedsReconnect,
+  syncfyCredentialNeedsSupport,
+} from '@/dashboard/lib/credentials'
+import {
+  DASHBOARD_CHAT_SUGGESTIONS,
+  buildDashboardChatAnswer,
+  buildDashboardChatOpening,
+  getDashboardChatChartCategory,
+  getDashboardChatChartType,
+} from '@/dashboard/lib/chat'
+import {
+  createPreviewDashboardResponse,
+  createPreviewSyncfyCredentials,
+} from '@/dashboard/lib/preview'
 import {
   queryKeys,
   useHousehold,
@@ -173,1127 +238,6 @@ interface DashboardProps {
   initialPath?: string
   onBackHome: () => void
   onLogout: () => void
-}
-
-type TransactionType = FinanceTransactionType
-type TransactionSource = FinanceTransactionSource
-type DashboardPage = 'inicio' | 'syncfy' | 'movimientos' | 'categorias' | 'analisis' | 'ajustes'
-type DashboardTheme = 'light' | 'dark'
-type CategoryPeriodFilter = 'current' | 'previous' | 'all'
-
-type BudgetStatus = CategoryBudgetStatus
-
-interface ManualForm {
-  type: TransactionType
-  amount: string
-  date: string
-  category: string
-  description: string
-  merchant: string
-  notes: string
-}
-
-interface ManualDraft extends ManualForm {
-  id: string
-}
-
-interface ProfileForm {
-  monthlyIncome: string
-  monthlyBudget: string
-}
-
-interface DashboardChatMessage {
-  id: string
-  role: 'assistant' | 'user'
-  content: string
-  chart?: DashboardChatChartType
-  chartCategory?: string
-  reasoning?: string
-  reasoningDuration?: number
-}
-
-type DashboardChatChartType = 'categories' | 'daily-spend' | 'savings' | 'recurring' | 'category-trend'
-
-interface PendingChatAnswer {
-  question: string
-  startedAt: number
-}
-
-type AnalysisTransaction = FinanceAnalysisTransaction
-const DASHBOARD_CHAT_SUGGESTIONS = [
-  '¿Dónde está mi fuga principal?',
-  '¿Qué puedo ahorrar esta semana?',
-  '¿Qué patrón se repite?',
-]
-const DASHBOARD_THEME_STORAGE_KEY = 'finovai-dashboard-theme'
-const DASHBOARD_PAGES: Array<{ id: DashboardPage; label: string; icon: LucideIcon }> = [
-  { id: 'inicio', label: 'Chat', icon: Bot },
-  { id: 'syncfy', label: 'Conectar cuenta', icon: Landmark },
-  { id: 'movimientos', label: 'Movimientos', icon: ReceiptText },
-  { id: 'categorias', label: 'Categorías', icon: ChartPie },
-  { id: 'ajustes', label: 'Ajustes', icon: Settings },
-]
-const DASHBOARD_PAGE_PATHS: Record<DashboardPage, string> = {
-  inicio: '/dashboard',
-  syncfy: '/connect',
-  movimientos: '/movements',
-  categorias: '/categories',
-  analisis: '/analysis',
-  ajustes: '/settings',
-}
-
-function DashboardBrandWordmark({ className }: { className?: string }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex min-w-0 items-center gap-2.5 font-['Inter_Tight',sans-serif] text-[17px] font-extrabold leading-none tracking-[-0.02em] text-foreground",
-        className
-      )}
-      aria-hidden="true"
-    >
-      <span className="flex w-10 shrink-0 items-center [&_svg]:h-auto [&_svg]:w-10">
-        <FinovaiLogo />
-      </span>
-      <span className="hidden truncate md:inline">
-        finov<span className="text-[#2B7AE8]">ai</span>
-      </span>
-    </span>
-  )
-}
-
-const LEGACY_DASHBOARD_PAGE_PATHS: Partial<Record<string, DashboardPage>> = {
-  '/dashboard/connect': 'syncfy',
-  '/dashboard/movements': 'movimientos',
-  '/dashboard/movement': 'movimientos',
-  '/dashboard/categories': 'categorias',
-  '/dashboard/category': 'categorias',
-  '/dashboard/analysis': 'analisis',
-  '/dashboard/settings': 'ajustes',
-  '/movement': 'movimientos',
-  '/category': 'categorias',
-}
-const PAGE_META: Record<DashboardPage, { title: string; description: string }> = {
-  inicio: {
-    title: 'Chat financiero',
-    description: 'Pregunta sobre tus movimientos, fugas, patrones y ahorro posible.',
-  },
-  syncfy: {
-    title: 'Conectar cuenta',
-    description: 'Vincula bancos, SAT, Bitso, American Express y fuentes compatibles.',
-  },
-  movimientos: {
-    title: 'Movimientos',
-    description: 'Transacciones conectadas que FinovAI usa para detectar patrones.',
-  },
-  categorias: {
-    title: 'Categorías',
-    description: 'Dónde se está yendo tu dinero por rubro.',
-  },
-  analisis: {
-    title: 'Análisis',
-    description: 'Lecturas de fugas, recurrencias y ahorro posible.',
-  },
-  ajustes: {
-    title: 'Ajustes',
-    description: 'Perfil, seguridad y controles de datos.',
-  },
-}
-const PANEL_VALUE_CLASS = 'mt-2 min-w-0 text-lg font-semibold leading-tight tracking-normal tabular-nums [overflow-wrap:anywhere]'
-const CHART_COLORS = [
-  'var(--chart-1)',
-  'var(--chart-2)',
-  'var(--chart-3)',
-  'var(--chart-4)',
-  'var(--chart-5)',
-  'var(--primary)',
-]
-const FINANCE_APP_SHELL_CLASS = 'mx-auto grid h-[calc(100vh-1.5rem)] w-full max-w-[1760px] overflow-hidden rounded-[1.85rem] border border-border/70 bg-background shadow-[0_30px_90px_rgba(10,22,40,0.14)] sm:h-[calc(100vh-2.5rem)] md:grid-cols-[236px_minmax(0,1fr)] lg:h-[calc(100vh-3.5rem)] dark:shadow-[0_30px_90px_rgba(0,0,0,0.44)]'
-const FINANCE_ARTIFACT_CARD_CLASS = 'min-w-0 rounded-[1.45rem] border-border/70 bg-card py-5 shadow-[0_16px_45px_rgba(20,33,27,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.26)]'
-const FINANCE_ARTIFACT_INSET_CLASS = 'min-w-0 rounded-2xl bg-secondary/45 p-3 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]'
-const FINANCE_ARTIFACT_TILE_CLASS = 'min-w-0 rounded-2xl bg-secondary/45 p-4 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]'
-const FINANCE_SCROLLBAR_CLASS = 'finovai-scrollbar [scrollbar-width:thin] [scrollbar-color:var(--border)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-corner]:bg-transparent [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/40'
-const CASHFLOW_CHART_CONFIG = {
-  spending: {
-    label: 'Gastos',
-    color: 'var(--chart-1)',
-  },
-  income: {
-    label: 'Ingresos',
-    color: 'var(--chart-2)',
-  },
-} satisfies ChartConfig
-const SINGLE_VALUE_CHART_CONFIG = {
-  amount: {
-    label: 'Monto',
-    color: 'var(--chart-1)',
-  },
-} satisfies ChartConfig
-const CHAT_TOOLTIP_POSITION = { x: 8, y: 8 }
-const CHAT_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
-  maxWidth: 'calc(100% - 16px)',
-  pointerEvents: 'none',
-  zIndex: 30,
-}
-const CHAT_TOOLTIP_CLASS = 'min-w-0 max-w-48 whitespace-normal break-words'
-
-const EMPTY_SUMMARY: FinanceSummary = {
-  month: new Date().toISOString().slice(0, 7),
-  monthlyIncome: 0,
-  monthlySpending: 0,
-  netBalance: 0,
-  transactionCount: 0,
-  dataCoverage: {
-    firstDate: null,
-    lastDate: null,
-    firstMonth: null,
-    lastMonth: null,
-    monthCount: 0,
-    transactionCount: 0,
-    preliminary: true,
-  },
-  topSpendingCategory: 'Sin datos',
-  topSpendingCategoryAmount: 0,
-  unusualHighSpendDay: null,
-  recurringExpenses: [],
-  estimatedSavingsOpportunity: 0,
-}
-
-const EMPTY_TRANSACTIONS: FinanceTransaction[] = []
-const EMPTY_SYNCFY_CREDENTIALS: SyncfyCredential[] = []
-const EMPTY_HOUSEHOLD_INVITES: HouseholdInvite[] = []
-const EMPTY_INSIGHTS: FinanceInsight[] = []
-const EMPTY_PROFILE: FinancialProfile = {
-  email: '',
-  currency: DEFAULT_FINANCE_CURRENCY,
-  monthlyIncome: null,
-  monthlyBudget: null,
-  categoryBudgets: {},
-}
-const EMPTY_CATEGORY_ANALYSIS: CategoryAnalysis = {
-  period: EMPTY_SUMMARY.month,
-  periodLabel: formatMonth(EMPTY_SUMMARY.month),
-  previousPeriod: null,
-  spendingTotal: 0,
-  incomeTotal: 0,
-  budgetTotal: null,
-  budgetSource: 'missing',
-  fixedExpenseShare: null,
-  fixedExpenseLimit: null,
-  summaryAdvice: 'Falta tu ingreso y presupuesto mensual. Agrega esos datos para comparar el gasto contra una meta real.',
-  categories: [],
-  monthRows: [],
-}
-const EMPTY_ACTION_PLAN: FinanceActionPlan = {
-  monthlySavingsTarget: 0,
-  topOpportunities: [],
-  investmentProjection: {
-    monthlyContribution: 0,
-    years: DEFAULT_INVESTMENT_ASSUMPTION.years,
-    annualReturn: DEFAULT_INVESTMENT_ASSUMPTION.annualReturn,
-    totalContributed: 0,
-    tenYearValue: 0,
-    potentialGrowth: 0,
-  },
-  nextActions: [],
-}
-
-function getTodayInputDate() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function createManualForm(): ManualForm {
-  return {
-    type: 'expense',
-    amount: '',
-    date: getTodayInputDate(),
-    category: 'Comida fuera',
-    description: '',
-    merchant: '',
-    notes: '',
-  }
-}
-
-function formatCurrency(value: number, currency = DEFAULT_FINANCE_CURRENCY) {
-  return new Intl.NumberFormat('es-CL', {
-    style: 'currency',
-    currency,
-    maximumFractionDigits: currency === 'CLP' ? 0 : 2,
-  }).format(value)
-}
-
-function formatCardCurrency(value: number, currency = DEFAULT_FINANCE_CURRENCY) {
-  const formatted = new Intl.NumberFormat('es-CL', {
-    style: 'currency',
-    currency,
-    maximumFractionDigits: 0,
-  }).format(Math.abs(value))
-
-  return value < 0 ? `-${formatted}` : formatted
-}
-
-function formatDate(value: string) {
-  const date = new Date(`${value}T00:00:00`)
-  if (Number.isNaN(date.getTime())) return value
-
-  return new Intl.DateTimeFormat('es-CL', {
-    day: '2-digit',
-    month: 'short',
-  }).format(date)
-}
-
-function formatTransactionSource(source: TransactionSource) {
-  if (source === 'syncfy') return 'Conexión bancaria'
-  if (source === 'cartola') return 'Importación de respaldo'
-  return 'Ajuste de respaldo'
-}
-
-function formatMonth(value: string) {
-  const date = new Date(`${value}-01T00:00:00`)
-  if (Number.isNaN(date.getTime())) return value
-
-  return new Intl.DateTimeFormat('es-CL', {
-    month: 'long',
-    year: 'numeric',
-  }).format(date)
-}
-
-function formatShortMonth(value: string) {
-  const date = new Date(`${value}-01T00:00:00`)
-  if (Number.isNaN(date.getTime())) return value
-
-  return new Intl.DateTimeFormat('es-CL', {
-    month: 'short',
-  }).format(date).replace('.', '')
-}
-
-function getMonthRange(firstMonth: string | null, lastMonth: string | null) {
-  if (!firstMonth || !lastMonth) return []
-
-  const first = new Date(`${firstMonth}-01T00:00:00`)
-  const last = new Date(`${lastMonth}-01T00:00:00`)
-  if (Number.isNaN(first.getTime()) || Number.isNaN(last.getTime())) return []
-
-  const months: string[] = []
-  const cursor = new Date(first)
-  while (cursor <= last && months.length < 36) {
-    months.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`)
-    cursor.setMonth(cursor.getMonth() + 1)
-  }
-
-  return months
-}
-
-function formatDataCoverage(coverage: FinanceSummary['dataCoverage']) {
-  if (!coverage.transactionCount || !coverage.firstMonth || !coverage.lastMonth) return 'Sin historial analizado'
-  const monthRange = coverage.firstMonth === coverage.lastMonth
-    ? formatMonth(coverage.lastMonth)
-    : `${formatMonth(coverage.firstMonth)} - ${formatMonth(coverage.lastMonth)}`
-  const monthLabel = coverage.monthCount === 1 ? '1 mes' : `${coverage.monthCount} meses`
-  const transactionLabel = coverage.transactionCount === 1 ? '1 movimiento' : `${coverage.transactionCount} movimientos`
-
-  return `${monthLabel} analizados · ${transactionLabel} · ${monthRange}`
-}
-
-function getCategoryTrendChartData(
-  transactions: AnalysisTransaction[],
-  category: string,
-  coverage: FinanceSummary['dataCoverage']
-) {
-  const totals = new Map<string, number>()
-  const months = getMonthRange(coverage.firstMonth, coverage.lastMonth).slice(-7)
-
-  for (const month of months) {
-    totals.set(month, 0)
-  }
-
-  for (const transaction of transactions) {
-    if (transaction.type !== 'expense') continue
-    if (transaction.category !== category) continue
-
-    const month = transaction.date.slice(0, 7)
-    if (!totals.has(month)) continue
-
-    totals.set(month, (totals.get(month) || 0) + transaction.amount)
-  }
-
-  return months.map((month) => {
-    const amount = Math.round((totals.get(month) || 0) * 100) / 100
-
-    return {
-      month,
-      label: formatShortMonth(month),
-      amount,
-    }
-  })
-}
-
-function syncfyCredentialNeedsReconnect(credential: SyncfyCredential) {
-  return credential.connectionState === 'action_required' ||
-    credential.connectionState === 'abandoned' ||
-    credential.needsReconnect === true ||
-    credential.status === 'needs_reconnect'
-}
-
-function syncfyCredentialIsConnected(credential: SyncfyCredential) {
-  return credential.connectionState === 'ready' || credential.status === 'synced'
-}
-
-function syncfyCredentialHasProviderIssue(credential: SyncfyCredential) {
-  return credential.connectionState === 'provider_unavailable' ||
-    credential.connectionState === 'broken' ||
-    credential.status === 'provider_unavailable'
-}
-
-function syncfyCredentialNeedsSupport(credential: SyncfyCredential) {
-  if (syncfyCredentialNeedsReconnect(credential)) return false
-  return credential.connectionState === 'support_required' ||
-    credential.status === 'sync_error'
-}
-
-async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...getDashboardAuthHeaders(),
-      ...init?.headers,
-    },
-  })
-  const data = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    if (response.status === 401) {
-      clearDashboardSession()
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('finovai:session-expired'))
-      }
-    }
-    throw new Error(typeof data.error === 'string' ? data.error : 'Error de API')
-  }
-
-  return data as T
-}
-
-function getStoredEmail(fallback: string | null) {
-  if (fallback) return fallback
-  return getStoredDashboardEmail()
-}
-
-function getStoredDashboardTheme(): DashboardTheme {
-  if (typeof window === 'undefined') return 'light'
-  const storedTheme = window.localStorage.getItem(DASHBOARD_THEME_STORAGE_KEY)
-  return storedTheme === 'dark' ? 'dark' : 'light'
-}
-
-function getDashboardPreviewEnabled() {
-  if (typeof window === 'undefined') return false
-  if (!import.meta.env.DEV) return false
-  return new URLSearchParams(window.location.search).get('preview') === 'dashboard'
-}
-
-function getDashboardLoadingPreviewEnabled() {
-  if (typeof window === 'undefined') return false
-  if (!import.meta.env.DEV) return false
-  return new URLSearchParams(window.location.search).get('preview') === 'loading'
-}
-
-function normalizeDashboardPath(path: string | null | undefined): string {
-  const normalizedPath = (path || '/dashboard').replace(/\/+$/, '') || '/dashboard'
-  return normalizedPath
-}
-
-function getDashboardPageFromPath(path: string | null | undefined): DashboardPage {
-  const normalizedPath = normalizeDashboardPath(path)
-  const match = (Object.entries(DASHBOARD_PAGE_PATHS) as Array<[DashboardPage, string]>)
-    .find(([, pagePath]) => pagePath === normalizedPath)
-
-  return match?.[0] || LEGACY_DASHBOARD_PAGE_PATHS[normalizedPath] || 'inicio'
-}
-
-function shouldCanonicalizeDashboardPath(path: string | null | undefined): boolean {
-  return Boolean(LEGACY_DASHBOARD_PAGE_PATHS[normalizeDashboardPath(path)])
-}
-
-function getInsightToneClasses(tone: FinanceInsight['tone']) {
-  if (tone === 'good') return 'border-primary/25 bg-primary/10 text-primary'
-  if (tone === 'urgent') return 'border-rose-500/20 bg-rose-500/8 text-rose-700 dark:text-rose-300'
-  return 'border-amber-500/20 bg-amber-500/8 text-amber-700 dark:text-amber-300'
-}
-
-function normalizeQuestion(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-}
-
-const EXPLICIT_CHART_PATTERN = /(grafica|grafico|chart|linea|evolucion|tendencia|historico|serie)/
-const CATEGORY_QUERY_ALIASES: Array<{ category: string; pattern: RegExp }> = [
-  { category: 'Comida fuera', pattern: /(comida fuera|restaur|restor|restaurant|uber eats|rappi|didi food|cafeter|cafe|bar|taquer|don asado|fisher|orale|milan)/ },
-  { category: 'Supermercado', pattern: /(supermercado|super|despensa|walmart|soriana|chedraui|costco|sams|heb|mercado)/ },
-  { category: 'Transporte', pattern: /(transporte|uber|didi|taxi|metro|gasolina|combustible|estacionamiento)/ },
-  { category: 'Suscripciones', pattern: /(suscrip|netflix|spotify|amazon prime|apple|google|membresia)/ },
-  { category: 'Ocio', pattern: /(ocio|cine|cinemex|cinepolis|entretenimiento|dulceria)/ },
-  { category: 'Deuda', pattern: /(deuda|interes|comision|disposicion|credito|tarjeta)/ },
-  { category: 'Inversión', pattern: /(inversion|invertir|invertido|bitso|gbm|cetes|fondo|broker|cripto|crypto|acciones|etf)/ },
-]
-
-const CATEGORY_QUESTION_PATTERN = /(donde|categoria|rubro|gaste|gast[eé]|mas|mayor|principal)/
-const CURRENT_MONTH_QUESTION_PATTERN = /(mes|mensual|este mes|mes actual|actual|ultimo mes|último mes|reciente)/
-
-function isCategoryQuestion(normalizedQuestion: string) {
-  return CATEGORY_QUESTION_PATTERN.test(normalizedQuestion)
-}
-
-function isExplicitChartQuestion(normalizedQuestion: string) {
-  return EXPLICIT_CHART_PATTERN.test(normalizedQuestion)
-}
-
-function getDashboardChatChartCategory(question: string): string | undefined {
-  const normalized = normalizeQuestion(question)
-  const alias = CATEGORY_QUERY_ALIASES.find((item) => item.pattern.test(normalized))
-  if (alias) return alias.category
-
-  return EXPENSE_CATEGORIES.find((category) => normalized.includes(normalizeQuestion(category)))
-}
-
-function getCategoryQuestionMonth(normalizedQuestion: string, summary: FinanceSummary) {
-  return CURRENT_MONTH_QUESTION_PATTERN.test(normalizedQuestion) ? summary.month : null
-}
-
-function getCategoryScopeLabel(month: string | null) {
-  return month ? `de ${formatMonth(month)}` : 'en todos tus movimientos'
-}
-
-const CATEGORY_ICON_RULES: Array<{ terms: string[]; icon: LucideIcon }> = [
-  { terms: ['transfer', 'traspas', 'spei'], icon: ArrowRightLeft },
-  { terms: ['impuesto', 'sat', 'tax'], icon: Landmark },
-  { terms: ['supermercado', 'super', 'mercado', 'despensa', 'grocery'], icon: ShoppingCart },
-  { terms: ['compra', 'shopping', 'amazon', 'retail'], icon: ShoppingBag },
-  { terms: ['transporte', 'uber', 'didi', 'taxi', 'metro', 'gasolina'], icon: Car },
-  { terms: ['salud', 'farmacia', 'medic', 'doctor'], icon: HeartPulse },
-  { terms: ['comida', 'restaurante', 'cafe', 'starbucks', 'food'], icon: Utensils },
-  { terms: ['suscripcion', 'recurrente', 'netflix', 'spotify'], icon: Repeat2 },
-  { terms: ['ocio', 'cine', 'entretenimiento', 'cinemex'], icon: Film },
-  { terms: ['renta', 'alquiler', 'vivienda', 'hogar', 'servicio', 'utilities'], icon: Home },
-  { terms: ['inversion', 'ahorro', 'bitso', 'cripto', 'crypto'], icon: PiggyBank },
-  { terms: ['sueldo', 'nomina', 'ingreso', 'salario'], icon: Banknote },
-  { terms: ['comision', 'cargo', 'fee'], icon: ReceiptText },
-]
-
-function getCategoryIcon(category: string): LucideIcon {
-  const normalizedCategory = normalizeQuestion(category)
-  const match = CATEGORY_ICON_RULES.find((rule) => (
-    rule.terms.some((term) => normalizedCategory.includes(term))
-  ))
-
-  return match?.icon || CircleDollarSign
-}
-
-function getExpenseBreakdown(transactions: AnalysisTransaction[], month?: string | null) {
-  const totals = new Map<string, number>()
-
-  for (const transaction of transactions) {
-    if (transaction.type !== 'expense') continue
-    if (month && !transaction.date.startsWith(month)) continue
-    totals.set(transaction.category, (totals.get(transaction.category) || 0) + transaction.amount)
-  }
-
-  return [...totals.entries()]
-    .map(([category, total]) => ({ category, total }))
-    .sort((a, b) => b.total - a.total)
-}
-
-function getTopTransactions(transactions: AnalysisTransaction[], month: string) {
-  return transactions
-    .filter((transaction) => transaction.type === 'expense' && transaction.date.startsWith(month))
-    .sort((a, b) => b.amount - a.amount)
-    .slice(0, 3)
-}
-
-function getShortChartLabel(value: string, maxLength = 18) {
-  const clean = value.replace(/\s+/g, ' ').trim()
-  if (clean.length <= maxLength) return clean
-
-  return `${clean.slice(0, maxLength - 1).trim()}…`
-}
-
-function getBreakdownTotal(breakdown: Array<{ total: number }>) {
-  return Math.round(breakdown.reduce((sum, item) => sum + item.total, 0) * 100) / 100
-}
-
-function parseMoneyInput(value: string): number | null {
-  const normalized = value.replace(/[^\d.,-]/g, '').trim()
-  if (!normalized) return null
-  const hasCommaDecimal = /,\d{1,2}$/.test(normalized)
-  const clean = hasCommaDecimal
-    ? normalized.replace(/\./g, '').replace(',', '.')
-    : normalized.replace(/,/g, '')
-  const number = Number(clean)
-  return Number.isFinite(number) && number >= 0 ? roundMoney(number) : null
-}
-
-function moneyInputValue(value: number | null | undefined) {
-  return value && value > 0 ? String(value) : ''
-}
-
-function getBudgetStatusLabel(status: BudgetStatus) {
-  if (status === 'over') return 'Excedido'
-  if (status === 'near') return 'Cerca del tope'
-  if (status === 'under') return 'Bajo control'
-  return 'Sin presupuesto'
-}
-
-function getBudgetStatusClass(status: BudgetStatus) {
-  if (status === 'over') return 'border-rose-500/25 bg-rose-500/10 text-rose-700 dark:text-rose-300'
-  if (status === 'near') return 'border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-  if (status === 'under') return 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-  return 'border-border/70 bg-secondary text-muted-foreground'
-}
-
-function CategorySearchSelect({
-  disabled,
-  onSelect,
-  type,
-  value,
-}: {
-  disabled?: boolean
-  onSelect: (category: string) => void
-  type: TransactionType
-  value: string
-}) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const [dropdownStyle, setDropdownStyle] = useState<CSSProperties>({})
-  const buttonRef = useRef<HTMLButtonElement | null>(null)
-  const panelRef = useRef<HTMLDivElement | null>(null)
-  const options = getFinanceCategoriesForType(type)
-  const normalizedQuery = normalizeQuestion(query)
-  const filteredOptions = options.filter((option) => (
-    normalizeQuestion(option).includes(normalizedQuery)
-  ))
-
-  const updateDropdownPosition = () => {
-    const rect = buttonRef.current?.getBoundingClientRect()
-    if (!rect) return
-
-    const width = Math.max(rect.width, 240)
-    const left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - width - 12))
-    setDropdownStyle({
-      left,
-      top: Math.min(rect.bottom + 6, window.innerHeight - 320),
-      width,
-    })
-  }
-
-  useLayoutEffect(() => {
-    if (!isOpen) return
-
-    updateDropdownPosition()
-    window.addEventListener('resize', updateDropdownPosition)
-    window.addEventListener('scroll', updateDropdownPosition, true)
-    return () => {
-      window.removeEventListener('resize', updateDropdownPosition)
-      window.removeEventListener('scroll', updateDropdownPosition, true)
-    }
-  }, [isOpen])
-
-  useEffect(() => {
-    if (!isOpen) setQuery('')
-  }, [isOpen])
-
-  useEffect(() => {
-    if (!isOpen) return
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null
-      if (!target) return
-      if (buttonRef.current?.contains(target) || panelRef.current?.contains(target)) return
-      setIsOpen(false)
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown)
-    return () => document.removeEventListener('pointerdown', handlePointerDown)
-  }, [isOpen])
-
-  return (
-    <div className="min-w-40 max-w-56">
-      <Button
-        ref={buttonRef}
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-8 w-full min-w-0 justify-between px-2 text-left font-normal"
-        aria-expanded={isOpen}
-        aria-haspopup="listbox"
-        disabled={disabled}
-        onClick={() => setIsOpen((current) => !current)}
-      >
-        <span className="min-w-0 truncate">{value}</span>
-        {disabled ? <Loader2 className="size-3.5 animate-spin" /> : null}
-      </Button>
-
-      {isOpen ? (
-        <div
-          ref={panelRef}
-          className="fixed z-50 rounded-md border bg-popover p-2 text-popover-foreground shadow-md"
-          style={dropdownStyle}
-        >
-          <Input
-            value={query}
-            className="h-8"
-            placeholder="Buscar categoría"
-            autoFocus
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') setIsOpen(false)
-              if (event.key === 'Enter' && filteredOptions[0]) {
-                event.preventDefault()
-                onSelect(filteredOptions[0])
-                setIsOpen(false)
-              }
-            }}
-          />
-          <div className={cn('mt-2 flex max-h-44 flex-col gap-1 overflow-y-auto', FINANCE_SCROLLBAR_CLASS)} role="listbox">
-            {filteredOptions.length > 0 ? (
-              filteredOptions.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  role="option"
-                  aria-selected={option === value}
-                  className={cn(
-                    'flex min-w-0 items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground',
-                    option === value && 'bg-accent text-accent-foreground'
-                  )}
-                  onClick={() => {
-                    onSelect(option)
-                    setIsOpen(false)
-                  }}
-                >
-                  <span className="min-w-0 truncate">{option}</span>
-                  {option === value ? <Check className="size-3.5" /> : null}
-                </button>
-              ))
-            ) : (
-              <p className="px-2 py-2 text-sm text-muted-foreground">Sin resultados</p>
-            )}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function getDailyFlowChartData(transactions: AnalysisTransaction[], month: string) {
-  const totals = new Map<string, { date: string; label: string; income: number; spending: number; net: number }>()
-
-  for (const transaction of transactions) {
-    if (!transaction.date.startsWith(month)) continue
-    const current = totals.get(transaction.date) || {
-      date: transaction.date,
-      label: formatDate(transaction.date),
-      income: 0,
-      spending: 0,
-      net: 0,
-    }
-
-    if (transaction.type === 'income') current.income += transaction.amount
-    else current.spending += transaction.amount
-    current.net = current.income - current.spending
-    totals.set(transaction.date, current)
-  }
-
-  return [...totals.values()]
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .map((item) => ({
-      ...item,
-      income: Math.round(item.income * 100) / 100,
-      spending: Math.round(item.spending * 100) / 100,
-      net: Math.round(item.net * 100) / 100,
-    }))
-}
-
-function getCategoryChartData(breakdown: Array<{ category: string; total: number }>, monthlySpending: number) {
-  const topCategories = breakdown.slice(0, 6)
-
-  return topCategories.map((item, index) => ({
-    category: item.category,
-    label: getShortChartLabel(item.category, 16),
-    amount: Math.round(item.total * 100) / 100,
-    share: monthlySpending > 0 ? Math.round((item.total / monthlySpending) * 100) : 0,
-    fill: CHART_COLORS[index % CHART_COLORS.length],
-  }))
-}
-
-function getSavingsChartData(breakdown: Array<{ category: string; total: number }>) {
-  return breakdown
-    .filter((item) => DISCRETIONARY_CATEGORIES.has(item.category))
-    .slice(0, 4)
-    .map((item, index) => ({
-      category: item.category,
-      label: getShortChartLabel(item.category, 14),
-      amount: Math.round(item.total * 0.15 * 100) / 100,
-      fill: CHART_COLORS[index % CHART_COLORS.length],
-    }))
-    .filter((item) => item.amount > 0)
-}
-
-function getRecurringChartData(summary: FinanceSummary) {
-  return summary.recurringExpenses.slice(0, 4).map((expense, index) => ({
-    label: getShortChartLabel(expense.description, 16),
-    description: expense.description,
-    amount: Math.round(expense.amount * expense.count * 100) / 100,
-    averageAmount: expense.amount,
-    count: expense.count,
-    fill: CHART_COLORS[index % CHART_COLORS.length],
-  }))
-}
-
-function createPreviewTransaction(
-  id: string,
-  date: string,
-  category: string,
-  description: string,
-  amount: number,
-  type: TransactionType = 'expense'
-): FinanceTransaction {
-  return {
-    id,
-    email: 'demo@finov.ai',
-    date,
-    type,
-    amount,
-    currency: DEFAULT_FINANCE_CURRENCY,
-    category,
-    description,
-    merchant: description,
-    notes: null,
-    source: 'syncfy',
-    confidence: 0.94,
-    rawSource: 'syncfy-preview',
-    cartolaImportId: null,
-    created_at: `${date}T12:00:00.000Z`,
-  }
-}
-
-function createPreviewDashboardResponse(email: string): DashboardResponse {
-  const transactions: FinanceTransaction[] = [
-    createPreviewTransaction('preview-may-1', '2026-05-01', 'Sueldo', 'Nómina', 52000, 'income'),
-    createPreviewTransaction('preview-may-2', '2026-05-02', 'Transferencias', 'Renta departamento', 16500),
-    createPreviewTransaction('preview-may-3', '2026-05-06', 'Supermercado', 'City Market', 2200),
-    createPreviewTransaction('preview-may-4', '2026-05-09', 'Comida fuera', 'Restaurante', 980),
-    createPreviewTransaction('preview-may-5', '2026-05-14', 'Suscripciones', 'Netflix', 299),
-    createPreviewTransaction('preview-may-6', '2026-05-18', 'Transporte', 'Uber', 610),
-    createPreviewTransaction('preview-1', '2026-06-01', 'Sueldo', 'Nómina', 52000, 'income'),
-    createPreviewTransaction('preview-2', '2026-06-01', 'Transferencias', 'Renta departamento', 16500),
-    createPreviewTransaction('preview-3', '2026-06-02', 'Supermercado', 'City Market', 2840),
-    createPreviewTransaction('preview-4', '2026-06-03', 'Suscripciones', 'Netflix', 299),
-    createPreviewTransaction('preview-5', '2026-06-04', 'Transporte', 'Uber', 480),
-    createPreviewTransaction('preview-6', '2026-06-05', 'Comida fuera', 'Starbucks', 185),
-    createPreviewTransaction('preview-7', '2026-06-06', 'Comida fuera', 'Starbucks', 165),
-    createPreviewTransaction('preview-8', '2026-06-07', 'Compras', 'Amazon MX', 1450),
-    createPreviewTransaction('preview-9', '2026-06-08', 'Suscripciones', 'Spotify', 129),
-    createPreviewTransaction('preview-10', '2026-06-09', 'Salud', 'Farmacia Guadalajara', 780),
-    createPreviewTransaction('preview-11', '2026-06-10', 'Ocio', 'Cinemex', 620),
-    createPreviewTransaction('preview-12', '2026-06-11', 'Transporte', 'Didi', 360),
-    createPreviewTransaction('preview-13', '2026-06-12', 'Comida fuera', 'Starbucks', 195),
-    createPreviewTransaction('preview-14', '2026-06-13', 'Impuestos', 'SAT pago provisional', 3800),
-    createPreviewTransaction('preview-15', '2026-06-14', INVESTMENT_CATEGORY, 'Bitso compra recurrente', 2500),
-  ].map((transaction) => ({ ...transaction, email }))
-
-  const summary = buildFinancialSummary(transactions)
-  const profile: FinancialProfile = {
-    email,
-    currency: DEFAULT_FINANCE_CURRENCY,
-    monthlyIncome: 52000,
-    monthlyBudget: 39000,
-    categoryBudgets: {
-      Transferencias: 17000,
-      Supermercado: 6000,
-      'Comida fuera': 1800,
-      Suscripciones: 900,
-      Transporte: 1800,
-      [INVESTMENT_CATEGORY]: 3000,
-      Impuestos: 3500,
-    },
-  }
-  const categoryAnalysis = buildCategoryAnalysis(transactions, summary, profile)
-  const investmentProjection = projectInvestmentContribution(summary.estimatedSavingsOpportunity)
-  const actionPlan: FinanceActionPlan = {
-    monthlySavingsTarget: summary.estimatedSavingsOpportunity,
-    topOpportunities: [
-      {
-        id: 'preview-coffee',
-        kind: 'merchant_leak',
-        title: 'Café entre semana',
-        body: 'Starbucks aparece varias veces en pocos días. Reducir dos visitas por semana libera margen sin cambiar gastos fijos.',
-        sourceLabel: 'Starbucks',
-        estimatedMonthlySavings: 1480,
-      },
-      {
-        id: 'preview-subscriptions',
-        kind: 'recurring',
-        title: 'Suscripciones pequeñas',
-        body: 'Netflix y Spotify no son grandes solos, pero juntos ya son una fuga recurrente revisable.',
-        sourceLabel: 'Suscripciones',
-        estimatedMonthlySavings: 428,
-      },
-    ],
-    investmentProjection,
-    nextActions: [
-      {
-        id: 'preview-plan',
-        label: 'Plan semanal',
-        body: 'Convierte estas fugas en una meta automática de ahorro.',
-        target: 'chat',
-      },
-      {
-        id: 'preview-invest',
-        label: 'Ruta de inversión',
-        body: 'Simula el margen mensual como aportación futura.',
-        target: 'partner',
-      },
-    ],
-  }
-
-  return {
-    success: true,
-    email,
-    transactions,
-    profile,
-    summary,
-    categoryAnalysis,
-    insights: [
-      {
-        id: 'preview-leak',
-        title: 'Fuga principal',
-        value: 'Comida fuera',
-        body: 'El gasto repetido en cafés y salidas pequeñas tiene margen de reducción inmediato.',
-        tone: 'watch',
-      },
-      {
-        id: 'preview-investable',
-        title: 'Ahorro invertible',
-        value: formatCardCurrency(summary.estimatedSavingsOpportunity, DEFAULT_FINANCE_CURRENCY),
-        body: 'FinovAI puede transformar ese margen en próximos pasos de inversión.',
-        tone: 'good',
-      },
-    ],
-    actionPlan,
-  }
-}
-
-function createPreviewSyncfyCredentials(): SyncfyCredential[] {
-  return [
-    {
-      id: 'preview-bbva',
-      syncfyCredentialId: 'preview-bbva',
-      siteName: 'BBVA México',
-      status: 'synced',
-      lastSuccessfulSyncAt: '2026-06-02T12:00:00.000Z',
-      lastPullAt: '2026-06-02T12:00:00.000Z',
-      cooldownSeconds: 0,
-      ready: true,
-    },
-    {
-      id: 'preview-amex',
-      syncfyCredentialId: 'preview-amex',
-      siteName: 'American Express',
-      status: 'synced',
-      lastSuccessfulSyncAt: '2026-06-02T12:00:00.000Z',
-      lastPullAt: '2026-06-02T12:00:00.000Z',
-      cooldownSeconds: 0,
-      ready: true,
-    },
-    {
-      id: 'preview-bitso',
-      syncfyCredentialId: 'preview-bitso',
-      siteName: 'Bitso',
-      status: 'synced',
-      lastSuccessfulSyncAt: '2026-06-02T12:00:00.000Z',
-      lastPullAt: '2026-06-02T12:00:00.000Z',
-      cooldownSeconds: 0,
-      ready: true,
-    },
-  ]
-}
-
-function getSavingsProjection(summary: FinanceSummary) {
-  return projectInvestmentContribution(summary.estimatedSavingsOpportunity).tenYearValue
-}
-
-function buildDashboardChatOpening(
-  transactions: AnalysisTransaction[],
-  hasConnectedInstitution: boolean,
-  hasReconnectRequiredCredential = false
-) {
-  if (transactions.length === 0) {
-    if (hasConnectedInstitution) {
-      return 'La institución ya está conectada. Cuando los movimientos estén listos, puedo encontrar fugas, patrones y oportunidades para ahorrar.'
-    }
-
-    if (hasReconnectRequiredCredential) {
-      return 'Ve a Conectar cuenta y sigue los pasos para reconectar la institución.'
-    }
-
-    return 'Ve a Conectar cuenta y sigue los pasos. En cuanto entren transacciones, puedo encontrar fugas, patrones y oportunidades para ahorrar.'
-  }
-
-  return 'Ya tengo movimientos conectados. Pregúntame dónde se fuga tu dinero, qué patrón se repite o cuánto podrías ahorrar e invertir.'
-}
-
-function getDashboardEffectiveMonthlyIncome(summary: FinanceSummary, profile?: FinancialProfile | null) {
-  return buildDashboardIncomeGuidance(summary, profile || EMPTY_PROFILE).effectiveMonthlyIncome || 0
-}
-
-function buildDashboardChatAnswer(
-  question: string,
-  transactions: AnalysisTransaction[],
-  summary: FinanceSummary,
-  currency: string,
-  isDraftAnalysis = false,
-  hasConnectedInstitution = false,
-  hasReconnectRequiredCredential = false,
-  profile?: FinancialProfile | null
-) {
-  if (transactions.length === 0) {
-    if (hasConnectedInstitution) {
-      return 'La institución ya está conectada, pero todavía no tengo transacciones disponibles. Ve a Conectar cuenta y sigue los pasos si esto no cambia en unos minutos.'
-    }
-
-    if (hasReconnectRequiredCredential) {
-      return 'Ve a Conectar cuenta y sigue los pasos para reconectar la institución antes de leer transacciones nuevas.'
-    }
-
-    return 'Todavía no tengo transacciones para analizar. Ve a Conectar cuenta y sigue los pasos para traer movimientos reales.'
-  }
-
-  const normalized = normalizeQuestion(question)
-  const categoryQuestionMonth = getCategoryQuestionMonth(normalized, summary)
-  const breakdown = getExpenseBreakdown(transactions, categoryQuestionMonth)
-  const topCategory = breakdown[0]
-  const topTransactions = getTopTransactions(transactions, summary.month)
-  const prefix = isDraftAnalysis ? 'Preliminar: ' : ''
-  const effectiveMonthlyIncome = getDashboardEffectiveMonthlyIncome(summary, profile)
-  const monthlyMargin = effectiveMonthlyIncome > 0 ? roundMoney(effectiveMonthlyIncome - summary.monthlySpending) : null
-  const spendingShareOfIncome = effectiveMonthlyIncome > 0 ? Math.round((summary.monthlySpending / effectiveMonthlyIncome) * 100) : null
-  const starterSavingsTarget = effectiveMonthlyIncome > 0 ? roundMoney(effectiveMonthlyIncome * 0.05) : null
-  const strongSavingsTarget = effectiveMonthlyIncome > 0 ? roundMoney(effectiveMonthlyIncome * 0.2) : null
-  const debtGate = buildDashboardDebtGate(summary, transactions, effectiveMonthlyIncome)
-
-  if (isCategoryQuestion(normalized) && topCategory) {
-    const totalSpending = getBreakdownTotal(breakdown)
-    const share = totalSpending > 0 ? Math.round((topCategory.total / totalSpending) * 100) : 0
-    const nextCategories = breakdown.slice(1, 3)
-      .map((item) => `${item.category}: ${formatCurrency(item.total, currency)}`)
-      .join(' · ')
-
-    return `${prefix}Tu mayor gasto ${getCategoryScopeLabel(categoryQuestionMonth)} está en ${topCategory.category}: ${formatCurrency(topCategory.total, currency)} (${share}% del gasto).${nextCategories ? ` Después viene ${nextCategories}.` : ''}`
-  }
-
-  if (/(ahorr|reduc|bajar|optim|invert|invers|futur)/.test(normalized)) {
-    if (debtGate.active && /(invert|invers|futur)/.test(normalized)) {
-      const incomeShare = debtGate.debtShareOfIncome !== null ? ` (${debtGate.debtShareOfIncome}% del ingreso)` : ''
-
-      return `${prefix}Etapa actual: liquidación de deuda. En ${formatMonth(summary.month)}, Deuda suma ${formatCurrency(debtGate.monthlyDebtPayments, currency)}${incomeShare}. Prioriza bajar intereses y pagos de tarjeta antes de pasar a inversión.`
-    }
-
-    if (effectiveMonthlyIncome <= 0) {
-      return `${prefix}Falta tu ingreso mensual. Ve a Ajustes y guárdalo para calcular ahorro como porcentaje real de lo que ganas.`
-    }
-
-    const opportunityShare = Math.round((summary.estimatedSavingsOpportunity / effectiveMonthlyIncome) * 100)
-    const marginText = monthlyMargin !== null
-      ? `Tu margen actual es ${formatCurrency(monthlyMargin, currency)} (${Math.round((monthlyMargin / effectiveMonthlyIncome) * 100)}%).`
-      : ''
-    const investmentText = /(invert|invers|futur)/.test(normalized)
-      ? ' Si lo inviertes, úsalo solo como referencia ilustrativa.\n\nInformación general, no asesoría personalizada.'
-      : ''
-
-    return summary.estimatedSavingsOpportunity > 0
-      ? `${prefix}Con ingreso base de ${formatCurrency(effectiveMonthlyIncome, currency)}, gastaste ${spendingShareOfIncome}% este mes. ${marginText} Ahorro inicial realista: ${formatCurrency(summary.estimatedSavingsOpportunity, currency)} (${opportunityShare}% del ingreso); rango guía ${formatCurrency(starterSavingsTarget || 0, currency)}-${formatCurrency(strongSavingsTarget || 0, currency)} según deuda y gastos.${investmentText}`
-      : `${prefix}Con ingreso base de ${formatCurrency(effectiveMonthlyIncome, currency)}, todavía no veo una fuga clara. Usa como guía 5%-20% del ingreso: ${formatCurrency(starterSavingsTarget || 0, currency)}-${formatCurrency(strongSavingsTarget || 0, currency)}.`
-  }
-
-  if (/(recurrent|suscrip|mensual|repite|repet)/.test(normalized)) {
-    if (summary.recurringExpenses.length === 0) {
-      return `${prefix}No detecté gastos recurrentes confiables todavía. Con más transacciones conectadas puedo separar mejor suscripciones de compras puntuales.`
-    }
-
-    return `${prefix}${summary.recurringExpenses
-      .slice(0, 3)
-      .map((expense) => `${expense.description}: ${expense.count} cargos, aprox. ${formatCurrency(expense.amount, currency)} cada uno.`)
-      .join(' ')}`
-  }
-
-  if (/(dia|d[ií]a|raro|inusual|alto|peak|pico)/.test(normalized)) {
-    return summary.unusualHighSpendDay
-      ? `${prefix}El día que más llama la atención es ${formatDate(summary.unusualHighSpendDay.date)}: salieron ${formatCurrency(summary.unusualHighSpendDay.amount, currency)}. Revisa si fue compra puntual o patrón.`
-      : `${prefix}No hay un día atípico claro todavía. Con más movimientos puedo comparar mejor los días de gasto.`
-  }
-
-  if (/(balance|saldo|ingreso|neto|mes)/.test(normalized)) {
-    const incomeLabel = effectiveMonthlyIncome > 0 ? formatCurrency(effectiveMonthlyIncome, currency) : formatCurrency(summary.monthlyIncome, currency)
-    const netBalance = effectiveMonthlyIncome > 0 ? effectiveMonthlyIncome - summary.monthlySpending : summary.netBalance
-    const shareText = spendingShareOfIncome !== null ? ` (${spendingShareOfIncome}% del ingreso)` : ''
-
-    return `${prefix}En ${formatMonth(summary.month)} tienes ingreso base de ${incomeLabel}, gastos por ${formatCurrency(summary.monthlySpending, currency)}${shareText} y balance neto de ${formatCurrency(netBalance, currency)}.`
-  }
-
-  if (topTransactions.length > 0) {
-    const biggest = topTransactions
-      .map((transaction) => `${transaction.description}: ${formatCurrency(transaction.amount, currency)}`)
-      .join(' · ')
-
-    return `${prefix}Lectura rápida: gastaste ${formatCurrency(summary.monthlySpending, currency)} en ${formatMonth(summary.month)}. La categoría principal es ${summary.topSpendingCategory}. Movimientos grandes: ${biggest}.`
-  }
-
-  return `${prefix}Tengo ${transactions.length} movimientos para analizar. Puedo revisar categorías, días atípicos, cargos recurrentes y ahorro estimado.`
-}
-
-function getDashboardChatChartType(
-  question: string,
-  transactions: AnalysisTransaction[],
-  summary: FinanceSummary
-): DashboardChatChartType | undefined {
-  if (transactions.length === 0) return undefined
-
-  const normalized = normalizeQuestion(question)
-  const hasMonthSpending = summary.monthlySpending > 0
-  const requestedChartCategory = getDashboardChatChartCategory(question)
-  const asksForChart = isExplicitChartQuestion(normalized)
-  const debtGate = buildDashboardDebtGate(summary, transactions)
-
-  if (asksForChart && requestedChartCategory && transactions.some((transaction) => transaction.type === 'expense' && transaction.category === requestedChartCategory)) {
-    return 'category-trend'
-  }
-
-  if (debtGate.active && /(deuda|tarjeta|credito|invert|invers|futur)/.test(normalized)) {
-    return undefined
-  }
-
-  if (asksForChart && /(linea|evolucion|tendencia|historico|serie|mes|mensual)/.test(normalized) && hasMonthSpending) {
-    return 'daily-spend'
-  }
-
-  if (isCategoryQuestion(normalized) && hasMonthSpending) {
-    return 'categories'
-  }
-
-  if (/(ahorr|reduc|bajar|optim|invert|invers|futur)/.test(normalized) && summary.estimatedSavingsOpportunity > 0 && !debtGate.active) {
-    return 'savings'
-  }
-
-  if (/(recurrent|suscrip|mensual|repite|repet)/.test(normalized) && summary.recurringExpenses.length > 0) {
-    return 'recurring'
-  }
-
-  if (/(dia|d[ií]a|raro|inusual|alto|peak|pico|balance|saldo|ingreso|neto|mes)/.test(normalized) && hasMonthSpending) {
-    return 'daily-spend'
-  }
-
-  return undefined
 }
 
 export default function Dashboard({ email, initialNotice, initialPath, onBackHome, onLogout }: DashboardProps) {
@@ -1729,29 +673,14 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     setStatus(pendingLoginEmail ? 'Verificando código.' : 'Registrando correo.')
 
     try {
-      const response = await apiJson<{
-        success: boolean
-        email: string
-        clientSecret?: string
-        verificationRequired?: boolean
-        debugCode?: string
-      }>(pendingLoginEmail ? '/api/auth/verify' : '/api/signup', {
-        method: 'POST',
-        body: JSON.stringify(pendingLoginEmail
-          ? {
-              email: pendingLoginEmail,
-              code: loginCode.trim(),
+      const response = pendingLoginEmail
+        ? await apiClient.verifyLoginCode(pendingLoginEmail, loginCode.trim(), 'dashboard-email-gate')
+        : await apiClient.signup(normalizedEmail, {
+            diagnosticData: JSON.stringify({
               source: 'dashboard-email-gate',
-            }
-          : {
-              email: normalizedEmail,
-              redirectPath: '/dashboard',
-              diagnosticData: JSON.stringify({
-                source: 'dashboard-email-gate',
-                capturedAt: new Date().toISOString(),
-              }),
+              capturedAt: new Date().toISOString(),
             }),
-      })
+          })
       const registeredEmail = response.email || normalizedEmail
       if (response.verificationRequired) {
         setPendingLoginEmail(registeredEmail)
