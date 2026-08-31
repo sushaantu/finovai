@@ -1,4 +1,5 @@
 import { type CSSProperties, type FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Area,
   AreaChart,
@@ -155,9 +156,14 @@ import type {
   HouseholdInvite,
   HouseholdResponse,
   SyncfyCredential,
-  SyncfyCredentialsResponse,
   TransactionCategoryResponse,
 } from '@finovai/core'
+import {
+  queryKeys,
+  useHousehold,
+  useSyncfyCredentials,
+  useTransactions,
+} from '@finovai/core/react'
 
 interface DashboardProps {
   email: string | null
@@ -352,6 +358,8 @@ const EMPTY_SUMMARY: FinanceSummary = {
 }
 
 const EMPTY_TRANSACTIONS: FinanceTransaction[] = []
+const EMPTY_SYNCFY_CREDENTIALS: SyncfyCredential[] = []
+const EMPTY_HOUSEHOLD_INVITES: HouseholdInvite[] = []
 const EMPTY_INSIGHTS: FinanceInsight[] = []
 const EMPTY_PROFILE: FinancialProfile = {
   email: '',
@@ -1328,27 +1336,17 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [emailInput, setEmailInput] = useState(() => getStoredEmail(email) || previewEmail || '')
   const [pendingLoginEmail, setPendingLoginEmail] = useState('')
   const [loginCode, setLoginCode] = useState('')
-  const [data, setData] = useState<DashboardResponse | null>(() => previewEnabled && previewEmail ? createPreviewDashboardResponse(previewEmail) : null)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [reloadNonce, setReloadNonce] = useState(0)
   const [manualForm, setManualForm] = useState<ManualForm>(() => createManualForm())
   const [manualDrafts, setManualDrafts] = useState<ManualDraft[]>([])
   const [status, setStatus] = useState(initialNotice || 'Entra con tu correo para conectar tu banco y analizar tus movimientos.')
-  const [isLoading, setIsLoading] = useState(false)
+  const [isIdentifying, setIsIdentifying] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [chatInput, setChatInput] = useState('')
   const [chatMessages, setChatMessages] = useState<DashboardChatMessage[]>([])
   const [pendingChatAnswer, setPendingChatAnswer] = useState<PendingChatAnswer | null>(null)
   const [activePage, setActivePageState] = useState<DashboardPage>(() => getDashboardPageFromPath(initialPath))
   const [dashboardTheme, setDashboardTheme] = useState<DashboardTheme>(() => getStoredDashboardTheme())
-  const [syncfyCredentials, setSyncfyCredentials] = useState<SyncfyCredential[]>(() => previewEnabled ? createPreviewSyncfyCredentials() : [])
-  const [isLoadingCredentials, setIsLoadingCredentials] = useState(() => Boolean(getStoredEmail(email)) && !previewEnabled && !loadingPreviewEnabled)
-  const [credentialsReadyForEmail, setCredentialsReadyForEmail] = useState<string | null>(() => (
-    previewEnabled ? (getStoredEmail(email) || previewEmail || 'preview@finov.ai') : null
-  ))
-  const [credentialsFetchFailed, setCredentialsFetchFailed] = useState(false)
   const [spouseEmail, setSpouseEmail] = useState('')
-  const [householdInvites, setHouseholdInvites] = useState<HouseholdInvite[]>([])
   const [isInvitingSpouse, setIsInvitingSpouse] = useState(false)
   const [profileForm, setProfileForm] = useState<ProfileForm>({ monthlyIncome: '', monthlyBudget: '' })
   const [categoryBudgetInputs, setCategoryBudgetInputs] = useState<Record<string, string>>({})
@@ -1360,7 +1358,56 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
   const [incomePromptError, setIncomePromptError] = useState('')
   const [isSavingIncomePrompt, setIsSavingIncomePrompt] = useState(false)
   const chatAnswerTimeoutRef = useRef<number | null>(null)
+  const announcedLoadStatusRef = useRef<string | null>(null)
   const chatMessagesEndRef = useRef<HTMLDivElement | null>(null)
+  const queryClient = useQueryClient()
+  const queriesEnabled = !previewEnabled && !loadingPreviewEnabled
+  const transactionsQuery = useTransactions(activeEmail, { enabled: queriesEnabled })
+  const credentialsQuery = useSyncfyCredentials(activeEmail, { enabled: queriesEnabled })
+  const householdQuery = useHousehold(activeEmail, { enabled: queriesEnabled })
+
+  const data = previewEnabled
+    ? createPreviewDashboardResponse(activeEmail || previewEmail || 'preview@finov.ai')
+    : transactionsQuery.data ?? null
+  const syncfyCredentials = previewEnabled
+    ? createPreviewSyncfyCredentials()
+    : credentialsQuery.data?.credentials ?? EMPTY_SYNCFY_CREDENTIALS
+  const householdInvites = householdQuery.data?.invites ?? EMPTY_HOUSEHOLD_INVITES
+  const isLoadingCredentials = queriesEnabled && Boolean(activeEmail) && credentialsQuery.isPending
+  const credentialsReadyForEmail = previewEnabled
+    ? activeEmail || previewEmail || 'preview@finov.ai'
+    : credentialsQuery.isSuccess
+      ? activeEmail
+      : null
+  const credentialsFetchFailed = credentialsQuery.isError
+  const loadError = transactionsQuery.isError
+    ? transactionsQuery.error instanceof Error
+      ? transactionsQuery.error.message
+      : 'No pudimos cargar tu análisis.'
+    : null
+
+  // The worker returns a fresh DashboardResponse from every finance mutation,
+  // so handlers write it straight into the cache instead of refetching.
+  const setDashboardData = (next: DashboardResponse) => {
+    if (!activeEmail) return
+    queryClient.setQueryData(queryKeys.transactions(activeEmail), next)
+  }
+
+  // Background query failures used to be swallowed and rendered as empty data.
+  const renderQueryErrorNotice = (message: string, onRetry: () => void) => (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3">
+      <p className="text-sm text-foreground">{message}</p>
+      <Button type="button" size="sm" variant="outline" onClick={onRetry}>
+        Reintentar
+      </Button>
+    </div>
+  )
+
+  const setSyncfyCredentialsCache = (credentials: SyncfyCredential[]) => {
+    if (!activeEmail) return
+    queryClient.setQueryData(queryKeys.syncfyCredentials(activeEmail), { credentials })
+  }
+
   const connectedSyncfyCredentials = syncfyCredentials.filter(syncfyCredentialIsConnected)
   const reconnectCredentialCount = syncfyCredentials.filter(syncfyCredentialNeedsReconnect).length
   const providerIssueCredentialCount = syncfyCredentials.filter(syncfyCredentialHasProviderIssue).length
@@ -1429,56 +1476,39 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     }
   }, [initialPath])
 
+  // Mirrors the load state into the status line. Announces a message only when it
+  // actually changes, so a mutation writing fresh data into the cache does not
+  // clobber the handler's own status ("Perfil financiero actualizado.", etc).
   useEffect(() => {
-    let cancelled = false
-    if (loadingPreviewEnabled) {
-      setIsLoading(false)
-      setStatus('Vista local de carga para revisar el panel financiero.')
-      return
-    }
-    if (previewEnabled) {
-      const nextEmail = activeEmail || previewEmail || 'preview@finov.ai'
-      setData(createPreviewDashboardResponse(nextEmail))
-      setStatus('Vista local de referencia para revisar el panel financiero.')
-      return
-    }
-    if (!activeEmail) return
+    const nextStatus = loadingPreviewEnabled
+      ? 'Vista local de carga para revisar el panel financiero.'
+      : previewEnabled
+        ? 'Vista local de referencia para revisar el panel financiero.'
+        : !activeEmail
+          ? null
+          : transactionsQuery.isError
+            ? loadError
+            : transactionsQuery.isPending
+              ? 'Cargando transacciones conectadas.'
+              : transactionsQuery.data
+                ? transactionsQuery.data.transactions.length > 0
+                  ? 'Transacciones listas para análisis.'
+                  : hasReconnectRequiredCredential
+                    ? 'La institución rechazó el acceso. Ve a Conectar cuenta para actualizarlo.'
+                    : hasSupportIssueCredential
+                      ? 'La conexión necesita revisión de FinovAI. Ve a Conectar cuenta para consultar el código de soporte.'
+                    : hasProviderIssueCredential
+                      ? 'La institución está fallando temporalmente. Ve a Conectar cuenta para revisar el detalle.'
+                      : hasVerifyingCredential
+                        ? 'La credencial está guardada, pero la institución todavía está verificando el acceso.'
+                        : hasConnectedInstitution
+                          ? 'Institución conectada, pero todavía no hay movimientos disponibles.'
+                          : 'Ve a Conectar cuenta y sigue los pasos para analizar tus datos reales.'
+                : null
 
-    setIsLoading(true)
-    setLoadError(null)
-    setStatus('Cargando transacciones conectadas.')
-
-    apiJson<DashboardResponse>(`/api/transactions?email=${encodeURIComponent(activeEmail)}`)
-      .then((response) => {
-        if (cancelled) return
-        setLoadError(null)
-        setData(response)
-        setStatus(response.transactions.length > 0
-          ? 'Transacciones listas para análisis.'
-          : hasReconnectRequiredCredential
-            ? 'La institución rechazó el acceso. Ve a Conectar cuenta para actualizarlo.'
-            : hasSupportIssueCredential
-              ? 'La conexión necesita revisión de FinovAI. Ve a Conectar cuenta para consultar el código de soporte.'
-            : hasProviderIssueCredential
-              ? 'La institución está fallando temporalmente. Ve a Conectar cuenta para revisar el detalle.'
-              : hasVerifyingCredential
-                ? 'La credencial está guardada, pero la institución todavía está verificando el acceso.'
-                : hasConnectedInstitution
-                  ? 'Institución conectada, pero todavía no hay movimientos disponibles.'
-                  : 'Ve a Conectar cuenta y sigue los pasos para analizar tus datos reales.')
-      })
-      .catch((error: Error) => {
-        if (cancelled) return
-        setLoadError(error.message)
-        setStatus(error.message)
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
+    if (nextStatus === null || announcedLoadStatusRef.current === nextStatus) return
+    announcedLoadStatusRef.current = nextStatus
+    setStatus(nextStatus)
   }, [
     activeEmail,
     hasConnectedInstitution,
@@ -1486,72 +1516,23 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     hasReconnectRequiredCredential,
     hasSupportIssueCredential,
     hasVerifyingCredential,
+    loadError,
     loadingPreviewEnabled,
-    previewEmail,
     previewEnabled,
-    reloadNonce,
+    transactionsQuery.data,
+    transactionsQuery.isError,
+    transactionsQuery.isPending,
   ])
 
   useEffect(() => {
     function handleSessionExpired() {
-      setData(null)
-      setLoadError(null)
+      queryClient.clear()
       setActiveEmail(null)
       setStatus('Tu sesión expiró. Vuelve a entrar con tu correo.')
     }
     window.addEventListener('finovai:session-expired', handleSessionExpired)
     return () => window.removeEventListener('finovai:session-expired', handleSessionExpired)
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    if (loadingPreviewEnabled) {
-      setSyncfyCredentials([])
-      setIsLoadingCredentials(false)
-      setCredentialsReadyForEmail(null)
-      setCredentialsFetchFailed(false)
-      return
-    }
-    if (previewEnabled) {
-      const nextEmail = activeEmail || previewEmail || 'preview@finov.ai'
-      setSyncfyCredentials(createPreviewSyncfyCredentials())
-      setIsLoadingCredentials(false)
-      setCredentialsReadyForEmail(nextEmail)
-      setCredentialsFetchFailed(false)
-      return
-    }
-    if (!activeEmail) {
-      setSyncfyCredentials([])
-      setIsLoadingCredentials(false)
-      setCredentialsReadyForEmail(null)
-      setCredentialsFetchFailed(false)
-      return
-    }
-
-    setIsLoadingCredentials(true)
-    setCredentialsReadyForEmail(null)
-    setCredentialsFetchFailed(false)
-    apiJson<SyncfyCredentialsResponse>(`/api/syncfy/credentials?email=${encodeURIComponent(activeEmail)}`)
-      .then((response) => {
-        if (cancelled) return
-        setSyncfyCredentials(response.credentials)
-        setCredentialsReadyForEmail(activeEmail)
-        setCredentialsFetchFailed(false)
-      })
-      .catch(() => {
-        if (cancelled) return
-        setSyncfyCredentials([])
-        setCredentialsReadyForEmail(null)
-        setCredentialsFetchFailed(true)
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoadingCredentials(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeEmail, loadingPreviewEnabled, previewEmail, previewEnabled])
+  }, [queryClient])
 
   useEffect(() => {
     if (previewEnabled || loadingPreviewEnabled || !activeEmail) return
@@ -1572,34 +1553,6 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     previewEnabled,
   ])
 
-  useEffect(() => {
-    let cancelled = false
-    if (loadingPreviewEnabled) {
-      setHouseholdInvites([])
-      return
-    }
-    if (previewEnabled) {
-      setHouseholdInvites([])
-      return
-    }
-    if (!activeEmail) {
-      setHouseholdInvites([])
-      return
-    }
-
-    apiJson<HouseholdResponse>(`/api/household?email=${encodeURIComponent(activeEmail)}`)
-      .then((response) => {
-        if (!cancelled) setHouseholdInvites(response.invites || [])
-      })
-      .catch(() => {
-        if (!cancelled) setHouseholdInvites([])
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeEmail, loadingPreviewEnabled, previewEnabled])
-
   const transactions = data?.transactions || EMPTY_TRANSACTIONS
   const rawSummary = data?.summary || EMPTY_SUMMARY
   const summary = rawSummary.dataCoverage
@@ -1614,7 +1567,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
 
   useEffect(() => {
     if (previewEnabled || loadingPreviewEnabled || !activeEmail) return
-    if (isLoading || isLoadingCredentials || credentialsFetchFailed) return
+    if (transactionsQuery.isPending || isLoadingCredentials || credentialsFetchFailed) return
     if (credentialsReadyForEmail !== activeEmail) return
     if (!hasTransactions) return
     if (profile.monthlyIncome && profile.monthlyIncome > 0) return
@@ -1625,8 +1578,8 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     credentialsFetchFailed,
     credentialsReadyForEmail,
     hasTransactions,
-    isLoading,
     isLoadingCredentials,
+    transactionsQuery.isPending,
     loadingPreviewEnabled,
     previewEnabled,
     profile.monthlyIncome,
@@ -1799,7 +1752,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
       return
     }
 
-    setIsLoading(true)
+    setIsIdentifying(true)
     setStatus(pendingLoginEmail ? 'Verificando código.' : 'Registrando correo.')
 
     try {
@@ -1840,7 +1793,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'No pudimos registrar el correo.')
     } finally {
-      setIsLoading(false)
+      setIsIdentifying(false)
     }
   }
 
@@ -1868,7 +1821,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
         }),
       })
 
-      setHouseholdInvites(response.invites || [])
+      if (activeEmail) queryClient.setQueryData(queryKeys.household(activeEmail), response)
       setSpouseEmail('')
       setStatus(response.emailSent
         ? `Invitación enviada a ${normalizedSpouseEmail}.`
@@ -1917,7 +1870,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
           categoryAnalysis: buildCategoryAnalysis(chatTransactions, chatSummary, nextProfile),
           message: 'Perfil financiero actualizado.',
         }
-        setData(nextData)
+        setDashboardData(nextData)
         setStatus('Perfil financiero actualizado.')
         return
       }
@@ -1931,7 +1884,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
           categoryBudgets,
         }),
       })
-      setData(response)
+      setDashboardData(response)
       setStatus(response.message || 'Perfil financiero actualizado.')
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'No pudimos guardar el perfil financiero.')
@@ -1975,7 +1928,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
           categoryAnalysis: buildCategoryAnalysis(chatTransactions, chatSummary, nextProfile),
           message: 'Ingreso mensual guardado.',
         }
-        setData(nextData)
+        setDashboardData(nextData)
         setProfileForm((current) => ({ ...current, monthlyIncome: moneyInputValue(monthlyIncome) }))
         dismissIncomePrompt(activeEmail)
         setShowIncomePrompt(false)
@@ -1995,7 +1948,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
           categoryBudgets: profile.categoryBudgets,
         }),
       })
-      setData(response)
+      setDashboardData(response)
       setProfileForm((current) => ({
         ...current,
         monthlyIncome: moneyInputValue(response.profile?.monthlyIncome ?? monthlyIncome),
@@ -2083,7 +2036,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
         })
       }
 
-      if (latestResponse) setData(latestResponse)
+      if (latestResponse) setDashboardData(latestResponse)
       setManualDrafts([])
       setStatus(`${draftsToSave.length} ${draftsToSave.length === 1 ? 'movimiento guardado' : 'movimientos guardados'}.`)
     } catch (error) {
@@ -2106,7 +2059,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
           category,
         }),
       })
-      setData(response)
+      setDashboardData(response)
       setStatus(response.message || `Categoría actualizada a ${category}.`)
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'No pudimos actualizar la categoría.')
@@ -2987,13 +2940,12 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                 <h1 className="text-2xl font-semibold tracking-normal">No pudimos cargar tu análisis</h1>
                 <p className="max-w-md text-sm leading-relaxed text-muted-foreground">{loadError}</p>
                 <div className="flex flex-wrap items-center justify-center gap-3">
-                  <Button onClick={() => { setLoadError(null); setReloadNonce((n) => n + 1) }}>Reintentar</Button>
+                  <Button onClick={() => { void transactionsQuery.refetch() }}>Reintentar</Button>
                   <Button
                     variant="outline"
                     onClick={() => {
                       clearDashboardSession()
-                      setData(null)
-                      setLoadError(null)
+                      queryClient.clear()
                       setActiveEmail(null)
                       setStatus('Vuelve a entrar con tu correo.')
                     }}
@@ -3059,25 +3011,9 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                         ))}
                       </div>
 
-                      <div className={cn(FINANCE_ARTIFACT_INSET_CLASS, 'grid gap-3')}>
-                        {[
-                          ['Cuenta localizada', 'Listo'],
-                          ['Movimientos autorizados', 'Cargando'],
-                          ['Resumen financiero', 'Pendiente'],
-                        ].map(([label, value], index) => (
-                          <div key={label} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
-                            <div className={cn('flex size-7 items-center justify-center rounded-full text-xs font-semibold', index === 0 ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground')}>
-                              {index === 0 ? <Check className="size-3.5" /> : index + 1}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium">{label}</p>
-                              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-background">
-                                <div className={cn('h-full rounded-full', index === 0 ? 'w-full bg-primary' : index === 1 ? 'w-2/3 animate-pulse bg-primary/60' : 'w-1/3 bg-border')} />
-                              </div>
-                            </div>
-                            <p className="text-xs text-muted-foreground">{value}</p>
-                          </div>
-                        ))}
+                      <div className={cn(FINANCE_ARTIFACT_INSET_CLASS, 'flex items-center gap-3')}>
+                        <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">Cargando tus movimientos…</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -3103,9 +3039,7 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                               </div>
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium">{item.label}</p>
-                                <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-background">
-                                  <div className="h-full w-2/3 animate-pulse rounded-full bg-primary/55" />
-                                </div>
+                                <div className="mt-1 h-1.5 w-full animate-pulse rounded-full bg-primary/20" />
                               </div>
                             </div>
                           )
@@ -3165,6 +3099,13 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                 ) : null}
 
               <div className="flex min-w-0 flex-col gap-4">
+                {credentialsQuery.isError && activePage !== 'inicio' ? (
+                  renderQueryErrorNotice(
+                    'No pudimos cargar tus conexiones bancarias.',
+                    () => { void credentialsQuery.refetch() },
+                  )
+                ) : null}
+
                 {activePage === 'inicio' ? (
                   renderFinanceCockpitHome()
               ) : null}
@@ -3175,14 +3116,14 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                   initialCredentials={syncfyCredentials}
                   isLoadingCredentials={isLoadingCredentials}
                   onStatus={setStatus}
-                  onCredentialsChange={setSyncfyCredentials}
+                  onCredentialsChange={setSyncfyCredentialsCache}
                   onSynced={(response) => {
                     const nextData = response as DashboardResponse & { credentials?: SyncfyCredential[] }
                     if (Array.isArray(nextData.credentials)) {
-                      setSyncfyCredentials(nextData.credentials)
+                      setSyncfyCredentialsCache(nextData.credentials)
                     }
                     if (Array.isArray(nextData.transactions)) {
-                      setData(nextData)
+                      setDashboardData(nextData)
                       const nextIncome = nextData.profile?.monthlyIncome
                       if (
                         activeEmail &&
@@ -4166,7 +4107,12 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                             </Button>
                           </div>
 
-                          {householdInvites.length > 0 ? (
+                          {householdQuery.isError ? (
+                            renderQueryErrorNotice(
+                              'No pudimos cargar las invitaciones.',
+                              () => { void householdQuery.refetch() },
+                            )
+                          ) : householdInvites.length > 0 ? (
                             <div className="grid gap-2">
                               {householdInvites.map((invite) => (
                                 <div key={invite.id} className={cn(FINANCE_ARTIFACT_INSET_CLASS, 'grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center')}>
@@ -4350,8 +4296,8 @@ export default function Dashboard({ email, initialNotice, initialPath, onBackHom
                           />
                         </div>
                       ) : null}
-                      <Button type="submit" className="self-end rounded-full px-5" disabled={isLoading}>
-                        {isLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+                      <Button type="submit" className="self-end rounded-full px-5" disabled={isIdentifying}>
+                        {isIdentifying ? <Loader2 className="size-4 animate-spin" /> : null}
                         {pendingLoginEmail ? 'Verificar' : 'Continuar'}
                       </Button>
                     </form>
