@@ -1,21 +1,30 @@
 import { expect, test } from 'bun:test'
-import worker, {
-  addSyncfyUserParamToEndpoint,
-  buildNextSyncfyTransactionsPageEndpoint,
-  buildSyncfyTransactionsPath,
-  buildSyncfyExternalId,
-  extractSyncfySiteMetadata,
-  extractSyncfyTransactions,
-  getSyncfyJobStatusPaths,
-  inferExpenseCategory,
-  isSyncfyTransactionImportComplete,
+import worker from './index'
+import {
   getDashboardChatModel,
   getProductChatModel,
-  normalizeSyncfyRequestPath,
+} from './lib/ai'
+import {
+  extractSyncfyTransactions,
+  getSyncfyJobStatusPaths,
+  isSyncfyTransactionImportComplete,
   normalizeSyncfyTransaction,
+} from './lib/ingest'
+import {
+  extractSyncfySiteMetadata,
   normalizeSignupEmail,
+} from './lib/shared'
+import {
+  addSyncfyUserParamToEndpoint,
+  buildNextSyncfyTransactionsPageEndpoint,
+  buildSyncfyExternalId,
+  buildSyncfyTransactionsPath,
+  normalizeSyncfyRequestPath,
+} from './lib/syncfy'
+import {
+  inferExpenseCategory,
   summarizeExpenses,
-} from './index'
+} from './routes/finance'
 
 test('normalizeSignupEmail normalizes valid email addresses', () => {
   expect(normalizeSignupEmail('  USER@Example.COM  ')).toBe('user@example.com')

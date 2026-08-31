@@ -5,28 +5,37 @@ import {
   type DashboardBenchmarkStage,
 } from './dashboard-chat-benchmark'
 
-import worker, {
+import worker from './index'
+import {
   buildActionPlan,
   buildCategoryAnalysis,
-  buildDashboardChatContext,
   buildFinancialInsights,
   buildFinancialSummary,
-  classifyDashboardQuestionStage,
-  classifySyncfyConnectionIssue,
-  classifySyncfyCredentialBlocker,
-  extractSyncfyEventType,
-  extractSyncfySiteMetadata,
   finalizeDashboardChatAnswer,
-  getSyncfyCredentialBlockerMessage,
+  type FinanceTransaction,
+} from '../shared/finance-core'
+import {
   getSyncfyWebhookEndpointPaths,
-  parseSyncfyCredentialHealth,
-  inferFinanceCategory,
   isSyncfyBackgroundRefreshDue,
   isSyncfyProviderPullRetryDue,
+} from './lib/ingest'
+import {
+  extractSyncfyEventType,
+  extractSyncfySiteMetadata,
+  inferFinanceCategory,
   normalizeFinancialAmount,
   normalizeFinancialDate,
-  type FinanceTransaction,
-} from './index'
+} from './lib/shared'
+import {
+  classifySyncfyConnectionIssue,
+  classifySyncfyCredentialBlocker,
+  getSyncfyCredentialBlockerMessage,
+  parseSyncfyCredentialHealth,
+} from './lib/syncfy'
+import {
+  buildDashboardChatContext,
+  classifyDashboardQuestionStage,
+} from './routes/finance'
 
 type BoundParams = Array<string | number | null>
 
