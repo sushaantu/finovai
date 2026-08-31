@@ -26,6 +26,7 @@ import type {
   NormalizedSyncfyTransaction,
   SyncfyConnectionIssueKind,
   SyncfyCredentialRow,
+  SyncfyCredentialHealth,
   SyncfySiteMetadata,
   SyncfyTransactionImportResult,
 } from './shared'
@@ -868,10 +869,45 @@ export async function applyConnectionEvent(
 
 export async function applyPollOutcome(
   env: Env,
-  credential: { email: string; syncfy_credential_id: string },
-  event: ConnectionEvent
+  credential: Pick<SyncfyCredentialRow, 'email' | 'syncfy_user_id' | 'syncfy_credential_id'>,
+  event: ConnectionEvent,
+  details: {
+    health?: SyncfyCredentialHealth | null
+    result?: Pick<SyncfyTransactionImportResult, 'vendorStatus' | 'vendorMessage'> | null
+  } = {}
 ): Promise<TransitionResult> {
+  if (event.type === 'auth_required') {
+    await storeSyncfyCredentialStateError(env, credential, details)
+  }
   return applyConnectionEvent(env, credential, event)
+}
+
+export async function storeSyncfyCredentialStateError(
+  env: Env,
+  credential: Pick<SyncfyCredentialRow, 'email' | 'syncfy_user_id' | 'syncfy_credential_id'>,
+  details: {
+    health?: SyncfyCredentialHealth | null
+    result?: Pick<SyncfyTransactionImportResult, 'vendorStatus' | 'vendorMessage'> | null
+  } = {}
+): Promise<void> {
+  const health = details.health
+  const result = details.result
+  const statusCode = health?.code ?? result?.vendorStatus ?? null
+  const isTwofa = Boolean(health?.isTwofa) || [410, 411, 412, 413].includes(statusCode ?? 0) ||
+    /two.?factor|2fa|verification code|c[oó]digo de seguridad|otp/.test(result?.vendorMessage ?? '')
+
+  await storeSyncfyError(env, {
+    email: credential.email,
+    syncfyUserId: credential.syncfy_user_id,
+    syncfyCredentialId: credential.syncfy_credential_id,
+    statusCode,
+    errorCode: statusCode === null ? null : String(statusCode),
+    message: isTwofa
+      ? 'Syncfy credential requires user 2FA; waiting for reconnect.'
+      : 'Syncfy credential login rejected by institution; waiting for reconnect.',
+    source: 'syncfy-credential-state',
+    payload: details,
+  })
 }
 
 export async function refreshSyncfyCredential(
@@ -883,7 +919,11 @@ export async function refreshSyncfyCredential(
     return { imported: 0, failed: false }
   }
 
-  const key = { email: credential.email, syncfy_credential_id: credential.syncfy_credential_id }
+  const key = {
+    email: credential.email,
+    syncfy_user_id: credential.syncfy_user_id,
+    syncfy_credential_id: credential.syncfy_credential_id,
+  }
 
   try {
     const health = await fetchSyncfyCredentialHealth(
@@ -894,16 +934,7 @@ export async function refreshSyncfyCredential(
     const blocker = classifySyncfyCredentialBlocker(health)
 
     if (blocker === 'needs_reconnect') {
-      await storeSyncfyError(env, {
-        email: credential.email,
-        syncfyUserId: credential.syncfy_user_id,
-        syncfyCredentialId: credential.syncfy_credential_id,
-        statusCode: health?.code ?? null,
-        message: health?.isTwofa
-          ? 'Syncfy credential requires user 2FA; waiting for reconnect.'
-          : 'Syncfy credential login rejected by institution; waiting for reconnect.',
-        source: 'syncfy-credential-state',
-      })
+      await storeSyncfyCredentialStateError(env, credential, { health })
       await applyConnectionEvent(env, key, { type: 'auth_required' })
       return { imported: 0, failed: true }
     }
@@ -925,10 +956,12 @@ export async function refreshSyncfyCredential(
       credential.syncfy_credential_id,
       result
     )
-    await applyConnectionEvent(
+    const event = connectionEventFromPoll(result, importState, blocker, credential.state)
+    await applyPollOutcome(
       env,
       key,
-      connectionEventFromPoll(result, importState, blocker, credential.state)
+      event,
+      { result }
     )
     return { imported: result.imported, failed: false }
   } catch (err) {
@@ -944,7 +977,12 @@ export async function refreshSyncfyCredential(
         source: 'syncfy-scheduled-refresh',
         payload: err.responseBody,
       })
-      await applyConnectionEvent(env, key, classifyVendorFailure(err.status, err.message))
+      await applyPollOutcome(
+        env,
+        key,
+        classifyVendorFailure(err.status, err.message),
+        { result: { vendorStatus: err.status, vendorMessage: err.message } }
+      )
       return { imported: 0, failed: true }
     }
     throw err

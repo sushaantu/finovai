@@ -78,6 +78,7 @@ import {
   mergeSyncfyTransactionImportResults,
   refreshSyncfyCredential,
   resolveSyncfyTransactionImportState,
+  storeSyncfyCredentialStateError,
 } from '../lib/ingest'
 import {
   classifyVendorFailure,
@@ -795,10 +796,16 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
             syncfy_credential_id: credential.syncfy_credential_id,
           }, { type: 'sync_succeeded' })
         } else if (importResult.vendorStatus != null || importResult.vendorMessage) {
-          await applyConnectionEvent(env, {
-            email: normalizedEmail,
-            syncfy_credential_id: credential.syncfy_credential_id,
-          }, classifyVendorFailure(importResult.vendorStatus ?? null, importResult.vendorMessage ?? null))
+          await applyPollOutcome(
+            env,
+            {
+              email: normalizedEmail,
+              syncfy_user_id: credential.syncfy_user_id,
+              syncfy_credential_id: credential.syncfy_credential_id,
+            },
+            classifyVendorFailure(importResult.vendorStatus ?? null, importResult.vendorMessage ?? null),
+            { result: importResult }
+          )
         }
       }
 
@@ -892,6 +899,7 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
       const blocker = classifySyncfyCredentialBlocker(health)
 
       if (blocker === 'needs_reconnect') {
+        await storeSyncfyCredentialStateError(env, credential, { health })
         await applyConnectionEvent(env, {
           email: normalizedEmail,
           syncfy_credential_id: credential.syncfy_credential_id,
@@ -935,8 +943,13 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
 
             await applyPollOutcome(
               env,
-              { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
-              connectionEventFromPoll(importResult, importState, blocker, credential.state)
+              {
+                email: normalizedEmail,
+                syncfy_user_id: credential.syncfy_user_id,
+                syncfy_credential_id: credential.syncfy_credential_id,
+              },
+              connectionEventFromPoll(importResult, importState, blocker, credential.state),
+              { result: importResult }
             )
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
@@ -952,10 +965,15 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
                 source: 'syncfy-refresh-background',
                 payload: err.responseBody,
               })
-              await applyConnectionEvent(
+              await applyPollOutcome(
                 env,
-                { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
-                classifyVendorFailure(err.status, err.message)
+                {
+                  email: normalizedEmail,
+                  syncfy_user_id: credential.syncfy_user_id,
+                  syncfy_credential_id: credential.syncfy_credential_id,
+                },
+                classifyVendorFailure(err.status, err.message),
+                { result: { vendorStatus: err.status, vendorMessage: err.message } }
               )
             } else {
               await storeSyncfyError(env, {
@@ -1022,8 +1040,13 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
         const importComplete = importState.complete
         await applyPollOutcome(
           env,
-          { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
-          connectionEventFromPoll(importResult, importState, blocker, credential.state)
+          {
+            email: normalizedEmail,
+            syncfy_user_id: credential.syncfy_user_id,
+            syncfy_credential_id: credential.syncfy_credential_id,
+          },
+          connectionEventFromPoll(importResult, importState, blocker, credential.state),
+          { result: importResult }
         )
         const dashboard = await getFinanceDashboard(env, normalizedEmail)
 
@@ -1049,10 +1072,15 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
             source: 'syncfy-refresh',
             payload: err.responseBody,
           })
-          await applyConnectionEvent(
+          await applyPollOutcome(
             env,
-            { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
-            classifyVendorFailure(err.status, err.message)
+            {
+              email: normalizedEmail,
+              syncfy_user_id: credential.syncfy_user_id,
+              syncfy_credential_id: credential.syncfy_credential_id,
+            },
+            classifyVendorFailure(err.status, err.message),
+            { result: { vendorStatus: err.status, vendorMessage: err.message } }
           )
 
           return json({

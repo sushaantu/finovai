@@ -1048,8 +1048,13 @@ export async function handleFinanceRoutes(request: Request, env: Env, url: URL):
             )
             await applyPollOutcome(
               env,
-              { email: normalizedEmail, syncfy_credential_id: credential.syncfy_credential_id },
-              connectionEventFromPoll(importResult, importState, null, credential.state)
+              {
+                email: normalizedEmail,
+                syncfy_user_id: credential.syncfy_user_id,
+                syncfy_credential_id: credential.syncfy_credential_id,
+              },
+              connectionEventFromPoll(importResult, importState, null, credential.state),
+              { result: importResult }
             )
           }
 

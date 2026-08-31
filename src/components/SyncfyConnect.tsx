@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { SyncfyWidgetInstance } from '@syncfy/authentication-widget'
+import type { SocketMessage, SyncfyWidgetInstance } from '@syncfy/authentication-widget'
 import syncfyWidgetUmdUrl from '../../node_modules/@syncfy/authentication-widget/dist/syncfy-authentication-widget.umd.js?url'
 import '@syncfy/authentication-widget/dist/syncfy-authentication-widget.css'
 import {
@@ -70,10 +70,10 @@ const SYNCFY_FLOATING_NOTIFICATION_SELECTORS = [
   '.el-notification',
   '.pb-w-sync_notification-form',
   '.pb-w-sync_notification-loader',
-  '.pb-w-sync_twofa-notification',
   '.pb-w-sync_unauthorized-notification',
   '.pb-w-sync_widget-notification-show-more-container',
 ].join(',')
+const SYNCFY_TWOFA_NOTIFICATION_SELECTOR = '.pb-w-sync_twofa-notification'
 
 function getLoadedSyncfyWidget() {
   return window.SyncfyWidget
@@ -132,20 +132,27 @@ function loadSyncfyWidget() {
   return syncfyWidgetLoader
 }
 
-function removeSyncfyFloatingNotifications() {
+function removeSyncfyFloatingNotifications(includeTwofa = false) {
   if (typeof document === 'undefined') return
 
+  const selectors = includeTwofa
+    ? `${SYNCFY_FLOATING_NOTIFICATION_SELECTORS},${SYNCFY_TWOFA_NOTIFICATION_SELECTOR}`
+    : SYNCFY_FLOATING_NOTIFICATION_SELECTORS
+
   document
-    .querySelectorAll(SYNCFY_FLOATING_NOTIFICATION_SELECTORS)
-    .forEach((element) => element.remove())
+    .querySelectorAll(selectors)
+    .forEach((element) => {
+      if (!includeTwofa && element.querySelector(SYNCFY_TWOFA_NOTIFICATION_SELECTOR)) return
+      element.remove()
+    })
 }
 
-function scheduleSyncfyNotificationCleanup() {
+function scheduleSyncfyNotificationCleanup(includeTwofa = false) {
   if (typeof window === 'undefined') return
 
-  removeSyncfyFloatingNotifications()
-  window.setTimeout(removeSyncfyFloatingNotifications, 100)
-  window.setTimeout(removeSyncfyFloatingNotifications, 750)
+  removeSyncfyFloatingNotifications(includeTwofa)
+  window.setTimeout(() => removeSyncfyFloatingNotifications(includeTwofa), 100)
+  window.setTimeout(() => removeSyncfyFloatingNotifications(includeTwofa), 750)
 }
 
 function formatCooldown(seconds: number) {
@@ -354,7 +361,7 @@ export function SyncfyConnect({
     if (widgetContainerRef.current) {
       widgetContainerRef.current.innerHTML = ''
     }
-    scheduleSyncfyNotificationCleanup()
+    scheduleSyncfyNotificationCleanup(true)
   }
 
   const dismissWidgetSession = () => {
@@ -372,7 +379,6 @@ export function SyncfyConnect({
       const nextCredential = findCredentialForWidgetRun(nextCredentials)
 
       if (nextCredential) {
-        dismissWidgetSession()
         setMessage(attemptRefresh
           ? 'Institución detectada. Buscando movimientos.'
           : 'Institución detectada.')
@@ -416,7 +422,6 @@ export function SyncfyConnect({
         : null
       const nextCredential = responseCredential || findCredentialForWidgetRun(response.credentials)
       if (nextCredential?.syncfyCredentialId) {
-        dismissWidgetSession()
         window.setTimeout(() => {
           void refreshTransactions(nextCredential.syncfyCredentialId, response.pendingTransactions ? 1 : 0)
         }, 1200)
@@ -489,6 +494,20 @@ export function SyncfyConnect({
           }
         })
       })
+      widget.on('socket-message', (...args: unknown[]) => {
+        const payload = args[0] as Partial<SocketMessage> | undefined
+        if (!payload || typeof payload.code !== 'number') return
+
+        const nextMessage = payload.code === 410
+          ? 'Tu banco solicita el token móvil o un código de seguridad. Revisa su app y completa la verificación en este formulario.'
+          : payload.code === 411
+            ? 'El código de seguridad venció. Vuelve a intentarlo con la app de tu banco lista.'
+            : null
+        if (!nextMessage) return
+
+        setMessage(nextMessage)
+        onStatus?.(nextMessage)
+      })
       widget.on('error', () => {
         scheduleSyncfyNotificationCleanup()
         const rid = widget.getLastRid?.()
@@ -522,8 +541,18 @@ export function SyncfyConnect({
       })
       widget.on('closed', () => {
         clearCredentialPolling()
+        scheduleSyncfyNotificationCleanup(true)
         setSession(null)
-        void loadCredentials()
+        // Re-sync after the widget closes: an in-widget 2FA completion can leave
+        // the stored credential in needs_user even though the institution has
+        // already authorized it, and only a fresh refresh (which re-runs the
+        // provider health check) recovers it without user action.
+        void loadCredentials().then((nextCredentials) => {
+          const nextCredential = findCredentialForWidgetRun(nextCredentials)
+          if (nextCredential?.syncfyCredentialId) {
+            void refreshTransactions(nextCredential.syncfyCredentialId, 0)
+          }
+        })
       })
 
       window.setTimeout(() => {

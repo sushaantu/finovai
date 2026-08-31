@@ -1799,6 +1799,15 @@ test('syncfy refresh waitUntil failure applies a lifecycle event', async () => {
     const row = (await readSyncfyCredentials(env.DB))[0]
     expect(row.state).toBe('needs_user')
     expect(row.status).toBe('needs_reconnect')
+    const errors = await readSyncfyErrors(env.DB)
+    expect(errors).toHaveLength(2)
+    expect(errors.find((error) => error.source === 'syncfy-credential-state')).toMatchObject({
+      email: 'user@example.com',
+      syncfy_credential_id: 'credential-1',
+      status_code: 401,
+      error_code: '401',
+      source: 'syncfy-credential-state',
+    })
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -2192,6 +2201,56 @@ test('syncfy refresh recovers stale needs_reconnect when transactions are readab
     expect(data.transactions).toHaveLength(1)
     expect((await readSyncfyCredentials(env.DB))[0].status).toBe('synced')
     expect((await readSyncfyCredentials(env.DB))[0].last_successful_sync_at).toBeTruthy()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy refresh logs a credential health 2FA rejection', async () => {
+  const env = createEnv('test', { SYNCFY_API_KEY: 'test-key' })
+  await seedSyncfyCredentials(env.DB, {
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    site_name: 'BBVA México',
+    status: 'pending_transactions',
+    state: 'pending',
+    created_at: '2026-08-31T16:00:00Z',
+    updated_at: '2026-08-31T16:00:00Z',
+  })
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    status: true,
+    response: [{
+      id_credential: 'credential-1',
+      code: 401,
+      is_authorized: false,
+      is_twofa: true,
+    }],
+  }), { headers: { 'Content-Type': 'application/json' } })) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/refresh', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'user@example.com',
+        credentialId: 'credential-1',
+      }),
+    }), env)
+
+    expect(response.status).toBe(409)
+    expect((await response.json()).needsReconnect).toBe(true)
+    expect(await readSyncfyErrors(env.DB)).toHaveLength(1)
+    expect((await readSyncfyErrors(env.DB))[0]).toMatchObject({
+      email: 'user@example.com',
+      syncfy_credential_id: 'credential-1',
+      status_code: 401,
+      error_code: '401',
+      message: 'Syncfy credential requires user 2FA; waiting for reconnect.',
+      source: 'syncfy-credential-state',
+    })
   } finally {
     globalThis.fetch = originalFetch
   }
