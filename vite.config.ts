@@ -10,6 +10,8 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
+      '@finovai/core/react': path.resolve(__dirname, './packages/core/src/react/index.ts'),
+      '@finovai/core': path.resolve(__dirname, './packages/core/src/index.ts'),
       '@': path.resolve(__dirname, './src'),
     },
   },

@@ -39,6 +39,18 @@
         "wrangler": "^4.95.0",
       },
     },
+    "packages/core": {
+      "name": "@finovai/core",
+      "version": "0.1.0",
+      "peerDependencies": {
+        "@tanstack/react-query": ">=5",
+        "react": ">=19",
+      },
+      "optionalPeers": [
+        "@tanstack/react-query",
+        "react",
+      ],
+    },
   },
   "overrides": {
     "qs": "^6.15.2",
@@ -195,6 +207,8 @@
     "@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.27.3", "", { "os": "win32", "cpu": "ia32" }, "sha512-QLKSFeXNS8+tHW7tZpMtjlNb7HKau0QDpwm49u0vUp9y1WOF+PEzkU84y9GqYaAVW8aH8f3GcBck26jh54cX4Q=="],
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.27.3", "", { "os": "win32", "cpu": "x64" }, "sha512-4uJGhsxuptu3OcpVAzli+/gWusVGwZZHTlS63hh++ehExkVT8SgiEf7/uC/PclrPPkLhZqGgCTjd0VWLo6xMqA=="],
+
+    "@finovai/core": ["@finovai/core@workspace:packages/core"],
 
     "@firebase/ai": ["@firebase/ai@2.12.0", "", { "dependencies": { "@firebase/app-check-interop-types": "0.3.4", "@firebase/component": "0.7.3", "@firebase/logger": "0.5.1", "@firebase/util": "1.15.1", "tslib": "^2.1.0" }, "peerDependencies": { "@firebase/app": "0.x", "@firebase/app-types": "0.x" } }, "sha512-b+OL4vdyiSLZL/7dLd67V55CjKJvU9MpNmwnday7eA6GG2+J4iwUEsEHgw0/jKY3A41FfkF0SrnYFvtKbQZ65A=="],
 

@@ -18,9 +18,11 @@
     "types": ["vite/client"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@finovai/core": ["./packages/core/src/index.ts"],
+      "@finovai/core/react": ["./packages/core/src/react/index.ts"]
     }
   },
-  "include": ["src", "shared"],
+  "include": ["src", "shared", "packages/core/src"],
   "exclude": ["shared/**/*.test.ts"]
 }

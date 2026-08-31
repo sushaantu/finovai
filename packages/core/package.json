@@ -1,0 +1,18 @@
+{
+  "name": "@finovai/core",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/react/index.ts"
+  },
+  "peerDependencies": {
+    "react": ">=19",
+    "@tanstack/react-query": ">=5"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true },
+    "@tanstack/react-query": { "optional": true }
+  }
+}
