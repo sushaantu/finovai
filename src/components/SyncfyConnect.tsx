@@ -900,7 +900,7 @@ export function SyncfyConnect({
                     : isVerifying
                       ? credential.ready ? 'Verificar ahora' : 'Verificando'
                       : 'Sincronizar'
-              const primaryActionDisabled = isBusy || (!needsReconnect && !credential.ready)
+              const primaryActionDisabled = isBusy || isBroken || (!needsReconnect && !credential.ready)
 
               return (
                 <div

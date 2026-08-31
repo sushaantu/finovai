@@ -2158,8 +2158,8 @@ test('syncfy refresh records pending pull attempts when Syncfy returns no transa
     last_pull_at: null,
     last_rid: 'rid-1',
     raw_json: null,
-    created_at: '2026-06-10T02:49:34Z',
-    updated_at: '2026-06-10T02:49:34Z',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   })
 
   const originalFetch = globalThis.fetch
@@ -2474,6 +2474,190 @@ test('syncfy deleted webhook removes local credential instead of recreating it',
   expect(remaining[0].deleted_at).toBeTruthy()
   expect(await readTransactions(env.DB)).toEqual([])
   expect((await readSyncfyWebhookEvents(env.DB))[0].processed_at).toBeTruthy()
+})
+
+test('syncfy webhook does not undelete a user-soft-deleted credential', async () => {
+  const env = createEnv('test', {
+    SYNCFY_API_KEY: 'test-key',
+    SYNCFY_WEBHOOK_SECRET: 'webhook-secret',
+  })
+  await seedSyncfyUsers(env.DB, {
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_external_id: 'finovai:user@example.com',
+    name: null,
+    mode: 'live',
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: null,
+    last_session_at: null,
+  })
+  await seedSyncfyCredentials(env.DB, {
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    site_name: 'BBVA México',
+    status: 'synced',
+    state: 'healthy',
+    last_successful_sync_at: '2026-08-01T00:00:00Z',
+    last_pull_at: '2026-08-01T00:00:00Z',
+    last_rid: null,
+    raw_json: null,
+    created_at: '2026-06-02T00:00:00Z',
+    updated_at: '2026-08-01T00:00:00Z',
+  })
+  await env.DB.prepare(`UPDATE syncfy_credentials SET deleted_at = datetime('now') WHERE syncfy_credential_id = ?`)
+    .bind('credential-1')
+    .run()
+
+  let vendorCalls = 0
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => {
+    vendorCalls += 1
+    return new Response(JSON.stringify({ response: {} }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  const waitUntilPromises: Promise<unknown>[] = []
+  const ctx = {
+    waitUntil(promise: Promise<unknown>) {
+      waitUntilPromises.push(promise)
+    },
+  } as unknown as ExecutionContext
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-finovai-webhook-secret': 'webhook-secret',
+      },
+      body: JSON.stringify({
+        rid: 'resurrect-rid',
+        events: [{
+          header: {
+            event: { name: 'credentials.refreshed' },
+            user: { id_user: 'syncfy-user-1' },
+          },
+          payload: {
+            status: 'SUCCESS',
+            id_credential: 'credential-1',
+            id_user: 'syncfy-user-1',
+          },
+        }],
+      }),
+    }), env, ctx)
+
+    expect(response.status).toBe(202)
+    if (waitUntilPromises[0]) await waitUntilPromises[0]
+
+    const row = (await readSyncfyCredentials(env.DB))[0]
+    expect(row.deleted_at).toBeTruthy()
+    expect(row.state).toBe('healthy')
+    expect(vendorCalls).toBe(0)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('syncfy webhook does not poll needs_user or abandoned credentials', async () => {
+  const env = createEnv('test', {
+    SYNCFY_API_KEY: 'test-key',
+    SYNCFY_WEBHOOK_SECRET: 'webhook-secret',
+  })
+  await seedSyncfyUsers(env.DB, {
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_external_id: 'finovai:user@example.com',
+    name: null,
+    mode: 'live',
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: null,
+    last_session_at: null,
+  })
+  await seedSyncfyCredentials(env.DB,
+    {
+      id: 'credential-row-nu',
+      email: 'user@example.com',
+      syncfy_user_id: 'syncfy-user-1',
+      syncfy_credential_id: 'cred-needs-user',
+      site_name: 'BBVA México',
+      status: 'needs_reconnect',
+      state: 'needs_user',
+      last_successful_sync_at: null,
+      last_pull_at: null,
+      last_rid: null,
+      raw_json: null,
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    },
+    {
+      id: 'credential-row-ab',
+      email: 'user@example.com',
+      syncfy_user_id: 'syncfy-user-1',
+      syncfy_credential_id: 'cred-abandoned',
+      site_name: 'American Express',
+      status: 'sync_error',
+      state: 'abandoned',
+      last_successful_sync_at: null,
+      last_pull_at: null,
+      last_rid: null,
+      raw_json: null,
+      created_at: '2026-06-01T00:00:00Z',
+      updated_at: '2026-08-01T00:00:00Z',
+    }
+  )
+
+  let vendorCalls = 0
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => {
+    vendorCalls += 1
+    return new Response(JSON.stringify({ response: {} }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  const waitUntilPromises: Promise<unknown>[] = []
+  const ctx = {
+    waitUntil(promise: Promise<unknown>) {
+      waitUntilPromises.push(promise)
+    },
+  } as unknown as ExecutionContext
+
+  try {
+    for (const credentialId of ['cred-needs-user', 'cred-abandoned']) {
+      const response = await worker.fetch(new Request('http://local.test/api/syncfy/webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-finovai-webhook-secret': 'webhook-secret',
+        },
+        body: JSON.stringify({
+          events: [{
+            header: {
+              event: { name: 'credentials.refreshed' },
+              user: { id_user: 'syncfy-user-1' },
+            },
+            payload: {
+              status: 'SUCCESS',
+              id_credential: credentialId,
+              id_user: 'syncfy-user-1',
+            },
+          }],
+        }),
+      }), env, ctx)
+      expect(response.status).toBe(202)
+    }
+    await Promise.all(waitUntilPromises)
+
+    expect(vendorCalls).toBe(0)
+    const rows = await readSyncfyCredentials(env.DB)
+    expect(rows.find((row) => row.syncfy_credential_id === 'cred-needs-user')?.state).toBe('needs_user')
+    expect(rows.find((row) => row.syncfy_credential_id === 'cred-abandoned')?.state).toBe('abandoned')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('syncfy status probe is protected and returns sanitized upstream checks', async () => {

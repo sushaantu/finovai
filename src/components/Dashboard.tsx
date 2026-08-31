@@ -572,6 +572,7 @@ function syncfyCredentialHasProviderIssue(credential: SyncfyCredential) {
 }
 
 function syncfyCredentialNeedsSupport(credential: SyncfyCredential) {
+  if (syncfyCredentialNeedsReconnect(credential)) return false
   return credential.connectionState === 'support_required' ||
     credential.status === 'sync_error'
 }

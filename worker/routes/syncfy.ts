@@ -653,7 +653,7 @@ export async function handleSyncfyRoutes(request: Request, env: Env, url: URL, c
 
       const eventType = body.eventType || 'widget.success'
       const payload = body.payload ?? body
-      const credential = await storeSyncfyCredential(env, payload, eventType, normalizedEmail)
+      const credential = await storeSyncfyCredential(env, payload, eventType, normalizedEmail, { undelete: true })
       if (!credential) {
         const rid = extractSyncfyRid(payload)
         const isWidgetError = eventType.toLowerCase().includes('error')

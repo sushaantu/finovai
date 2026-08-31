@@ -75,6 +75,18 @@ test('healthy credential that succeeds stays healthy and resets counters', async
   expect(row.last_successful_sync_at).not.toBeNull()
 })
 
+test('pending empty vendor 200 still applies a lifecycle event', async () => {
+  const { db } = createTestDb(await loadSchema())
+  await seedCredential(db, { state: 'pending', createdAt: new Date().toISOString() })
+  const env = makeEnv(db, () => ({ ok: true, status: 200, message: 'ok' }))
+  await runScheduled(env)
+  const row = await db.prepare('SELECT state, attempt_count, last_pull_at, status FROM syncfy_credentials').first<any>()
+  expect(row.state).toBe('pending')
+  expect(row.attempt_count).toBe(1)
+  expect(row.last_pull_at).not.toBeNull()
+  expect(row.status).toBe('pending_transactions')
+})
+
 test('needs_user and abandoned are excluded from due selection', async () => {
   const { db } = createTestDb(await loadSchema())
   await seedCredential(db, { id: 'cred-nu', state: 'needs_user' })

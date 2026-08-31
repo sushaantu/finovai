@@ -153,7 +153,6 @@ async function storeSyncfyCredentialPullState(
     `UPDATE syncfy_credentials
      SET raw_json = ?,
          last_pull_at = datetime("now"),
-         status = 'pending_transactions',
          updated_at = datetime("now")
      WHERE email = ? AND syncfy_credential_id = ?`
   )
@@ -795,14 +794,14 @@ export function connectionEventFromPoll(
   importState: { complete: boolean },
   blocker: ReturnType<typeof classifySyncfyCredentialBlocker>,
   currentState?: string | null
-): ConnectionEvent | null {
+): ConnectionEvent {
   if (blocker === 'needs_reconnect') return { type: 'auth_required' }
   if (importState.complete) return { type: 'sync_succeeded' }
   if (result.vendorStatus != null || result.vendorMessage) {
     return classifyVendorFailure(result.vendorStatus ?? null, result.vendorMessage ?? null)
   }
   if (currentState === 'healthy') return { type: 'sync_succeeded' }
-  return null
+  return { type: 'sync_failed', statusCode: null, vendorCode: null }
 }
 
 export async function applyConnectionEvent(
@@ -856,9 +855,8 @@ export async function applyConnectionEvent(
 export async function applyPollOutcome(
   db: D1Database,
   credential: { email: string; syncfy_credential_id: string },
-  event: ConnectionEvent | null
-): Promise<TransitionResult | null> {
-  if (!event) return null
+  event: ConnectionEvent
+): Promise<TransitionResult> {
   return applyConnectionEvent(db, credential, event)
 }
 
@@ -866,6 +864,11 @@ export async function refreshSyncfyCredential(
   env: Env,
   credential: SyncfyCredentialRow
 ): Promise<{ imported: number; failed: boolean }> {
+  if (credential.deleted_at) return { imported: 0, failed: false }
+  if (credential.state === 'needs_user' || credential.state === 'abandoned') {
+    return { imported: 0, failed: false }
+  }
+
   const key = { email: credential.email, syncfy_credential_id: credential.syncfy_credential_id }
 
   try {
@@ -908,16 +911,11 @@ export async function refreshSyncfyCredential(
       credential.syncfy_credential_id,
       result
     )
-    const event = connectionEventFromPoll(result, importState, blocker, credential.state)
-    if (event) {
-      await applyConnectionEvent(env.DB, key, event)
-    } else {
-      await env.DB.prepare(
-        `UPDATE syncfy_credentials
-         SET last_pull_at = ?, updated_at = ?
-         WHERE email = ? AND syncfy_credential_id = ? AND deleted_at IS NULL`
-      ).bind(new Date().toISOString(), new Date().toISOString(), key.email, key.syncfy_credential_id).run()
-    }
+    await applyConnectionEvent(
+      env.DB,
+      key,
+      connectionEventFromPoll(result, importState, blocker, credential.state)
+    )
     return { imported: result.imported, failed: false }
   } catch (err) {
     if (err instanceof SyncfyRequestError) {

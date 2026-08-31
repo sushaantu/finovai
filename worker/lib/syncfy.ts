@@ -176,7 +176,8 @@ export async function storeSyncfyCredential(
   env: Env,
   payload: unknown,
   eventType: string,
-  fallbackEmail?: string | null
+  fallbackEmail?: string | null,
+  options: { undelete?: boolean } = {}
 ): Promise<SyncfyCredentialRow | null> {
   const credential = extractSyncfyCredentialPayload(payload)
   if (!credential.syncfyCredentialId) return null
@@ -189,6 +190,13 @@ export async function storeSyncfyCredential(
     : await findSyncfyUserByEmail(env, email)
   const syncfyUserId = credential.syncfyUserId || syncfyUser?.syncfy_user_id
   if (!syncfyUserId) return null
+
+  const existing = await env.DB.prepare(
+    `SELECT deleted_at FROM syncfy_credentials WHERE email = ? AND syncfy_credential_id = ?`
+  ).bind(email, credential.syncfyCredentialId).first<{ deleted_at: string | null }>()
+  if (existing?.deleted_at && !options.undelete) {
+    return null
+  }
 
   const now = new Date().toISOString()
   const successfulSyncAt = isSyncfyRefreshEvent(eventType) && isSyncfySuccessfulStatus(credential.status) ? now : null
@@ -212,7 +220,7 @@ export async function storeSyncfyCredential(
        raw_json = excluded.raw_json,
        updated_at = datetime("now"),
        user_id = COALESCE(excluded.user_id, syncfy_credentials.user_id),
-       deleted_at = NULL`
+       deleted_at = CASE WHEN ? THEN NULL ELSE syncfy_credentials.deleted_at END`
   )
     .bind(
       crypto.randomUUID(),
@@ -226,7 +234,8 @@ export async function storeSyncfyCredential(
       isSyncfyRefreshEvent(eventType) ? now : null,
       credential.rid,
       JSON.stringify(payload),
-      user.id
+      user.id,
+      options.undelete ? 1 : 0
     )
     .run()
 
