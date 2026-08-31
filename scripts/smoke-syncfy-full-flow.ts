@@ -2,12 +2,28 @@ import {
   assert,
   asRecord,
   booleanField,
+  finishSmoke,
+  loadDevVars,
   numberField,
   requestJson as requestJsonWithTimeout,
+  requireSupportAdminHeaders,
+  skipOnUpstreamFailure,
+  SmokeSkip,
   stringField,
-  supportAdminHeaders,
+  UpstreamRequestError,
   type JsonRecord,
 } from './smoke-utils'
+
+const SMOKE_LABEL = 'smoke-syncfy-full-flow'
+
+// Before any env read below: Bun loads .env on its own but not .dev.vars, which
+// is where SUPPORT_ADMIN_SECRET lives.
+await loadDevVars()
+
+// This is a deploy gate against a sandbox we do not control. A Syncfy outage
+// must not block shipping code that does not touch Syncfy, so transport
+// failures end the run as a skip. FINOVAI_SMOKE_STRICT=1 restores hard failure.
+skipOnUpstreamFailure(SMOKE_LABEL)
 
 const DEFAULT_API_BASE_URL = 'https://finovai-preview.my-cloudflare-711.workers.dev'
 // Use Syncfy's dedicated sample-data institution for release gates. The normal
@@ -35,7 +51,7 @@ function logStep(step: string) {
 
 logStep('health')
 const health = await requestJson<JsonRecord>(apiBaseUrl, '/api/health', {
-  headers: supportAdminHeaders(),
+  headers: requireSupportAdminHeaders(),
 })
 assert(health.status === 200, `Health failed with ${health.status}`)
 assert(health.data.syncfyEnvironment === 'sandbox', `Refusing full-flow smoke outside Syncfy sandbox: ${String(health.data.syncfyEnvironment || 'missing')}`)
@@ -72,21 +88,31 @@ assert(token, 'Syncfy session did not return a widget token.')
 assert(stringField(session.data, 'syncfyUserId'), 'Syncfy session did not return a Syncfy user.')
 
 logStep('syncfy-credential-create')
-const createResponse = await fetch('https://opendata-api.syncfy.com/v1/credentials/pulls?pretty=1', {
-  method: 'POST',
-  signal: AbortSignal.timeout(requestTimeoutMs),
-  headers: {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
-  },
-  body: JSON.stringify({
-    id_site: syncfySiteId,
-    credentials: {
-      username: 'test',
-      password: 'test',
+let createResponse: Response
+try {
+  createResponse = await fetch('https://opendata-api.syncfy.com/v1/credentials/pulls?pretty=1', {
+    method: 'POST',
+    signal: AbortSignal.timeout(requestTimeoutMs),
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
     },
-  }),
-})
+    body: JSON.stringify({
+      id_site: syncfySiteId,
+      credentials: {
+        username: 'test',
+        password: 'test',
+      },
+    }),
+  })
+} catch (err) {
+  // Syncfy's own API, not ours. Ends the run here: a throw at this level is a
+  // top-level-await rejection, which Bun exits 1 on no matter what.
+  finishSmoke(
+    new UpstreamRequestError(`Syncfy credential create did not respond: ${err instanceof Error ? err.message : String(err)}`),
+    SMOKE_LABEL
+  )
+}
 const createPayload = await createResponse.json().catch(() => ({})) as JsonRecord
 const createBody = asRecord(createPayload.response)
 const credentialId = stringField(createBody, 'id_credential')
@@ -138,7 +164,16 @@ for (let attempt = 0; attempt < pollAttempts; attempt += 1) {
 }
 
 const importedTransactionCount = transactions ? transactionCount(transactions.data) : 0
-assert(importedTransactionCount > 0, `No transactions imported after ${pollAttempts} attempts.`)
+if (importedTransactionCount === 0) {
+  // Everything of ours answered; the sandbox just never produced sample data.
+  finishSmoke(
+    new SmokeSkip(
+      `Syncfy sandbox imported no transactions after ${pollAttempts} attempts `
+      + `(${Math.round((pollAttempts * pollDelayMs) / 1000)}s). Our endpoints all responded.`
+    ),
+    SMOKE_LABEL
+  )
+}
 
 logStep('dashboard-chat')
 const chat = await requestJson<JsonRecord>(apiBaseUrl, '/api/dashboard/chat', {

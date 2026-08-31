@@ -4,9 +4,12 @@ import {
   asRecord,
   booleanField,
   numberField,
+  loadDevVars,
   requestJson,
+  requireSupportAdminHeaders,
   stringField,
   supportAdminHeaders,
+  UpstreamRequestError,
 } from './smoke-utils'
 
 const originalFetch = globalThis.fetch
@@ -68,4 +71,98 @@ test('requestJson sends json headers and parses json responses', async () => {
   expect(calls[0].url).toBe('https://api.example.test/health')
   expect(calls[0].init?.headers).toMatchObject({ 'Content-Type': 'application/json' })
   expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal)
+})
+
+test('loadDevVars fills gaps from .dev.vars without overriding the environment', async () => {
+  const dir = `${process.env.TMPDIR || '/tmp'}/finovai-devvars-${Date.now()}`
+  const file = `${dir}/.dev.vars`
+  await Bun.write(file, [
+    '# comment line',
+    '',
+    'SMOKE_TEST_FRESH=from-file',
+    'SMOKE_TEST_PRESET=from-file',
+    'SMOKE_TEST_QUOTED="quoted value"',
+    'malformed-line-without-equals',
+  ].join('\n'))
+
+  process.env.SMOKE_TEST_PRESET = 'from-shell'
+  delete process.env.SMOKE_TEST_FRESH
+  delete process.env.SMOKE_TEST_QUOTED
+
+  const loaded = await loadDevVars(file)
+
+  // The shell wins, so CI and one-off overrides beat the file.
+  expect(process.env.SMOKE_TEST_PRESET).toBe('from-shell')
+  expect(process.env.SMOKE_TEST_FRESH).toBe('from-file')
+  expect(process.env.SMOKE_TEST_QUOTED).toBe('quoted value')
+  expect(loaded).toContain('SMOKE_TEST_FRESH')
+  expect(loaded).not.toContain('SMOKE_TEST_PRESET')
+
+  delete process.env.SMOKE_TEST_PRESET
+  delete process.env.SMOKE_TEST_FRESH
+  delete process.env.SMOKE_TEST_QUOTED
+})
+
+test('loadDevVars is a no-op when the file is absent', async () => {
+  expect(await loadDevVars('/nonexistent/.dev.vars')).toEqual([])
+})
+
+test('requireSupportAdminHeaders names the real cause instead of letting a 404 mislead', () => {
+  const previousFinovai = process.env.FINOVAI_SUPPORT_ADMIN_SECRET
+  const previousSupport = process.env.SUPPORT_ADMIN_SECRET
+  delete process.env.FINOVAI_SUPPORT_ADMIN_SECRET
+  delete process.env.SUPPORT_ADMIN_SECRET
+
+  expect(() => requireSupportAdminHeaders()).toThrow(/SUPPORT_ADMIN_SECRET is not set/)
+
+  process.env.SUPPORT_ADMIN_SECRET = 'configured'
+  expect(requireSupportAdminHeaders()).toEqual({ 'x-finovai-admin-secret': 'configured' })
+
+  if (previousFinovai === undefined) delete process.env.FINOVAI_SUPPORT_ADMIN_SECRET
+  else process.env.FINOVAI_SUPPORT_ADMIN_SECRET = previousFinovai
+  if (previousSupport === undefined) delete process.env.SUPPORT_ADMIN_SECRET
+  else process.env.SUPPORT_ADMIN_SECRET = previousSupport
+})
+
+test('requestJson reports a transport failure as UpstreamRequestError by default', async () => {
+  globalThis.fetch = (async () => {
+    throw new Error('The operation timed out.')
+  }) as typeof fetch
+
+  expect(requestJson('https://api.example.test', '/api/syncfy/credential')).rejects.toThrow(UpstreamRequestError)
+})
+
+// finishSmoke ends the process, so its contract is only observable from outside.
+async function runFinishSmoke(source: string, env: Record<string, string> = {}) {
+  const proc = Bun.spawn(['bun', '-e', source], {
+    cwd: process.cwd(),
+    env: { ...process.env, ...env },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const stderr = await new Response(proc.stderr).text()
+  return { exitCode: await proc.exited, stderr }
+}
+
+const SKIP_SOURCE =
+  "import {finishSmoke, SmokeSkip} from './scripts/smoke-utils';"
+  + "finishSmoke(new SmokeSkip('sandbox produced no data'), 'gate')"
+
+test('an upstream outage does not fail the release gate', async () => {
+  const { exitCode, stderr } = await runFinishSmoke(SKIP_SOURCE)
+  expect(exitCode).toBe(0)
+  expect(stderr).toContain('SKIPPED')
+})
+
+test('FINOVAI_SMOKE_STRICT turns an upstream outage back into a failure', async () => {
+  const { exitCode } = await runFinishSmoke(SKIP_SOURCE, { FINOVAI_SMOKE_STRICT: '1' })
+  expect(exitCode).toBe(1)
+})
+
+test('a genuine assertion failure still fails the release gate', async () => {
+  const { exitCode } = await runFinishSmoke(
+    "import {finishSmoke} from './scripts/smoke-utils';"
+    + "finishSmoke(new Error('Signup returned success=false'), 'gate')"
+  )
+  expect(exitCode).toBe(1)
 })
