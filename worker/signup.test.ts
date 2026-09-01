@@ -46,7 +46,7 @@ test('normalizeSyncfyRequestPath accepts webhook and direct endpoint paths', () 
   expect(normalizeSyncfyRequestPath('https://sync.paybook.com/v1/transactions?id_credential=abc')).toBe('/transactions?id_credential=abc')
 })
 
-test('buildSyncfyTransactionsPath includes id_user and six-month transaction window', () => {
+test('buildSyncfyTransactionsPath includes id_user and one-month transaction window', () => {
   const path = buildSyncfyTransactionsPath('cred-1', 'user-1', 0, {
     referenceDate: new Date('2026-06-07T12:34:56Z'),
   })
@@ -56,7 +56,7 @@ test('buildSyncfyTransactionsPath includes id_user and six-month transaction win
   expect(pathname).toBe('/transactions')
   expect(params.get('id_user')).toBe('user-1')
   expect(params.get('id_credential')).toBe('cred-1')
-  expect(params.get('dt_transaction_from')).toBe(String(Date.parse('2025-12-07T00:00:00Z') / 1000))
+  expect(params.get('dt_transaction_from')).toBe(String(Date.parse('2026-05-07T00:00:00Z') / 1000))
   expect(params.get('dt_transaction_to')).toBe(String(Date.parse('2026-06-07T12:34:56Z') / 1000))
   expect(params.get('limit')).toBe('500')
   expect(params.get('skip')).toBe('0')

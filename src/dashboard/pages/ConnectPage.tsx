@@ -3,17 +3,15 @@ import type { DashboardResponse, SyncfyCredential } from '@finovai/core'
 import { queryKeys } from '@finovai/core/react'
 
 import { SyncfyConnect } from '@/components/SyncfyConnect'
-import { isIncomePromptDismissed } from '@/lib/onboarding'
 import { useDashboardModel, type DashboardModelOptions } from '../lib/use-dashboard-model'
 
 interface ConnectPageProps {
   email: string
   modelOptions: DashboardModelOptions
   onStatus: (message: string) => void
-  onIncomePrompt: () => void
 }
 
-export function ConnectPage({ email, modelOptions, onStatus, onIncomePrompt }: ConnectPageProps) {
+export function ConnectPage({ email, modelOptions, onStatus }: ConnectPageProps) {
   const queryClient = useQueryClient()
   const { syncfyCredentials, isLoadingCredentials } = useDashboardModel(email, modelOptions)
 
@@ -35,14 +33,6 @@ export function ConnectPage({ email, modelOptions, onStatus, onIncomePrompt }: C
         }
         if (Array.isArray(nextData.transactions)) {
           queryClient.setQueryData(queryKeys.transactions(email), nextData)
-          const nextIncome = nextData.profile?.monthlyIncome
-          if (
-            nextData.transactions.length > 0 &&
-            !(nextIncome && nextIncome > 0) &&
-            !isIncomePromptDismissed(email)
-          ) {
-            onIncomePrompt()
-          }
         }
       }}
     />

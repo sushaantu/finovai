@@ -243,9 +243,11 @@ export default function DashboardApp({
     if (!hasTransactions) return
     if (profile.monthlyIncome && profile.monthlyIncome > 0) return
     if (isIncomePromptDismissed(activeEmail)) return
+    if (activePage === 'syncfy') return
     setShowIncomePrompt(true)
   }, [
     activeEmail,
+    activePage,
     credentialsFetchFailed,
     credentialsReadyForEmail,
     hasTransactions,
@@ -448,7 +450,6 @@ export default function DashboardApp({
                       email={activeEmail}
                       modelOptions={modelOptions}
                       onStatus={setStatus}
-                      onIncomePrompt={() => setShowIncomePrompt(true)}
                     />
                   ) : null}
 
