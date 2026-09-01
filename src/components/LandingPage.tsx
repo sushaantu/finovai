@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ArrowRight, ArrowUp, CheckCircle2, ChevronDown, KeyRound, Lock, Menu, Repeat, ShieldCheck, Unlink, X } from 'lucide-react'
+import { ArrowRight, ArrowUp, CheckCircle2, ChevronDown, Lock, Menu, Repeat, ShieldCheck, X } from 'lucide-react'
 import { Bar, BarChart, LabelList, XAxis, YAxis } from 'recharts'
 import {
   ChartContainer,
@@ -21,49 +21,10 @@ interface FaqItem {
   answer: string
 }
 
-interface ChatExchange {
-  question: string
-  answer: string
-  /** Rendered under the answer as a small proof-of-work chart. */
-  bars: Array<{ label: string; value: number; tone: 'blue' | 'teal' | 'muted' }>
-}
-
-/** The three questions the dashboard itself suggests on first load. */
 const heroQuestions = [
   '¿Dónde está mi fuga principal?',
   '¿Qué puedo ahorrar esta semana?',
   '¿Qué patrón se repite?',
-]
-
-const chatExchanges: ChatExchange[] = [
-  {
-    question: '¿Dónde está mi fuga principal?',
-    answer:
-      'Tu mayor gasto de agosto está en Comida fuera: $8,430 (34% del gasto). Después viene Transporte: $3,120 · Suscripciones: $894.',
-    bars: [
-      { label: 'Comida fuera', value: 100, tone: 'blue' },
-      { label: 'Transporte', value: 37, tone: 'muted' },
-      { label: 'Suscripciones', value: 11, tone: 'muted' },
-    ],
-  },
-  {
-    question: '¿Qué patrón se repite?',
-    answer:
-      'Detecté 23 cargos de café al mes y 5 suscripciones activas que no tocas desde marzo. Juntos son $3,444 mensuales en piloto automático.',
-    bars: [
-      { label: 'Café diario', value: 74, tone: 'blue' },
-      { label: 'Suscripciones', value: 26, tone: 'teal' },
-    ],
-  },
-  {
-    question: '¿Qué puedo ahorrar esta semana?',
-    answer:
-      'Con tu ingreso, un objetivo realista es $2,550 al mes sin tocar lo esencial. Empieza cancelando las 5 suscripciones dormidas: $894 recuperados hoy.',
-    bars: [
-      { label: 'Gasto actual', value: 100, tone: 'muted' },
-      { label: 'Margen', value: 28, tone: 'teal' },
-    ],
-  },
 ]
 
 const banks = [
@@ -133,9 +94,6 @@ export default function LandingPage({ email, onConnect, onLogin, onSignup, onLog
         <HeroSection onConnect={handleStart} />
         <PressBar />
         <ConnectSection onConnect={handleStart} />
-        <AskSection onConnect={handleStart} />
-        <LeaksSection onConnect={handleStart} />
-        <SecuritySection />
         <FaqSection />
         <FinalCtaSection onConnect={handleStart} />
       </main>
@@ -395,7 +353,7 @@ function ConnectSection({ onConnect }: { onConnect: () => void }) {
               <span className="landing-bento-tag">Auditoría de fugas</span>
               <h3 className="landing-bento-title-sm">Elimina cobros dormidos</h3>
               <p className="landing-bento-body-sm">
-                Suscripciones inactivas y microgastos recurrentes identificados antes de afectar tu quincena.
+                Suscripciones dormidas y microgastos recurrentes, detectados antes de tu quincena.
               </p>
             </div>
             <div className="landing-bento-visual">
@@ -403,12 +361,12 @@ function ConnectSection({ onConnect }: { onConnect: () => void }) {
             </div>
           </div>
 
-          <div className="landing-bento-card">
+          <div className="landing-bento-card" id="preguntar">
             <div className="landing-bento-head">
               <span className="landing-bento-tag">Copiloto IA</span>
               <h3 className="landing-bento-title-sm">Pregúntale a tu dinero</h3>
               <p className="landing-bento-body-sm">
-                Sin fórmulas ni tablas complejas. Pregunta en español y obtén respuestas exactas sobre tus números.
+                Pregunta en español y obtén respuestas exactas sobre tus números.
               </p>
             </div>
             <div className="landing-bento-visual">
@@ -416,12 +374,12 @@ function ConnectSection({ onConnect }: { onConnect: () => void }) {
             </div>
           </div>
 
-          <div className="landing-bento-card">
+          <div className="landing-bento-card" id="seguridad">
             <div className="landing-bento-head">
               <span className="landing-bento-tag">Seguridad total</span>
               <h3 className="landing-bento-title-sm">Solo lectura. Cero riesgos</h3>
               <p className="landing-bento-body-sm">
-                Cifrado AES-256 de grado bancario. FinovAI jamás puede mover tu dinero ni guardar contraseñas.
+                FinovAI jamás puede mover tu dinero ni guardar tus contraseñas.
               </p>
             </div>
             <div className="landing-bento-visual">
@@ -429,131 +387,6 @@ function ConnectSection({ onConnect }: { onConnect: () => void }) {
             </div>
           </div>
         </div>
-      </div>
-    </section>
-  )
-}
-
-function AskSection({ onConnect }: { onConnect: () => void }) {
-  return (
-    <section id="preguntar" className="landing-section landing-section-ask">
-      <div className="landing-section-head">
-        <Eyebrow>Pregunta</Eyebrow>
-        <DisplayTitle accent="Pregunta" rest="lo que sea" size="md" />
-        <p>
-          FinovAI responde con tus números, no con generalidades. Cada respuesta sale de tus movimientos
-          conectados y puedes ver de dónde salió.
-        </p>
-      </div>
-
-      <ChatDemo />
-
-      <button className="landing-btn landing-btn-solid landing-btn-lg" type="button" onClick={onConnect}>
-        Probar con mis movimientos
-        <ArrowRight aria-hidden="true" />
-      </button>
-    </section>
-  )
-}
-
-function LeaksSection({ onConnect }: { onConnect: () => void }) {
-  const rows = [
-    { title: 'Café diario', detail: '23 cargos al mes', month: 2550 },
-    { title: 'Suscripciones dormidas', detail: '5 activas, 0 usadas', month: 894 },
-    { title: 'Delivery nocturno', detail: 'Viernes y sábados', month: 3180 },
-  ]
-  const total = rows.reduce((sum, row) => sum + row.month, 0)
-
-  return (
-    <section id="fugas" className="landing-section">
-      <div className="landing-section-head">
-        <Eyebrow>El resultado</Eyebrow>
-        <DisplayTitle accent="Encuentra" rest="lo que se fuga" size="md" />
-        <p>
-          No es que gastes de más. Es que una parte de tu dinero sale en automático, en cargos tan pequeños
-          que nunca los revisas. FinovAI los junta y te dice cuánto suman.
-        </p>
-      </div>
-
-      <div className="landing-leaks">
-        <div className="landing-leak-list">
-          {rows.map((row) => (
-            <div className="landing-leak-row" key={row.title}>
-              <div>
-                <strong>{row.title}</strong>
-                <span>{row.detail}</span>
-              </div>
-              <b>-${formatCurrency(row.month)}</b>
-            </div>
-          ))}
-          <div className="landing-leak-row landing-leak-total">
-            <div>
-              <strong>Total al mes</strong>
-              <span>Margen que puedes recuperar</span>
-            </div>
-            <b>${formatCurrency(total)}</b>
-          </div>
-        </div>
-
-        <aside className="landing-leak-panel">
-          <Eyebrow>Si lo apartas cada mes</Eyebrow>
-          <div className="landing-leak-figure">
-            ${formatCurrency(total * 12)}
-            <span>al año</span>
-          </div>
-          <p>
-            Ese margen es tuyo desde el primer mes. Cuando quieras hacerlo crecer, FinovAI te muestra opciones
-            de inversión de terceros regulados — la decisión y el movimiento son tuyos.
-          </p>
-          <button className="landing-btn landing-btn-quiet" type="button" onClick={onConnect}>
-            Ver mi margen real
-            <ArrowRight aria-hidden="true" />
-          </button>
-        </aside>
-      </div>
-    </section>
-  )
-}
-
-function SecuritySection() {
-  const proof = [
-    {
-      icon: Lock,
-      title: 'Solo lectura',
-      body: 'FinovAI lee movimientos. No puede mover, transferir ni autorizar pagos desde tus cuentas.',
-    },
-    {
-      icon: KeyRound,
-      title: 'Sin credenciales nuestras',
-      body: 'Tus claves bancarias nunca pasan por FinovAI. La conexión ocurre en el widget del agregador.',
-    },
-    {
-      icon: Unlink,
-      title: 'Revocable cuando quieras',
-      body: 'Desconecta desde tu banco, desde el agregador o desde FinovAI y dejamos de leer al instante.',
-    },
-  ]
-
-  return (
-    <section id="seguridad" className="landing-section landing-section-security">
-      <div className="landing-section-head">
-        <Eyebrow>Seguridad</Eyebrow>
-        <DisplayTitle accent="Tu banco." rest="Tus datos." size="md" />
-        <p>FinovAI no es una entidad financiera y no custodia tu dinero. Solo lo entiende.</p>
-      </div>
-
-      <div className="landing-proof">
-        {proof.map((item) => {
-          const Icon = item.icon
-
-          return (
-            <div className="landing-proof-item" key={item.title}>
-              <Icon aria-hidden="true" />
-              <strong>{item.title}</strong>
-              <p>{item.body}</p>
-            </div>
-          )
-        })}
       </div>
     </section>
   )
@@ -696,65 +529,6 @@ function BankMarquee() {
           <div className="landing-marquee-item" key={`${bank.label}-${index}`} aria-hidden={index >= banks.length}>
             <img src={bank.logoSrc} alt={index < banks.length ? bank.label : ''} loading="lazy" />
           </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function ChatDemo() {
-  const [index, setIndex] = useState(0)
-  const reduceMotion = usePrefersReducedMotion()
-
-  useEffect(() => {
-    if (reduceMotion) return
-    const timer = window.setInterval(() => {
-      setIndex((current) => (current + 1) % chatExchanges.length)
-    }, 5200)
-    return () => window.clearInterval(timer)
-  }, [reduceMotion])
-
-  const exchange = chatExchanges[index]
-
-  return (
-    <div className="landing-chat">
-      <div className="landing-chat-head">
-        <span className="landing-chat-dots" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-        </span>
-        <span>FinovAI · Chat</span>
-      </div>
-
-      <div className="landing-chat-body" key={index}>
-        <div className="landing-bubble landing-bubble-user">{exchange.question}</div>
-
-        <div className="landing-bubble landing-bubble-ai">
-          <p>{exchange.answer}</p>
-          <div className="landing-bars">
-            {exchange.bars.map((bar) => (
-              <div className="landing-bar-row" key={bar.label}>
-                <span>{bar.label}</span>
-                <div className="landing-bar-track">
-                  <i className={`landing-bar landing-bar-${bar.tone}`} style={{ width: `${bar.value}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="landing-chat-suggestions">
-        {chatExchanges.map((item, itemIndex) => (
-          <button
-            key={item.question}
-            type="button"
-            className={itemIndex === index ? 'is-active' : undefined}
-            onClick={() => setIndex(itemIndex)}
-          >
-            {item.question}
-          </button>
         ))}
       </div>
     </div>
@@ -951,7 +725,8 @@ function LeaksBentoMock() {
       </div>
       <div className="landing-bento-leak-pill">
         <span>Margen identificado</span>
-        <strong>+$3,444 MXN / mes</strong>
+        <strong>+$3,444 / mes</strong>
+        <em>$41,328 al año</em>
       </div>
     </div>
   )
@@ -995,6 +770,10 @@ function SecurityBentoMock() {
         <div className="landing-bento-sec-item">
           <CheckCircle2 className="size-3.5" style={{ color: '#00D4AA' }} />
           <span>Sin credenciales en navegador</span>
+        </div>
+        <div className="landing-bento-sec-item">
+          <CheckCircle2 className="size-3.5" style={{ color: '#00D4AA' }} />
+          <span>Revocable cuando quieras</span>
         </div>
       </div>
     </div>

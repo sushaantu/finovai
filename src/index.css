@@ -1766,6 +1766,17 @@ body {
   gap: 24px;
 }
 
+.landing-bento-sub-row .landing-bento-card {
+  padding: 36px 28px 32px;
+}
+
+/* Centring left the shorter visuals floating mid-card; bottom-aligning gives
+   the three cards a shared baseline instead. */
+.landing-bento-sub-row .landing-bento-visual {
+  align-items: flex-end;
+  margin-top: 26px;
+}
+
 .landing-bento-card {
   display: flex;
   flex-direction: column;
@@ -2029,20 +2040,8 @@ body {
   font-family: var(--v2-sans);
 }
 
-.landing-capital-value,
-.landing-capital-share {
-  font-family: var(--v2-sans);
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .landing-capital-value {
   fill: var(--v2-ink);
-}
-
-.landing-capital-share {
-  fill: var(--v2-ink-muted);
-  font-weight: 500;
 }
 
 /* Leaks sub bento */
@@ -2084,7 +2083,9 @@ body {
   color: #F87171;
 }
 
+/* The pill wraps so the annual figure sits under the monthly one. */
 .landing-bento-leak-pill {
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2104,6 +2105,16 @@ body {
   font-size: 13.5px;
   font-weight: 700;
   color: #00D4AA;
+}
+
+/* Annual roll-up, carried over from the removed leaks section. */
+.landing-bento-leak-pill em {
+  flex-basis: 100%;
+  margin-top: 2px;
+  color: var(--v2-ink-muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
 }
 
 /* Conversational Copilot sub bento */
@@ -2234,42 +2245,6 @@ body {
   }
 }
 
-/* ------------------------------------------------------------ bar rows */
-
-.landing-bar-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-}
-
-.landing-bar-row > span {
-  flex-shrink: 0;
-  width: 104px;
-  color: var(--v2-ink-muted);
-  font-size: 11.5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.landing-bar-row > b {
-  flex-shrink: 0;
-  width: 34px;
-  color: var(--v2-ink-muted);
-  font-size: 11px;
-  font-weight: 500;
-  text-align: right;
-}
-
-.landing-bar-track {
-  flex: 1;
-  height: 7px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  overflow: hidden;
-}
-
 /* Same reasoning as .landing-bubble — the bar IS the data, so it is drawn
    outright rather than grown into view. */
 .landing-bar {
@@ -2278,270 +2253,12 @@ body {
   border-radius: 999px;
 }
 
-.landing-bar-blue { background: linear-gradient(90deg, var(--v2-blue), #6BA8F5); }
-.landing-bar-teal { background: linear-gradient(90deg, var(--v2-teal), #4FE3C4); }
-.landing-bar-muted { background: rgba(255, 255, 255, 0.2); }
-
-/* -------------------------------------------------------------- ask/chat */
-
-.landing-section-ask {
-  text-align: center;
-}
-
 .landing-section-ask > .landing-btn {
   margin-top: 44px;
 }
 
-.landing-chat {
-  width: min(720px, 100%);
-  margin: 56px auto 0;
-  border: 1px solid var(--v2-line);
-  border-radius: 24px;
-  background: var(--v2-bg-card);
-  text-align: left;
-  overflow: hidden;
-  box-shadow: 0 40px 90px -40px rgba(0, 0, 0, 0.9);
-}
-
-.landing-chat-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--v2-line-soft);
-  color: var(--v2-ink-dim);
-  font-size: 10.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.landing-chat-dots {
-  display: flex;
-  gap: 6px;
-}
-
-.landing-chat-dots i {
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
-}
-
-.landing-chat-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-height: 268px;
-  padding: 26px 22px;
-}
-
-/* No entrance animation here on purpose. This bubble carries the section's whole
-   payload (the answer), and any time-based reveal — keyframes with fill-mode, or
-   a transition out of @starting-style — leaves it stuck invisible in a tab that
-   is opened in the background, where the timeline never starts. The 5s rotation
-   supplies the motion; legibility never depends on it. */
-.landing-bubble {
-  max-width: 86%;
-  padding: 14px 18px;
-  border-radius: 18px;
-  font-size: 14.5px;
-  line-height: 1.58;
-}
-
-.landing-bubble-user {
-  align-self: flex-end;
-  border-bottom-right-radius: 6px;
-  color: #08090C;
-  background: var(--v2-ink);
-  font-weight: 500;
-}
-
-.landing-bubble-ai {
-  align-self: flex-start;
-  border: 1px solid var(--v2-line-soft);
-  border-bottom-left-radius: 6px;
-  background: rgba(255, 255, 255, 0.035);
-}
-
-.landing-bubble-ai p {
-  color: var(--v2-ink);
-  font-size: 14.5px;
-  line-height: 1.58;
-}
-
-.landing-bubble-ai .landing-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  margin-top: 16px;
-  padding-top: 15px;
-  border-top: 1px solid var(--v2-line-soft);
-}
-
-.landing-chat-suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 0 22px 22px;
-}
-
-.landing-chat-suggestions button {
-  padding: 8px 14px;
-  border: 1px solid var(--v2-line-soft);
-  border-radius: 999px;
-  color: var(--v2-ink-muted);
-  background: transparent;
-  font-size: 12.5px;
-  transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
-}
-
-.landing-chat-suggestions button:hover,
-.landing-chat-suggestions button.is-active {
-  border-color: rgba(255, 255, 255, 0.22);
-  color: var(--v2-ink);
-  background: rgba(255, 255, 255, 0.05);
-}
-
-/* ---------------------------------------------------------------- leaks */
-
-.landing-leaks {
-  display: grid;
-  grid-template-columns: 1.25fr 1fr;
-  gap: 18px;
-  margin-top: 64px;
-}
-
-.landing-leak-list {
-  display: flex;
-  flex-direction: column;
-  padding: 10px 24px;
-  border: 1px solid var(--v2-line-soft);
-  border-radius: 22px;
-  background: var(--v2-bg-card);
-}
-
-.landing-v2 .landing-leak-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 22px 0;
-  border-bottom: 1px solid var(--v2-line-soft);
-  background: none;
-}
-
-.landing-v2 .landing-leak-row:last-child {
-  border-bottom: 0;
-}
-
-.landing-leak-row strong {
-  display: block;
-  color: var(--v2-ink);
-  font-size: 15.5px;
-  font-weight: 500;
-}
-
-.landing-leak-row span {
-  display: block;
-  margin-top: 4px;
-  color: var(--v2-ink-dim);
-  font-size: 13px;
-}
-
-.landing-leak-row b {
-  color: var(--v2-ink);
-  font-size: 17px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.landing-leak-total strong {
-  color: var(--v2-teal);
-}
-
-.landing-leak-total b {
-  color: var(--v2-teal);
-  font-size: 20px;
-}
-
-.landing-leak-panel {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 34px;
-  border: 1px solid var(--v2-line-soft);
-  border-radius: 22px;
-  background:
-    radial-gradient(120% 90% at 0% 0%, rgba(0, 212, 170, 0.14), transparent 60%),
-    var(--v2-bg-card);
-}
-
-.landing-leak-panel p {
-  margin-top: 18px;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.landing-leak-figure {
-  font-family: var(--v2-serif);
-  font-size: clamp(40px, 4.4vw, 58px);
-  line-height: 1;
-  letter-spacing: -0.02em;
-}
-
-.landing-leak-figure span {
-  display: block;
-  margin-top: 12px;
-  color: var(--v2-ink-dim);
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
 .landing-leak-panel .landing-btn-quiet {
   margin-top: 26px;
-}
-
-/* ------------------------------------------------------------- security */
-
-.landing-section-security {
-  border-top: 1px solid var(--v2-line-soft);
-  border-bottom: 1px solid var(--v2-line-soft);
-}
-
-.landing-proof {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-  margin-top: 56px;
-}
-
-.landing-proof-item {
-  padding: 28px;
-  border: 1px solid var(--v2-line-soft);
-  border-radius: 20px;
-  background: var(--v2-bg-card);
-}
-
-.landing-proof-item svg {
-  width: 17px;
-  height: 17px;
-  margin-bottom: 18px;
-  color: var(--v2-teal);
-}
-
-.landing-proof-item strong {
-  display: block;
-  color: var(--v2-ink);
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.landing-proof-item p {
-  margin-top: 9px;
-  font-size: 14px;
-  line-height: 1.58;
 }
 
 /* ------------------------------------------------------------------ faq */
@@ -2713,14 +2430,6 @@ body {
 /* ----------------------------------------------------------- responsive */
 
 @media (max-width: 1040px) {
-  .landing-cards,
-  .landing-proof {
-    grid-template-columns: 1fr;
-  }
-
-  .landing-leaks {
-    grid-template-columns: 1fr;
-  }
 
   .landing-card-visual {
     height: 240px;
@@ -2746,26 +2455,6 @@ body {
 
   .landing-hero-meta {
     font-size: 10px;
-  }
-
-  .landing-chat-body {
-    padding: 20px 16px;
-  }
-
-  .landing-bubble {
-    max-width: 94%;
-  }
-
-  .landing-bar-row > span {
-    width: 84px;
-  }
-
-  .landing-leak-list {
-    padding: 6px 18px;
-  }
-
-  .landing-leak-panel {
-    padding: 26px;
   }
 
   .landing-final {
