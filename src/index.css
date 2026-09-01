@@ -1,7 +1,8 @@
 /* Landing display + UI type (Indian Type Foundry, via Fontshare). Requested as
    whole families rather than pinned weights so the true italics come along —
    the display headings depend on a real italic, not a synthesised slant. */
-@import url('https://api.fontshare.com/v2/css?f[]=zodiak&f[]=switzer&display=swap');
+@import url('https://api.fontshare.com/v2/css?f[]=zodiak@400,500,700&display=swap');
+@import url('https://api.fontshare.com/v2/css?f[]=switzer@400,500,600,700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Inter+Tight:wght@500;600;700;800&family=Sora:wght@300;400;500;600;700;800&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -1113,7 +1114,7 @@ body {
   --v2-bg-card: #0D0F14;
   --v2-ink: #F3F5F8;
   --v2-ink-muted: #939BAA;
-  --v2-ink-dim: #626A79;
+  --v2-ink-dim: #7E8797;
   --v2-line: rgba(255, 255, 255, 0.09);
   --v2-line-soft: rgba(255, 255, 255, 0.055);
   --v2-blue: #4A90F0;
@@ -1155,6 +1156,18 @@ body {
 
 .landing-v2 p {
   color: var(--v2-ink-muted);
+}
+
+.landing-v2 :is(a, button, [tabindex]):focus-visible {
+  outline: 2px solid var(--v2-blue);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+/* The solid pill is nearly white, so the blue ring needs dark separation. */
+.landing-v2 .landing-btn-solid:focus-visible {
+  outline-color: #2B6FD6;
+  box-shadow: 0 0 0 5px rgba(8, 9, 12, 0.9);
 }
 
 /* --------------------------------------------------------- display type */
@@ -1199,9 +1212,25 @@ body {
   left: 0;
   z-index: 60;
   border: 0;
+  border-bottom: 1px solid transparent;
   padding: 14px 24px;
   background: transparent;
   backdrop-filter: none;
+  transition: background 220ms ease, border-color 220ms ease;
+}
+
+/* Past the hero the nav sits over real content, so it needs an opaque-enough
+   plate of its own -- the gradient scrim below tops out around 0.75 alpha,
+   which text still reads straight through. */
+.landing-v2 .landing-nav.is-scrolled {
+  border-bottom-color: var(--v2-line-soft);
+  background: rgba(8, 9, 12, 0.82);
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+}
+
+.landing-v2 .landing-nav.is-scrolled::before {
+  opacity: 0;
 }
 
 /* Keeps the bar legible over whatever scrolls under it. */
@@ -1211,6 +1240,7 @@ body {
   inset: 0;
   z-index: -1;
   pointer-events: none;
+  transition: opacity 220ms ease;
   background: linear-gradient(to bottom, rgba(8, 9, 12, 0.92) 0%, rgba(8, 9, 12, 0.72) 55%, transparent 100%);
   -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent);
   mask-image: linear-gradient(to bottom, #000 60%, transparent);
@@ -1232,7 +1262,25 @@ body {
 
 .landing-v2 .landing-nav-actions {
   margin-left: auto;
-  gap: 6px;
+  gap: 4px;
+}
+
+/* The nav CTA was borrowing the in-page CTA size (14.5px type, 15px arrow,
+   12/20 padding), which put a ~44px pill next to 14.5px plain links. In the
+   bar it only has to out-rank the ghost link beside it, not the hero button. */
+.landing-v2 .landing-nav-actions .landing-btn {
+  min-height: 40px;
+  padding: 0 18px;
+  font-size: 13.5px;
+}
+
+.landing-v2 .landing-nav-actions .landing-btn-ghost {
+  padding: 0 14px;
+}
+
+.landing-v2 .landing-nav-actions .landing-btn svg {
+  width: 13px;
+  height: 13px;
 }
 
 .landing-v2 .landing-wordmark {
@@ -1259,6 +1307,10 @@ body {
 .landing-v2 .landing-nav-links a {
   padding: 0;
   border-radius: 0;
+  display: inline-flex;
+  align-items: center;
+  /* 22px of text + padding clears the 44px minimum target without moving it. */
+  min-height: 44px;
   color: var(--v2-ink-muted);
   font-size: 14.5px;
   font-weight: 400;
@@ -1381,8 +1433,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100svh;
-  padding: 140px 24px 80px;
+  min-height: 92svh;
+  padding: 132px 24px 72px;
   overflow: hidden;
   text-align: center;
 }
@@ -1545,7 +1597,7 @@ body {
 .landing-v2 .landing-section {
   max-width: 1240px;
   margin: 0 auto;
-  padding: 112px 24px;
+  padding: 88px 24px;
   border: 0;
   background: transparent;
 }
@@ -1682,7 +1734,7 @@ body {
   height: 24px;
   max-width: 100px;
   object-fit: contain;
-  opacity: 0.45;
+  opacity: 0.72;
   filter: brightness(0) invert(1);
   transition: opacity 200ms ease;
 }
@@ -1715,7 +1767,7 @@ body {
 .landing-bento-card {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
   padding: 40px 32px;
   border: 1px solid var(--v2-line-soft);
   border-radius: 26px;
@@ -1726,8 +1778,11 @@ body {
 }
 
 .landing-bento-head {
-  text-align: left;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   width: 100%;
+  text-align: left;
 }
 
 .landing-bento-live-tag {
@@ -1741,9 +1796,9 @@ body {
   color: #00D4AA;
   background: rgba(0, 212, 170, 0.1);
   border: 1px solid rgba(0, 212, 170, 0.22);
-  padding: 4px 11px;
+  padding: 5px 12px 5px 11px;
   border-radius: 999px;
-  margin-bottom: 14px;
+  margin-bottom: 20px;
 }
 
 .landing-bento-pulse-dot {
@@ -1762,64 +1817,72 @@ body {
 
 .landing-bento-tag {
   display: inline-block;
+  margin-bottom: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--v2-blue);
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: var(--v2-label-spacing);
-  color: var(--v2-blue);
-  background: rgba(74, 144, 240, 0.1);
-  border: 1px solid rgba(74, 144, 240, 0.22);
-  padding: 4px 11px;
-  border-radius: 999px;
-  margin-bottom: 14px;
+  text-transform: uppercase;
 }
 
-.landing-bento-title {
-  font-family: var(--v2-sans);
-  font-size: clamp(20px, 2.2vw, 26px);
-  font-weight: 600;
-  line-height: 1.28;
+.landing-v2 .landing-bento-title,
+.landing-v2 .landing-bento-title-sm {
+  margin: 0;
+  font-family: var(--v2-serif);
+  font-weight: 400;
   color: var(--v2-ink);
-  letter-spacing: -0.015em;
+  text-wrap: balance;
 }
 
-.landing-bento-body {
-  margin-top: 10px;
-  font-size: 14.5px;
-  line-height: 1.55;
+.landing-v2 .landing-bento-title {
+  font-size: clamp(22px, 2.1vw, 27px);
+  /* Less negative than the display sizes: the tighter tracking that flatters
+     Zodiak at 56px closes the counters up at 27px. */
+  letter-spacing: -0.008em;
+  line-height: 1.22;
+}
+
+.landing-v2 .landing-bento-title-sm {
+  font-size: 21px;
+  letter-spacing: -0.004em;
+  line-height: 1.26;
+}
+
+.landing-v2 .landing-bento-body,
+.landing-v2 .landing-bento-body-sm {
+  margin-top: 12px;
   color: var(--v2-ink-muted);
+  text-wrap: pretty;
+}
+
+.landing-v2 .landing-bento-body {
   max-width: 480px;
+  font-size: 15px;
+  line-height: 1.58;
 }
 
-.landing-bento-title-sm {
-  font-family: var(--v2-sans);
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.3;
-  color: var(--v2-ink);
-  letter-spacing: -0.01em;
-}
-
-.landing-bento-body-sm {
-  margin-top: 8px;
-  font-size: 13.5px;
-  line-height: 1.5;
-  color: var(--v2-ink-muted);
+.landing-v2 .landing-bento-body-sm {
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 .landing-bento-visual {
-  margin-top: 28px;
   display: flex;
+  flex: 1;
   justify-content: center;
   align-items: center;
   width: 100%;
+  margin-top: 32px;
 }
 
 /* Transactions list in left hero bento */
 .landing-origin-tx-container {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
 }
 
@@ -1896,9 +1959,10 @@ body {
 }
 
 .landing-origin-sankey-svg {
+  display: block;
   width: 100%;
   height: auto;
-  display: block;
+  max-height: 330px;
 }
 
 /* Leaks sub bento */
@@ -2245,7 +2309,7 @@ body {
   padding: 8px 14px;
   border: 1px solid var(--v2-line-soft);
   border-radius: 999px;
-  color: var(--v2-ink-dim);
+  color: var(--v2-ink-muted);
   background: transparent;
   font-size: 12.5px;
   transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
@@ -2447,11 +2511,14 @@ body {
 .landing-v2 .landing-faq-item > div {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 260ms ease;
+  visibility: hidden;
+  transition: grid-template-rows 260ms ease, visibility 0s linear 260ms;
 }
 
 .landing-v2 .landing-faq-item > div.is-open {
   grid-template-rows: 1fr;
+  visibility: visible;
+  transition: grid-template-rows 260ms ease, visibility 0s;
 }
 
 .landing-v2 .landing-faq-item p {

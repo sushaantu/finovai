@@ -152,6 +152,7 @@ function LandingNav({
   onLogin: () => void
   onLogout: () => void
 }) {
+  const isScrolled = useIsScrolled(40)
   const navLinks = [
     { label: 'Conectar', href: '#conectar' },
     { label: 'Preguntar', href: '#preguntar' },
@@ -159,7 +160,7 @@ function LandingNav({
   ]
 
   return (
-    <header className="landing-nav">
+    <header className={isScrolled || isMenuOpen ? 'landing-nav is-scrolled' : 'landing-nav'}>
       <div className="landing-nav-inner">
         <a className="landing-wordmark" href="#top" aria-label="FinovAI inicio">
           <FinovaiLogo />
@@ -249,8 +250,13 @@ function HeroSection({ onConnect }: { onConnect: () => void }) {
           <ArrowRight aria-hidden="true" />
         </button>
 
-        <button className="landing-fake-input" type="button" onClick={onConnect}>
-          <span className="landing-fake-input-text">
+        <button
+          className="landing-fake-input"
+          type="button"
+          onClick={onConnect}
+          aria-label="Conectar mi banco y hacerle la primera pregunta a tu dinero"
+        >
+          <span className="landing-fake-input-text" aria-hidden="true">
             {typed}
             <i className="landing-caret" aria-hidden="true" />
           </span>
@@ -549,6 +555,7 @@ function SecuritySection() {
 
 function FaqSection() {
   const [openIndex, setOpenIndex] = useState(-1)
+  const panelId = useId()
 
   return (
     <section id="faq" className="landing-section landing-section-faq">
@@ -563,12 +570,13 @@ function FaqSection() {
             <button
               type="button"
               aria-expanded={openIndex === index}
+              aria-controls={`${panelId}-${index}`}
               onClick={() => setOpenIndex(openIndex === index ? -1 : index)}
             >
               <span>{item.question}</span>
               <ChevronDown aria-hidden="true" />
             </button>
-            <div className={openIndex === index ? 'is-open' : undefined}>
+            <div id={`${panelId}-${index}`} className={openIndex === index ? 'is-open' : undefined}>
               <p>{item.answer}</p>
             </div>
           </article>
@@ -588,7 +596,7 @@ function FinalCtaSection({ onConnect }: { onConnect: () => void }) {
     <section className="landing-final">
       <div className="landing-hero-sky landing-hero-sky-flipped" aria-hidden="true" />
       <div className="landing-final-inner">
-        <DisplayTitle accent="Empieza" rest="por preguntar." />
+        <DisplayTitle accent="Empieza" rest="por preguntar." as="h2" />
         <p>Conecta una cuenta y hazle la primera pregunta a tu dinero.</p>
         <button className="landing-btn landing-btn-solid landing-btn-lg" type="button" onClick={onConnect}>
           Conectar mi banco
@@ -651,12 +659,15 @@ function DisplayTitle({
   accent,
   rest,
   size = 'lg',
+  as,
 }: {
   accent: string
   rest: string
   size?: 'lg' | 'md' | 'sm'
+  /** Heading level is independent of size: only the hero is the page's h1. */
+  as?: 'h1' | 'h2'
 }) {
-  const Tag = size === 'lg' ? 'h1' : 'h2'
+  const Tag = as ?? (size === 'lg' ? 'h1' : 'h2')
 
   return (
     <Tag className={`landing-display landing-display-${size}`}>
@@ -673,7 +684,7 @@ function BankMarquee() {
   const track = [...banks, ...banks]
 
   return (
-    <div className="landing-marquee" aria-label="Instituciones conectables">
+    <div className="landing-marquee" role="group" aria-label="Instituciones conectables">
       <div className="landing-marquee-track">
         {track.map((bank, index) => (
           <div className="landing-marquee-item" key={`${bank.label}-${index}`} aria-hidden={index >= banks.length}>
@@ -1127,6 +1138,20 @@ function useTypewriter(phrases: string[]) {
   }, [phrases, reduceMotion])
 
   return text
+}
+
+/** True once the page has scrolled far enough that the nav sits over content. */
+function useIsScrolled(threshold: number) {
+  const [scrolled, setScrolled] = useState(false)
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > threshold)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [threshold])
+
+  return scrolled
 }
 
 function usePrefersReducedMotion() {
