@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ArrowRight, ArrowUp, ChevronDown, KeyRound, Lock, Menu, Sparkles, Unlink, X } from 'lucide-react'
+import { ArrowRight, ArrowUp, CheckCircle2, ChevronDown, KeyRound, Lock, Menu, Repeat, ShieldCheck, Sparkles, Unlink, X } from 'lucide-react'
 
 interface LandingPageProps {
   email: string | null
@@ -124,6 +124,7 @@ export default function LandingPage({ email, onConnect, onLogin, onSignup, onLog
       />
       <main>
         <HeroSection onConnect={handleStart} />
+        <PressBar />
         <ConnectSection onConnect={handleStart} />
         <AskSection onConnect={handleStart} />
         <LeaksSection onConnect={handleStart} />
@@ -258,8 +259,6 @@ function HeroSection({ onConnect }: { onConnect: () => void }) {
           </span>
         </button>
 
-        <p className="landing-spine">Conecta tus cuentas. Pregunta lo que sea.</p>
-
         <div className="landing-hero-meta">
           <span>
             <Lock aria-hidden="true" /> Solo lectura
@@ -274,35 +273,65 @@ function HeroSection({ onConnect }: { onConnect: () => void }) {
   )
 }
 
-function ConnectSection({ onConnect }: { onConnect: () => void }) {
-  const cards = [
-    {
-      label: 'Movimientos',
-      title: 'Todo en un solo lugar',
-      body: 'Tus cuentas y tarjetas sincronizadas, con cada transacción categorizada automáticamente.',
-      visual: <MovementsMock />,
-    },
-    {
-      label: 'Categorías',
-      title: 'A dónde se va, por rubro',
-      body: 'FinovAI ordena tu gasto por categoría para que veas el peso real de cada hábito.',
-      visual: <CategoriesMock />,
-    },
-    {
-      label: 'Patrones',
-      title: 'Lo que se repite cada mes',
-      body: 'Suscripciones dormidas, cargos hormiga y recurrencias que nadie revisa.',
-      visual: <PatternsMock />,
-    },
-  ]
+const pressMentions = [
+  {
+    name: 'Mexico Business News',
+    logo: '/press/mexico-business-news.png',
+    alt: 'Mexico Business News',
+    url: 'https://mexicobusiness.news/cloudanddata/news/turning-money-leaks-investments-finovai',
+    height: 20,
+  },
+  {
+    name: 'El Financiero Bloomberg · Factor Fintech',
+    logo: '/press/bloomberg.png',
+    alt: 'El Financiero Bloomberg',
+    url: 'https://www.youtube.com/watch?v=nUDtyTAzh0U',
+    height: 18,
+  },
+  {
+    name: 'El Economista · ProChile',
+    logo: '/press/el-economista.png',
+    alt: 'El Economista',
+    url: 'https://www.eleconomista.com.mx/mercados/financiamiento-traves-grupo-bolsa-mexicana-crecio-24-20260120-796157.html',
+    height: 13,
+  },
+]
 
+function PressBar() {
+  return (
+    <aside className="landing-press-bar" aria-label="Menciones en medios">
+      <span className="landing-press-label">Destacado en</span>
+      <div className="landing-press-logos">
+        {pressMentions.map((item) => (
+          <a
+            key={item.url}
+            href={item.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="landing-press-item"
+            title={item.name}
+          >
+            <img
+              src={item.logo}
+              alt={item.alt}
+              style={{ maxHeight: `${item.height}px` }}
+              loading="lazy"
+            />
+          </a>
+        ))}
+      </div>
+    </aside>
+  )
+}
+
+function ConnectSection({ onConnect }: { onConnect: () => void }) {
   return (
     <section id="conectar" className="landing-section">
       <div className="landing-section-head">
         <Eyebrow>Conecta</Eyebrow>
         <DisplayTitle accent="Conecta" rest="tus cuentas" size="md" />
         <p>
-          Bancos mexicanos, tarjetas, SAT y Bitso. FinovAI trae tus movimientos y los ordena solo — sin hojas
+          Bancos mexicanos, tarjetas, SAT y Bitso. FinovAI sincroniza tus movimientos y los ordena solo — sin hojas
           de cálculo, sin capturar nada a mano.
         </p>
         <button className="landing-btn landing-btn-quiet" type="button" onClick={onConnect}>
@@ -312,17 +341,81 @@ function ConnectSection({ onConnect }: { onConnect: () => void }) {
 
       <BankMarquee />
 
-      <div className="landing-cards">
-        {cards.map((card) => (
-          <article className="landing-card" key={card.title}>
-            <div className="landing-card-visual">{card.visual}</div>
-            <div className="landing-card-copy">
-              <span>{card.label}</span>
-              <h3>{card.title}</h3>
-              <p>{card.body}</p>
+      {/* FinovAI Bento Suite */}
+      <div className="landing-bento-grid">
+        {/* Row 1: Hero Showcase */}
+        <div className="landing-bento-hero-row">
+          <div className="landing-bento-card">
+            <div className="landing-bento-head">
+              <div className="landing-bento-live-tag">
+                <span className="landing-bento-pulse-dot" />
+                <span>Sincronización en vivo</span>
+              </div>
+              <h3 className="landing-bento-title">Monitorea cada movimiento</h3>
+              <p className="landing-bento-body">
+                Tus cuentas bancarias, tarjetas, SAT y Bitso en un solo flujo limpio, categorizado al segundo.
+              </p>
             </div>
-          </article>
-        ))}
+            <div className="landing-bento-visual">
+              <OriginTransactionsMock />
+            </div>
+          </div>
+
+          <div className="landing-bento-card">
+            <div className="landing-bento-head">
+              <span className="landing-bento-tag">Mapa de capital</span>
+              <h3 className="landing-bento-title">Visualiza tu flujo completo</h3>
+              <p className="landing-bento-body">
+                Ingresos vs gastos fijos, suscripciones y margen real de ahorro en un solo mapa visual claro.
+              </p>
+            </div>
+            <div className="landing-bento-visual">
+              <OriginSankeyMock />
+            </div>
+          </div>
+        </div>
+
+        {/* Row 2: Secondary Feature Row */}
+        <div className="landing-bento-sub-row">
+          <div className="landing-bento-card">
+            <div className="landing-bento-head">
+              <span className="landing-bento-tag">Auditoría de fugas</span>
+              <h3 className="landing-bento-title-sm">Elimina cobros dormidos</h3>
+              <p className="landing-bento-body-sm">
+                Suscripciones inactivas y microgastos recurrentes identificados antes de afectar tu quincena.
+              </p>
+            </div>
+            <div className="landing-bento-visual">
+              <LeaksBentoMock />
+            </div>
+          </div>
+
+          <div className="landing-bento-card">
+            <div className="landing-bento-head">
+              <span className="landing-bento-tag">Copiloto IA</span>
+              <h3 className="landing-bento-title-sm">Pregúntale a tu dinero</h3>
+              <p className="landing-bento-body-sm">
+                Sin fórmulas ni tablas complejas. Pregunta en español y obtén respuestas exactas sobre tus números.
+              </p>
+            </div>
+            <div className="landing-bento-visual">
+              <AiChatBentoMock />
+            </div>
+          </div>
+
+          <div className="landing-bento-card">
+            <div className="landing-bento-head">
+              <span className="landing-bento-tag">Seguridad total</span>
+              <h3 className="landing-bento-title-sm">Solo lectura. Cero riesgos</h3>
+              <p className="landing-bento-body-sm">
+                Cifrado AES-256 de grado bancario. FinovAI jamás puede mover tu dinero ni guardar contraseñas.
+              </p>
+            </div>
+            <div className="landing-bento-visual">
+              <SecurityBentoMock />
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   )
@@ -651,67 +744,301 @@ function ChatDemo() {
   )
 }
 
-function MovementsMock() {
-  const rows = [
-    { name: 'Starbucks Reforma', tag: 'Comida fuera', amount: '-$95' },
-    { name: 'Uber Eats', tag: 'Comida fuera', amount: '-$340' },
-    { name: 'Netflix', tag: 'Suscripciones', amount: '-$219' },
-    { name: 'Nómina', tag: 'Ingreso', amount: '+$28,400' },
+function OriginTransactionsMock() {
+  const transactions = [
+    {
+      name: 'Starbucks Reforma',
+      tag: 'Café diario',
+      date: '1 sep',
+      amount: '-$95',
+      recurring: false,
+      isIncome: false,
+      icon: (
+        <svg viewBox="0 0 36 36" className="landing-origin-tx-icon" aria-hidden="true">
+          <circle cx="18" cy="18" r="18" fill="#006241" />
+          <path
+            fill="#fff"
+            d="M18 7.5a10.5 10.5 0 1 0 0 21 10.5 10.5 0 0 0 0-21zm0 2.2a8.3 8.3 0 1 1 0 16.6 8.3 8.3 0 0 1 0-16.6zm0 3.2c-1.3 0-2.4 1-2.4 2.3 0 .7.4 1.4.9 1.8l-.7 3.6h4.4l-.7-3.6c.5-.4.9-1.1.9-1.8 0-1.3-1.1-2.3-2.4-2.3z"
+          />
+        </svg>
+      ),
+    },
+    {
+      name: 'Netflix México',
+      tag: 'Suscripción',
+      date: '1 sep',
+      amount: '-$219',
+      recurring: true,
+      isIncome: false,
+      icon: (
+        <svg viewBox="0 0 36 36" className="landing-origin-tx-icon" aria-hidden="true">
+          <rect width="36" height="36" rx="18" fill="#000" />
+          <path
+            fill="#E50914"
+            d="M12.5 8h3.2l4.1 12.8L23.9 8h3.2v20h-3.2V15.2L19.8 28h-2.7l-4.6-12.8V28h-3.2V8z"
+          />
+        </svg>
+      ),
+    },
+    {
+      name: 'Uber Eats',
+      tag: 'Comida fuera',
+      date: '31 ago',
+      amount: '-$340',
+      recurring: false,
+      isIncome: false,
+      icon: (
+        <svg viewBox="0 0 36 36" className="landing-origin-tx-icon" aria-hidden="true">
+          <rect width="36" height="36" rx="18" fill="#111" />
+          <path
+            fill="#06C167"
+            d="M12 12h12v3H12zm0 5h12v3H12zm0 5h8v3H12z"
+          />
+        </svg>
+      ),
+    },
+    {
+      name: 'BBVA Nómina',
+      tag: 'Depósito quincenal',
+      date: '31 ago',
+      amount: '+$28,400',
+      recurring: true,
+      isIncome: true,
+      icon: (
+        <svg viewBox="0 0 36 36" className="landing-origin-tx-icon" aria-hidden="true">
+          <circle cx="18" cy="18" r="18" fill="#004481" />
+          <path
+            fill="#fff"
+            d="M12 11h4.8c2.2 0 3.6 1 3.6 2.6 0 1.2-.8 2-1.8 2.3 1.4.3 2.2 1.3 2.2 2.7 0 1.9-1.6 2.8-4 2.8H12V11zm2.4 2.1v2h2.2c.8 0 1.3-.4 1.3-1s-.5-1-1.3-1h-2.2zm0 3.9v2.4h2.4c.9 0 1.4-.4 1.4-1.2 0-.8-.5-1.2-1.4-1.2h-2.4z"
+          />
+        </svg>
+      ),
+    },
   ]
 
   return (
-    <div className="landing-mock landing-mock-movements">
-      <span className="landing-mock-label">Movimientos</span>
-      {rows.map((row) => (
-        <div className="landing-mock-row" key={row.name}>
-          <div>
-            <strong>{row.name}</strong>
-            <span>{row.tag}</span>
+    <div className="landing-origin-tx-container">
+      {transactions.map((tx) => (
+        <div className={`landing-origin-tx-row ${tx.isIncome ? 'is-income' : ''}`} key={tx.name}>
+          <div className="landing-origin-tx-left">
+            {tx.icon}
+            <div>
+              <strong>{tx.name}</strong>
+              <span>{tx.tag} · {tx.date}</span>
+            </div>
           </div>
-          <b className={row.amount.startsWith('+') ? 'is-positive' : undefined}>{row.amount}</b>
+          <div className="landing-origin-tx-right">
+            {tx.recurring ? (
+              <Repeat className="landing-origin-tx-repeat" aria-label="Recurrente" />
+            ) : null}
+            <b className={tx.isIncome ? 'is-positive' : undefined}>{tx.amount}</b>
+          </div>
         </div>
       ))}
     </div>
   )
 }
 
-function CategoriesMock() {
-  const slices = [
-    { label: 'Comida fuera', value: 34, tone: 'blue' },
-    { label: 'Transporte', value: 22, tone: 'teal' },
-    { label: 'Súper', value: 18, tone: 'muted' },
-    { label: 'Suscripciones', value: 12, tone: 'muted' },
-  ]
-
+function OriginSankeyMock() {
   return (
-    <div className="landing-mock landing-mock-categories">
-      <span className="landing-mock-label">Categorías · Agosto</span>
-      {slices.map((slice) => (
-        <div className="landing-bar-row" key={slice.label}>
-          <span>{slice.label}</span>
-          <div className="landing-bar-track">
-            <i className={`landing-bar landing-bar-${slice.tone}`} style={{ width: `${slice.value * 2.6}%` }} />
-          </div>
-          <b>{slice.value}%</b>
-        </div>
-      ))}
+    <div className="landing-origin-sankey-container">
+      <svg
+        viewBox="0 0 420 320"
+        className="landing-origin-sankey-svg"
+        aria-label="Diagrama de asignación de ingresos y gastos"
+      >
+        <defs>
+          <linearGradient id="sankey-grad-ahorro" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#00D4AA" stopOpacity="0.45" />
+            <stop offset="100%" stopColor="#00D4AA" stopOpacity="0.32" />
+          </linearGradient>
+          <linearGradient id="sankey-grad-hogar" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#00D4AA" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#F59E0B" stopOpacity="0.35" />
+          </linearGradient>
+          <linearGradient id="sankey-grad-transporte" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#00D4AA" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0.35" />
+          </linearGradient>
+          <linearGradient id="sankey-grad-viajes" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#00D4AA" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.35" />
+          </linearGradient>
+          <linearGradient id="sankey-grad-comida" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#00D4AA" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="#06B6D4" stopOpacity="0.35" />
+          </linearGradient>
+          <linearGradient id="sankey-grad-salud" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#4A90F0" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#F43F5E" stopOpacity="0.35" />
+          </linearGradient>
+        </defs>
+
+        {/* Left Vertical Nodes */}
+        <rect x="18" y="24" width="3.5" height="190" rx="1.75" fill="#00D4AA" />
+        <rect x="18" y="234" width="3.5" height="28" rx="1.75" fill="#4A90F0" />
+
+        {/* Left Node Labels */}
+        <text x="28" y="44" fill="#F3F5F8" fontSize="13" fontWeight="600" fontFamily="var(--v2-sans)">
+          Ingresos
+        </text>
+        <text x="28" y="60" fill="#939BAA" fontSize="11" fontFamily="var(--v2-sans)">
+          $63,922
+        </text>
+
+        <text x="28" y="248" fill="#F3F5F8" fontSize="12" fontWeight="600" fontFamily="var(--v2-sans)">
+          Rendimientos
+        </text>
+        <text x="28" y="262" fill="#939BAA" fontSize="11" fontFamily="var(--v2-sans)">
+          $1,478
+        </text>
+
+        {/* Flow Ribbons */}
+        <path
+          d="M 21.5 24 C 150 24, 170 24, 280 24 L 280 102 C 170 102, 150 102, 21.5 102 Z"
+          fill="url(#sankey-grad-ahorro)"
+        />
+        <path
+          d="M 21.5 102 C 150 102, 170 114, 280 114 L 280 172 C 170 172, 150 160, 21.5 160 Z"
+          fill="url(#sankey-grad-hogar)"
+        />
+        <path
+          d="M 21.5 160 C 150 160, 170 182, 280 182 L 280 210 C 170 210, 150 188, 21.5 188 Z"
+          fill="url(#sankey-grad-transporte)"
+        />
+        <path
+          d="M 21.5 188 C 150 188, 170 220, 280 220 L 280 244 C 170 244, 150 212, 21.5 212 Z"
+          fill="url(#sankey-grad-viajes)"
+        />
+        <path
+          d="M 21.5 212 C 150 212, 170 254, 280 254 L 280 276 C 170 276, 150 214, 21.5 214 Z"
+          fill="url(#sankey-grad-comida)"
+        />
+        <path
+          d="M 21.5 234 C 150 234, 170 286, 280 286 L 280 300 C 170 300, 150 262, 21.5 262 Z"
+          fill="url(#sankey-grad-salud)"
+        />
+
+        {/* Right Vertical Nodes */}
+        <rect x="280" y="24" width="3.5" height="78" rx="1.75" fill="#00D4AA" />
+        <rect x="280" y="114" width="3.5" height="58" rx="1.75" fill="#F59E0B" />
+        <rect x="280" y="182" width="3.5" height="28" rx="1.75" fill="#8B5CF6" />
+        <rect x="280" y="220" width="3.5" height="24" rx="1.75" fill="#3B82F6" />
+        <rect x="280" y="254" width="3.5" height="22" rx="1.75" fill="#06B6D4" />
+        <rect x="280" y="286" width="3.5" height="14" rx="1.75" fill="#F43F5E" />
+
+        {/* Right Node Labels */}
+        <text x="292" y="58" fill="#F3F5F8" fontSize="12" fontWeight="600" fontFamily="var(--v2-sans)">
+          Ahorro
+        </text>
+        <text x="292" y="73" fill="#939BAA" fontSize="10.5" fontFamily="var(--v2-sans)">
+          $26,799 (41%)
+        </text>
+
+        <text x="292" y="138" fill="#F3F5F8" fontSize="12" fontWeight="600" fontFamily="var(--v2-sans)">
+          Hogar
+        </text>
+        <text x="292" y="153" fill="#939BAA" fontSize="10.5" fontFamily="var(--v2-sans)">
+          $18,628 (28%)
+        </text>
+
+        <text x="292" y="193" fill="#F3F5F8" fontSize="11.5" fontWeight="600" fontFamily="var(--v2-sans)">
+          Transporte
+        </text>
+        <text x="292" y="206" fill="#939BAA" fontSize="10" fontFamily="var(--v2-sans)">
+          $5,803 (9%)
+        </text>
+
+        <text x="292" y="230" fill="#F3F5F8" fontSize="11.5" fontWeight="600" fontFamily="var(--v2-sans)">
+          Viajes
+        </text>
+        <text x="292" y="242" fill="#939BAA" fontSize="10" fontFamily="var(--v2-sans)">
+          $5,160 (8%)
+        </text>
+
+        <text x="292" y="263" fill="#F3F5F8" fontSize="11.5" fontWeight="600" fontFamily="var(--v2-sans)">
+          Comida
+        </text>
+        <text x="292" y="275" fill="#939BAA" fontSize="10" fontFamily="var(--v2-sans)">
+          $4,891 (7%)
+        </text>
+
+        <text x="292" y="293" fill="#F3F5F8" fontSize="11" fontWeight="600" fontFamily="var(--v2-sans)">
+          Salud y otros
+        </text>
+        <text x="292" y="304" fill="#939BAA" fontSize="9.5" fontFamily="var(--v2-sans)">
+          $1,910 (3%)
+        </text>
+      </svg>
     </div>
   )
 }
 
-function PatternsMock() {
+function LeaksBentoMock() {
   return (
-    <div className="landing-mock landing-mock-patterns">
-      <span className="landing-mock-label">Patrones detectados</span>
-      <div className="landing-pattern-card">
-        <strong>5 suscripciones dormidas</strong>
-        <span>Sin uso desde marzo</span>
-        <b>$894 / mes</b>
+    <div className="landing-bento-leaks">
+      <div className="landing-bento-leak-item">
+        <div className="landing-bento-leak-info">
+          <strong>5 suscripciones dormidas</strong>
+          <span>Sin uso en más de 90 días</span>
+        </div>
+        <b className="landing-bento-leak-val">-$894/mes</b>
       </div>
-      <div className="landing-pattern-card">
-        <strong>Café · 23 cargos</strong>
-        <span>Lunes a viernes, 8:40am</span>
-        <b>$2,550 / mes</b>
+      <div className="landing-bento-leak-item">
+        <div className="landing-bento-leak-info">
+          <strong>Café diario · 23 cargos</strong>
+          <span>Lunes a viernes 8:40 am</span>
+        </div>
+        <b className="landing-bento-leak-val">-$2,550/mes</b>
+      </div>
+      <div className="landing-bento-leak-pill">
+        <span>Margen identificado</span>
+        <strong>+$3,444 MXN / mes</strong>
+      </div>
+    </div>
+  )
+}
+
+function AiChatBentoMock() {
+  return (
+    <div className="landing-bento-chat">
+      <div className="landing-bento-chat-msg landing-bento-chat-user">
+        <span>¿Cuánto gasté en delivery este mes?</span>
+      </div>
+      <div className="landing-bento-chat-msg landing-bento-chat-ai">
+        <div className="landing-bento-chat-ai-head">
+          <Sparkles className="size-3.5" style={{ color: '#00D4AA' }} />
+          <span>FinovAI Copiloto</span>
+        </div>
+        <p>
+          Llevas <b>$3,180 MXN</b> en 9 pedidos de Uber Eats y Rappi. Es un <b>38% más</b> que el mes pasado.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function SecurityBentoMock() {
+  return (
+    <div className="landing-bento-security">
+      <div className="landing-bento-sec-badge">
+        <div className="landing-bento-sec-icon">
+          <ShieldCheck className="size-5" />
+        </div>
+        <div>
+          <strong>Cifrado AES-256</strong>
+          <span>Conexión cifrada de extremo a extremo</span>
+        </div>
+      </div>
+      <div className="landing-bento-sec-list">
+        <div className="landing-bento-sec-item">
+          <CheckCircle2 className="size-3.5" style={{ color: '#00D4AA' }} />
+          <span>Acceso 100% de solo lectura</span>
+        </div>
+        <div className="landing-bento-sec-item">
+          <CheckCircle2 className="size-3.5" style={{ color: '#00D4AA' }} />
+          <span>Sin credenciales en navegador</span>
+        </div>
       </div>
     </div>
   )
