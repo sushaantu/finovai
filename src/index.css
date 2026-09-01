@@ -1161,6 +1161,15 @@ body {
 .landing-v2 :is(a, button, [tabindex]):focus-visible {
   outline: 2px solid var(--v2-blue);
   outline-offset: 3px;
+}
+
+/* Only the elements that have no radius of their own -- setting it blanket
+   above would square off the pills, since the ring follows border-radius. */
+.landing-v2 .landing-nav-links a:focus-visible,
+.landing-v2 .landing-wordmark:focus-visible,
+.landing-v2 .landing-faq-item > button:focus-visible,
+.landing-v2 .landing-press-item:focus-visible,
+.landing-v2 .landing-footer a:focus-visible {
   border-radius: 8px;
 }
 
@@ -1910,20 +1919,36 @@ body {
 }
 
 .landing-origin-tx-icon {
+  display: grid;
+  place-items: center;
   width: 36px;
   height: 36px;
-  border-radius: 50%;
   flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
 }
 
-.landing-origin-tx-left strong {
+.landing-origin-tx-icon img {
+  object-fit: contain;
+}
+
+/* Marks that ship monochrome are knocked out to white so the circle carries
+   the brand colour. Sizes are per-logo because the aspect ratios run from a
+   1:1 glyph to a 3.34:1 wordmark. */
+.landing-origin-tx-icon img.is-mono {
+  filter: brightness(0) invert(1);
+}
+
+/* Scoped to the description block: the logo badge is a span in this same
+   container and was being caught by the bare `span` selector. */
+.landing-origin-tx-left > div strong {
   display: block;
   font-size: 14px;
   font-weight: 600;
   color: var(--v2-ink);
 }
 
-.landing-origin-tx-left span {
+.landing-origin-tx-left > div span {
   display: block;
   font-size: 12px;
   color: var(--v2-ink-muted);

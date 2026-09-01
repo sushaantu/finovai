@@ -764,15 +764,11 @@ function OriginTransactionsMock() {
       amount: '-$95',
       recurring: false,
       isIncome: false,
-      icon: (
-        <svg viewBox="0 0 36 36" className="landing-origin-tx-icon" aria-hidden="true">
-          <circle cx="18" cy="18" r="18" fill="#006241" />
-          <path
-            fill="#fff"
-            d="M18 7.5a10.5 10.5 0 1 0 0 21 10.5 10.5 0 0 0 0-21zm0 2.2a8.3 8.3 0 1 1 0 16.6 8.3 8.3 0 0 1 0-16.6zm0 3.2c-1.3 0-2.4 1-2.4 2.3 0 .7.4 1.4.9 1.8l-.7 3.6h4.4l-.7-3.6c.5-.4.9-1.1.9-1.8 0-1.3-1.1-2.3-2.4-2.3z"
-          />
-        </svg>
-      ),
+      logo: '/brand-logos/starbucks.svg',
+      brand: '#006241',
+      // Square glyph, knocked out white the way the real app icon reads.
+      logoStyle: { width: 21, height: 21 },
+      mono: true,
     },
     {
       name: 'Netflix México',
@@ -781,15 +777,12 @@ function OriginTransactionsMock() {
       amount: '-$219',
       recurring: true,
       isIncome: false,
-      icon: (
-        <svg viewBox="0 0 36 36" className="landing-origin-tx-icon" aria-hidden="true">
-          <rect width="36" height="36" rx="18" fill="#000" />
-          <path
-            fill="#E50914"
-            d="M12.5 8h3.2l4.1 12.8L23.9 8h3.2v20h-3.2V15.2L19.8 28h-2.7l-4.6-12.8V28h-3.2V8z"
-          />
-        </svg>
-      ),
+      logo: '/brand-logos/netflix.svg',
+      brand: '#000000',
+      // The only mark here whose colour *is* the identity, so it keeps its
+      // own red gradient instead of being knocked out. Tall 0.55 ratio.
+      logoStyle: { width: 13, height: 23 },
+      mono: false,
     },
     {
       name: 'Uber Eats',
@@ -798,15 +791,10 @@ function OriginTransactionsMock() {
       amount: '-$340',
       recurring: false,
       isIncome: false,
-      icon: (
-        <svg viewBox="0 0 36 36" className="landing-origin-tx-icon" aria-hidden="true">
-          <rect width="36" height="36" rx="18" fill="#111" />
-          <path
-            fill="#06C167"
-            d="M12 12h12v3H12zm0 5h12v3H12zm0 5h8v3H12z"
-          />
-        </svg>
-      ),
+      logo: '/brand-logos/uber-eats.svg',
+      brand: '#06C167',
+      logoStyle: { width: 21, height: 21 },
+      mono: true,
     },
     {
       name: 'BBVA Nómina',
@@ -815,15 +803,12 @@ function OriginTransactionsMock() {
       amount: '+$28,400',
       recurring: true,
       isIncome: true,
-      icon: (
-        <svg viewBox="0 0 36 36" className="landing-origin-tx-icon" aria-hidden="true">
-          <circle cx="18" cy="18" r="18" fill="#004481" />
-          <path
-            fill="#fff"
-            d="M12 11h4.8c2.2 0 3.6 1 3.6 2.6 0 1.2-.8 2-1.8 2.3 1.4.3 2.2 1.3 2.2 2.7 0 1.9-1.6 2.8-4 2.8H12V11zm2.4 2.1v2h2.2c.8 0 1.3-.4 1.3-1s-.5-1-1.3-1h-2.2zm0 3.9v2.4h2.4c.9 0 1.4-.4 1.4-1.2 0-.8-.5-1.2-1.4-1.2h-2.4z"
-          />
-        </svg>
-      ),
+      logo: '/brand-logos/bbva.svg',
+      brand: '#004580',
+      // Wide 3.34 wordmark, so it is sized on width. The final "A" is the
+      // arch, so it can't be cropped to a square mark -- it fills instead.
+      logoStyle: { width: 31, height: 10 },
+      mono: true,
     },
   ]
 
@@ -832,7 +817,15 @@ function OriginTransactionsMock() {
       {transactions.map((tx) => (
         <div className={`landing-origin-tx-row ${tx.isIncome ? 'is-income' : ''}`} key={tx.name}>
           <div className="landing-origin-tx-left">
-            {tx.icon}
+            <span className="landing-origin-tx-icon" style={{ background: tx.brand }} aria-hidden="true">
+              <img
+                className={tx.mono ? 'is-mono' : undefined}
+                src={tx.logo}
+                alt=""
+                style={tx.logoStyle}
+                loading="lazy"
+              />
+            </span>
             <div>
               <strong>{tx.name}</strong>
               <span>{tx.tag} · {tx.date}</span>
