@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ArrowRight, ArrowUp, CheckCircle2, ChevronDown, KeyRound, Lock, Menu, Repeat, ShieldCheck, Sparkles, Unlink, X } from 'lucide-react'
+import { ArrowRight, ArrowUp, CheckCircle2, ChevronDown, KeyRound, Lock, Menu, Repeat, ShieldCheck, Unlink, X } from 'lucide-react'
 
 interface LandingPageProps {
   email: string | null
@@ -431,7 +431,6 @@ function AskSection({ onConnect }: { onConnect: () => void }) {
   return (
     <section id="preguntar" className="landing-section landing-section-ask">
       <div className="landing-section-head">
-        <Sparkles className="landing-spark" aria-hidden="true" />
         <Eyebrow>Pregunta</Eyebrow>
         <DisplayTitle accent="Pregunta" rest="lo que sea" size="md" />
         <p>
@@ -778,7 +777,9 @@ function OriginTransactionsMock() {
       recurring: true,
       isIncome: false,
       logo: '/brand-logos/netflix.svg',
-      brand: '#000000',
+      // Netflix's own UI black rather than pure #000, which vanished into the
+      // row at 1.1:1.
+      brand: '#141414',
       // The only mark here whose colour *is* the identity, so it keeps its
       // own red gradient instead of being knocked out. Tall 0.55 ratio.
       logoStyle: { width: 13, height: 23 },
@@ -1011,7 +1012,6 @@ function AiChatBentoMock() {
       </div>
       <div className="landing-bento-chat-msg landing-bento-chat-ai">
         <div className="landing-bento-chat-ai-head">
-          <Sparkles className="size-3.5" style={{ color: '#00D4AA' }} />
           <span>FinovAI Copiloto</span>
         </div>
         <p>
