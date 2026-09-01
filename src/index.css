@@ -1448,7 +1448,7 @@ body {
   text-align: center;
 }
 
-/* Soft atmospheric "dawn" glow standing in for Origin's sky photograph. */
+/* Soft atmospheric "dawn" glow behind the hero. */
 .landing-hero-sky {
   position: absolute;
   inset: 0;
@@ -1881,14 +1881,14 @@ body {
 }
 
 /* Transactions list in left hero bento */
-.landing-origin-tx-container {
+.landing-tx-container {
   display: flex;
   flex-direction: column;
   gap: 12px;
   width: 100%;
 }
 
-.landing-origin-tx-row {
+.landing-tx-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1899,19 +1899,19 @@ body {
   backdrop-filter: blur(8px);
 }
 
-.landing-origin-tx-row.is-income {
+.landing-tx-row.is-income {
   border-color: rgba(0, 212, 170, 0.2);
   background: rgba(0, 212, 170, 0.04);
 }
 
-.landing-origin-tx-left {
+.landing-tx-left {
   display: flex;
   align-items: center;
   gap: 13px;
   text-align: left;
 }
 
-.landing-origin-tx-icon {
+.landing-tx-icon {
   display: grid;
   place-items: center;
   width: 36px;
@@ -1925,66 +1925,124 @@ body {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
 }
 
-.landing-origin-tx-icon img {
+.landing-tx-icon img {
   object-fit: contain;
 }
 
 /* Marks that ship monochrome are knocked out to white so the circle carries
    the brand colour. Sizes are per-logo because the aspect ratios run from a
    1:1 glyph to a 3.34:1 wordmark. */
-.landing-origin-tx-icon img.is-mono {
+.landing-tx-icon img.is-mono {
   filter: brightness(0) invert(1);
 }
 
 /* Scoped to the description block: the logo badge is a span in this same
    container and was being caught by the bare `span` selector. */
-.landing-origin-tx-left > div strong {
+.landing-tx-left > div strong {
   display: block;
   font-size: 14px;
   font-weight: 600;
   color: var(--v2-ink);
 }
 
-.landing-origin-tx-left > div span {
+.landing-tx-left > div span {
   display: block;
   font-size: 12px;
   color: var(--v2-ink-muted);
   margin-top: 1px;
 }
 
-.landing-origin-tx-right {
+.landing-tx-right {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.landing-origin-tx-repeat {
+.landing-tx-repeat {
   width: 14px;
   height: 14px;
   color: var(--v2-ink-dim);
 }
 
-.landing-origin-tx-right b {
+.landing-tx-right b {
   font-size: 14.5px;
   font-weight: 600;
   color: var(--v2-ink);
 }
 
-.landing-origin-tx-right b.is-positive {
+.landing-tx-right b.is-positive {
   color: var(--v2-teal);
 }
 
-/* Sankey container in right hero bento */
-.landing-origin-sankey-container {
+/* Capital map (shadcn chart-bar-mixed) in right hero bento */
+.landing-capital-map {
   width: 100%;
-  padding: 10px 4px;
+  padding: 4px 0 0;
+
+  /* The chart primitives read shadcn theme tokens, which resolve to the light
+     theme outside the dashboard. Repaint them in the landing palette the same
+     way .auth-v2 .auth-connect does. */
+  --background: var(--v2-bg-card);
+  --border: var(--v2-line);
+  --foreground: var(--v2-ink);
+  --muted: var(--v2-bg-raise);
+  --muted-foreground: var(--v2-ink-muted);
+  --popover: var(--v2-bg-raise);
+  --popover-foreground: var(--v2-ink);
 }
 
-.landing-origin-sankey-svg {
-  display: block;
+.landing-capital-map-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding: 0 2px;
+}
+
+.landing-capital-map-head span {
+  color: var(--v2-ink-dim);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: var(--v2-label-spacing);
+  text-transform: uppercase;
+}
+
+.landing-capital-map-head b {
+  color: var(--v2-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Override ChartContainer's default aspect-video: this is six fixed rows, so
+   it wants a set height rather than a ratio. */
+.landing-capital-chart {
   width: 100%;
-  height: auto;
-  max-height: 330px;
+  aspect-ratio: auto;
+  height: 260px;
+}
+
+/* Tick colour and size come from each axis's `tick` prop: Recharts 3 hoists
+   tick labels into a separate z-index layer, so they are no longer descendants
+   of the axis and cannot be reached by CSS from here. Only the font family is
+   safe to set globally. */
+.landing-capital-chart .recharts-cartesian-axis-tick-value {
+  font-family: var(--v2-sans);
+}
+
+.landing-capital-value,
+.landing-capital-share {
+  font-family: var(--v2-sans);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.landing-capital-value {
+  fill: var(--v2-ink);
+}
+
+.landing-capital-share {
+  fill: var(--v2-ink-muted);
+  font-weight: 500;
 }
 
 /* Leaks sub bento */

@@ -1,5 +1,12 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ArrowRight, ArrowUp, CheckCircle2, ChevronDown, KeyRound, Lock, Menu, Repeat, ShieldCheck, Unlink, X } from 'lucide-react'
+import { Bar, BarChart, LabelList, XAxis, YAxis } from 'recharts'
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from '@/components/ui/chart'
 
 interface LandingPageProps {
   email: string | null
@@ -363,7 +370,7 @@ function ConnectSection({ onConnect }: { onConnect: () => void }) {
               </p>
             </div>
             <div className="landing-bento-visual">
-              <OriginTransactionsMock />
+              <TransactionsMock />
             </div>
           </div>
 
@@ -376,7 +383,7 @@ function ConnectSection({ onConnect }: { onConnect: () => void }) {
               </p>
             </div>
             <div className="landing-bento-visual">
-              <OriginSankeyMock />
+              <CapitalMapMock />
             </div>
           </div>
         </div>
@@ -754,7 +761,7 @@ function ChatDemo() {
   )
 }
 
-function OriginTransactionsMock() {
+function TransactionsMock() {
   const transactions = [
     {
       name: 'Starbucks Reforma',
@@ -814,11 +821,11 @@ function OriginTransactionsMock() {
   ]
 
   return (
-    <div className="landing-origin-tx-container">
+    <div className="landing-tx-container">
       {transactions.map((tx) => (
-        <div className={`landing-origin-tx-row ${tx.isIncome ? 'is-income' : ''}`} key={tx.name}>
-          <div className="landing-origin-tx-left">
-            <span className="landing-origin-tx-icon" style={{ background: tx.brand }} aria-hidden="true">
+        <div className={`landing-tx-row ${tx.isIncome ? 'is-income' : ''}`} key={tx.name}>
+          <div className="landing-tx-left">
+            <span className="landing-tx-icon" style={{ background: tx.brand }} aria-hidden="true">
               <img
                 className={tx.mono ? 'is-mono' : undefined}
                 src={tx.logo}
@@ -832,9 +839,9 @@ function OriginTransactionsMock() {
               <span>{tx.tag} · {tx.date}</span>
             </div>
           </div>
-          <div className="landing-origin-tx-right">
+          <div className="landing-tx-right">
             {tx.recurring ? (
-              <Repeat className="landing-origin-tx-repeat" aria-label="Recurrente" />
+              <Repeat className="landing-tx-repeat" aria-label="Recurrente" />
             ) : null}
             <b className={tx.isIncome ? 'is-positive' : undefined}>{tx.amount}</b>
           </div>
@@ -844,137 +851,83 @@ function OriginTransactionsMock() {
   )
 }
 
-function OriginSankeyMock() {
+/**
+ * Capital map, built on the shadcn `chart-bar-mixed` pattern (registry deps
+ * `card` + `chart`, both already vendored in src/components/ui). One bar per
+ * destination, ranked, with the amount and share trailing each bar.
+ */
+const capitalConfig = {
+  amount: { label: 'Monto' },
+  ahorro: { label: 'Ahorro', color: '#00D4AA' },
+  hogar: { label: 'Hogar', color: '#F8BF5E' },
+  transporte: { label: 'Transporte', color: '#B293F9' },
+  viajes: { label: 'Viajes', color: '#7EADF9' },
+  comida: { label: 'Comida', color: '#5BCFE3' },
+  salud: { label: 'Salud', color: '#F88095' },
+} satisfies ChartConfig
+
+const capitalData = [
+  { key: 'ahorro', amount: 26799, pct: 42, fill: 'var(--color-ahorro)' },
+  { key: 'hogar', amount: 18628, pct: 30, fill: 'var(--color-hogar)' },
+  { key: 'transporte', amount: 5803, pct: 9, fill: 'var(--color-transporte)' },
+  { key: 'viajes', amount: 5160, pct: 8, fill: 'var(--color-viajes)' },
+  { key: 'comida', amount: 4891, pct: 8, fill: 'var(--color-comida)' },
+  { key: 'salud', amount: 1910, pct: 3, fill: 'var(--color-salud)' },
+]
+
+function CapitalMapMock() {
   return (
-    <div className="landing-origin-sankey-container">
-      <svg
-        viewBox="0 0 420 320"
-        className="landing-origin-sankey-svg"
-        aria-label="Diagrama de asignación de ingresos y gastos"
-      >
-        <defs>
-          <linearGradient id="sankey-grad-ahorro" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#00D4AA" stopOpacity="0.45" />
-            <stop offset="100%" stopColor="#00D4AA" stopOpacity="0.32" />
-          </linearGradient>
-          <linearGradient id="sankey-grad-hogar" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#00D4AA" stopOpacity="0.3" />
-            <stop offset="100%" stopColor="#F59E0B" stopOpacity="0.35" />
-          </linearGradient>
-          <linearGradient id="sankey-grad-transporte" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#00D4AA" stopOpacity="0.25" />
-            <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0.35" />
-          </linearGradient>
-          <linearGradient id="sankey-grad-viajes" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#00D4AA" stopOpacity="0.22" />
-            <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.35" />
-          </linearGradient>
-          <linearGradient id="sankey-grad-comida" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#00D4AA" stopOpacity="0.2" />
-            <stop offset="100%" stopColor="#06B6D4" stopOpacity="0.35" />
-          </linearGradient>
-          <linearGradient id="sankey-grad-salud" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#4A90F0" stopOpacity="0.3" />
-            <stop offset="100%" stopColor="#F43F5E" stopOpacity="0.35" />
-          </linearGradient>
-        </defs>
+    <div className="landing-capital-map">
+      <div className="landing-capital-map-head">
+        <span>Ingresos + rendimientos</span>
+        <b>$65,400</b>
+      </div>
 
-        {/* Left Vertical Nodes */}
-        <rect x="18" y="24" width="3.5" height="190" rx="1.75" fill="#00D4AA" />
-        <rect x="18" y="234" width="3.5" height="28" rx="1.75" fill="#4A90F0" />
-
-        {/* Left Node Labels */}
-        <text x="28" y="44" fill="#F3F5F8" fontSize="13" fontWeight="600" fontFamily="var(--v2-sans)">
-          Ingresos
-        </text>
-        <text x="28" y="60" fill="#939BAA" fontSize="11" fontFamily="var(--v2-sans)">
-          $63,922
-        </text>
-
-        <text x="28" y="248" fill="#F3F5F8" fontSize="12" fontWeight="600" fontFamily="var(--v2-sans)">
-          Rendimientos
-        </text>
-        <text x="28" y="262" fill="#939BAA" fontSize="11" fontFamily="var(--v2-sans)">
-          $1,478
-        </text>
-
-        {/* Flow Ribbons */}
-        <path
-          d="M 21.5 24 C 150 24, 170 24, 280 24 L 280 102 C 170 102, 150 102, 21.5 102 Z"
-          fill="url(#sankey-grad-ahorro)"
-        />
-        <path
-          d="M 21.5 102 C 150 102, 170 114, 280 114 L 280 172 C 170 172, 150 160, 21.5 160 Z"
-          fill="url(#sankey-grad-hogar)"
-        />
-        <path
-          d="M 21.5 160 C 150 160, 170 182, 280 182 L 280 210 C 170 210, 150 188, 21.5 188 Z"
-          fill="url(#sankey-grad-transporte)"
-        />
-        <path
-          d="M 21.5 188 C 150 188, 170 220, 280 220 L 280 244 C 170 244, 150 212, 21.5 212 Z"
-          fill="url(#sankey-grad-viajes)"
-        />
-        <path
-          d="M 21.5 212 C 150 212, 170 254, 280 254 L 280 276 C 170 276, 150 214, 21.5 214 Z"
-          fill="url(#sankey-grad-comida)"
-        />
-        <path
-          d="M 21.5 234 C 150 234, 170 286, 280 286 L 280 300 C 170 300, 150 262, 21.5 262 Z"
-          fill="url(#sankey-grad-salud)"
-        />
-
-        {/* Right Vertical Nodes */}
-        <rect x="280" y="24" width="3.5" height="78" rx="1.75" fill="#00D4AA" />
-        <rect x="280" y="114" width="3.5" height="58" rx="1.75" fill="#F59E0B" />
-        <rect x="280" y="182" width="3.5" height="28" rx="1.75" fill="#8B5CF6" />
-        <rect x="280" y="220" width="3.5" height="24" rx="1.75" fill="#3B82F6" />
-        <rect x="280" y="254" width="3.5" height="22" rx="1.75" fill="#06B6D4" />
-        <rect x="280" y="286" width="3.5" height="14" rx="1.75" fill="#F43F5E" />
-
-        {/* Right Node Labels */}
-        <text x="292" y="58" fill="#F3F5F8" fontSize="12" fontWeight="600" fontFamily="var(--v2-sans)">
-          Ahorro
-        </text>
-        <text x="292" y="73" fill="#939BAA" fontSize="10.5" fontFamily="var(--v2-sans)">
-          $26,799 (41%)
-        </text>
-
-        <text x="292" y="138" fill="#F3F5F8" fontSize="12" fontWeight="600" fontFamily="var(--v2-sans)">
-          Hogar
-        </text>
-        <text x="292" y="153" fill="#939BAA" fontSize="10.5" fontFamily="var(--v2-sans)">
-          $18,628 (28%)
-        </text>
-
-        <text x="292" y="193" fill="#F3F5F8" fontSize="11.5" fontWeight="600" fontFamily="var(--v2-sans)">
-          Transporte
-        </text>
-        <text x="292" y="206" fill="#939BAA" fontSize="10" fontFamily="var(--v2-sans)">
-          $5,803 (9%)
-        </text>
-
-        <text x="292" y="230" fill="#F3F5F8" fontSize="11.5" fontWeight="600" fontFamily="var(--v2-sans)">
-          Viajes
-        </text>
-        <text x="292" y="242" fill="#939BAA" fontSize="10" fontFamily="var(--v2-sans)">
-          $5,160 (8%)
-        </text>
-
-        <text x="292" y="263" fill="#F3F5F8" fontSize="11.5" fontWeight="600" fontFamily="var(--v2-sans)">
-          Comida
-        </text>
-        <text x="292" y="275" fill="#939BAA" fontSize="10" fontFamily="var(--v2-sans)">
-          $4,891 (7%)
-        </text>
-
-        <text x="292" y="293" fill="#F3F5F8" fontSize="11" fontWeight="600" fontFamily="var(--v2-sans)">
-          Salud y otros
-        </text>
-        <text x="292" y="304" fill="#939BAA" fontSize="9.5" fontFamily="var(--v2-sans)">
-          $1,910 (3%)
-        </text>
-      </svg>
+      <ChartContainer config={capitalConfig} className="landing-capital-chart">
+        <BarChart
+          accessibilityLayer
+          data={capitalData}
+          layout="vertical"
+          margin={{ left: 0, right: 4 }}
+          barCategoryGap={9}
+        >
+          <YAxis
+            dataKey="key"
+            type="category"
+            tickLine={false}
+            axisLine={false}
+            tickMargin={8}
+            width={86}
+            tick={{ fill: 'var(--v2-ink)', fontSize: 12.5, fontWeight: 500 }}
+            tickFormatter={(value) => capitalConfig[value as keyof typeof capitalConfig]?.label ?? value}
+          />
+          <XAxis dataKey="amount" type="number" domain={[0, (dataMax: number) => dataMax * 1.46]} hide />
+          <YAxis
+            yAxisId="share"
+            dataKey="key"
+            type="category"
+            orientation="right"
+            tickLine={false}
+            axisLine={false}
+            tickMargin={0}
+            width={44}
+            tick={{ fill: 'var(--v2-ink-muted)', fontSize: 12, fontWeight: 500 }}
+            tickFormatter={(value) =>
+              `${capitalData.find((row) => row.key === value)?.pct ?? 0}%`
+            }
+          />
+          <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+          <Bar dataKey="amount" radius={5} isAnimationActive={false}>
+            <LabelList
+              dataKey="amount"
+              position="right"
+              offset={10}
+              className="landing-capital-value"
+              formatter={(value: unknown) => `$${formatCurrency(Number(value ?? 0))}`}
+            />
+          </Bar>
+        </BarChart>
+      </ChartContainer>
     </div>
   )
 }
