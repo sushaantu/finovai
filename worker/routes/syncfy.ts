@@ -95,8 +95,9 @@ const SYNCFY_WIDGET_CONFIG = {
   navigation: {
     displayErrorsInToast: false,
     displayPrivacyScreen: true,
-    displayStatusInToast: false,
+    displayStatusInToast: true,
     hideSelectCountry: true,
+    quickAnswer: true,
     socketTimeout: 600_000,
     toastDuration: 7000,
   },

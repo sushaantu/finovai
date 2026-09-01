@@ -66,14 +66,6 @@ declare global {
 }
 
 let syncfyWidgetLoader: Promise<SyncfyWidgetConstructor> | null = null
-const SYNCFY_FLOATING_NOTIFICATION_SELECTORS = [
-  '.el-notification',
-  '.pb-w-sync_notification-form',
-  '.pb-w-sync_notification-loader',
-  '.pb-w-sync_unauthorized-notification',
-  '.pb-w-sync_widget-notification-show-more-container',
-].join(',')
-const SYNCFY_TWOFA_NOTIFICATION_SELECTOR = '.pb-w-sync_twofa-notification'
 
 function getLoadedSyncfyWidget() {
   return window.SyncfyWidget
@@ -132,27 +124,22 @@ function loadSyncfyWidget() {
   return syncfyWidgetLoader
 }
 
-function removeSyncfyFloatingNotifications(includeTwofa = false) {
-  if (typeof document === 'undefined') return
-
-  const selectors = includeTwofa
-    ? `${SYNCFY_FLOATING_NOTIFICATION_SELECTORS},${SYNCFY_TWOFA_NOTIFICATION_SELECTOR}`
-    : SYNCFY_FLOATING_NOTIFICATION_SELECTORS
-
-  document
-    .querySelectorAll(selectors)
-    .forEach((element) => {
-      if (!includeTwofa && element.querySelector(SYNCFY_TWOFA_NOTIFICATION_SELECTOR)) return
-      element.remove()
-    })
-}
-
-function scheduleSyncfyNotificationCleanup(includeTwofa = false) {
-  if (typeof window === 'undefined') return
-
-  removeSyncfyFloatingNotifications(includeTwofa)
-  window.setTimeout(() => removeSyncfyFloatingNotifications(includeTwofa), 100)
-  window.setTimeout(() => removeSyncfyFloatingNotifications(includeTwofa), 750)
+function formatConnectErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+    if (
+      msg.includes('failed to fetch') ||
+      msg.includes('network error') ||
+      msg.includes('networkerror') ||
+      msg.includes('fetch failed') ||
+      msg.includes('load failed') ||
+      error.name === 'TypeError'
+    ) {
+      return 'No pudimos conectar con el servidor. Puedes volver a intentar.'
+    }
+    return error.message || fallback
+  }
+  return fallback
 }
 
 function formatCooldown(seconds: number) {
@@ -244,24 +231,32 @@ function getCredentialStatusText(credential: SyncfyCredential) {
     : `Próximo intento disponible en ${formatCooldown(credential.cooldownSeconds)}`
 }
 
-function getDefaultConnectMessage(credentials: SyncfyCredential[]) {
-  if (credentials.some((credential) => getCredentialConnectionState(credential) === 'abandoned')) {
+function getDefaultConnectMessage(credentials: SyncfyCredential[], activeLinkingId?: string | null) {
+  const getEffectiveState = (credential: SyncfyCredential) => {
+    if (activeLinkingId && credential.syncfyCredentialId === activeLinkingId) {
+      const state = getCredentialConnectionState(credential)
+      return state === 'action_required' ? 'verifying' : state
+    }
+    return getCredentialConnectionState(credential)
+  }
+
+  if (credentials.some((credential) => getEffectiveState(credential) === 'abandoned')) {
     return 'Una conexión fue retirada. Puedes volver a conectarla cuando quieras.'
   }
 
-  if (credentials.some((credential) => getCredentialConnectionState(credential) === 'action_required')) {
+  if (credentials.some((credential) => getEffectiveState(credential) === 'action_required')) {
     return 'Una institución necesita que actualices el acceso para continuar.'
   }
 
-  if (credentials.some((credential) => getCredentialConnectionState(credential) === 'broken')) {
+  if (credentials.some((credential) => getEffectiveState(credential) === 'broken')) {
     return 'Una conexión no ha logrado sincronizar. Estamos investigando con el proveedor.'
   }
 
-  if (credentials.some((credential) => getCredentialConnectionState(credential) === 'provider_unavailable')) {
+  if (credentials.some((credential) => getEffectiveState(credential) === 'provider_unavailable')) {
     return 'Una institución está fallando temporalmente. Puedes revisar el detalle y el código de soporte aquí.'
   }
 
-  if (credentials.some((credential) => getCredentialConnectionState(credential) === 'support_required')) {
+  if (credentials.some((credential) => getEffectiveState(credential) === 'support_required')) {
     return 'Una conexión necesita revisión de FinovAI. Comparte el código de soporte con el equipo.'
   }
 
@@ -269,7 +264,10 @@ function getDefaultConnectMessage(credentials: SyncfyCredential[]) {
     return 'FinovAI está trayendo movimientos. Puedes ir a Chat; el análisis estará listo cuando lleguen.'
   }
 
-  if (credentials.some((credential) => credential.needsReconnect || credential.status === 'needs_reconnect')) {
+  if (credentials.some((credential) => {
+    if (activeLinkingId && credential.syncfyCredentialId === activeLinkingId) return false
+    return credential.needsReconnect || credential.status === 'needs_reconnect'
+  })) {
     return 'Hay una institución que necesita reconexión. Usa Actualizar acceso o vuelve a conectar.'
   }
 
@@ -305,11 +303,24 @@ export function SyncfyConnect({
   const [isDeletingCredentialId, setIsDeletingCredentialId] = useState<string | null>(null)
   const [widgetRunId, setWidgetRunId] = useState(0)
 
+  const isWidgetSessionActive = Boolean(session)
   const hasCredentials = credentials.length > 0
   const isBusy = isLoading || isRefreshing || Boolean(isDeletingCredentialId)
   const hasPendingTransactions = credentials.some((credential) => credential.status === 'pending_transactions')
+
+  const isCredentialForWidgetRun = (credential: SyncfyCredential) => {
+    if (widgetMode === 'update' && activeCredentialId) {
+      return credential.syncfyCredentialId === activeCredentialId
+    }
+
+    return !sessionBaselineCredentialIdsRef.current.has(credential.syncfyCredentialId)
+  }
+
   const hasReconnectRequired = credentials.some(
-    (credential) => getCredentialConnectionState(credential) === 'action_required'
+    (credential) => {
+      const isLinking = isWidgetSessionActive && isCredentialForWidgetRun(credential)
+      return getCredentialConnectionState(credential) === 'action_required' && !isLinking
+    }
   )
   const hasProviderUnavailable = credentials.some(
     (credential) => getCredentialConnectionState(credential) === 'provider_unavailable'
@@ -327,14 +338,6 @@ export function SyncfyConnect({
     const response = await apiClient.getSyncfyCredentials(email)
     applyCredentials(response.credentials)
     return response.credentials
-  }
-
-  const isCredentialForWidgetRun = (credential: SyncfyCredential) => {
-    if (widgetMode === 'update' && activeCredentialId) {
-      return credential.syncfyCredentialId === activeCredentialId
-    }
-
-    return !sessionBaselineCredentialIdsRef.current.has(credential.syncfyCredentialId)
   }
 
   const findCredentialForWidgetRun = (nextCredentials: SyncfyCredential[]) => {
@@ -361,7 +364,6 @@ export function SyncfyConnect({
     if (widgetContainerRef.current) {
       widgetContainerRef.current.innerHTML = ''
     }
-    scheduleSyncfyNotificationCleanup(true)
   }
 
   const dismissWidgetSession = () => {
@@ -375,6 +377,9 @@ export function SyncfyConnect({
 
     const tick = async () => {
       attempts += 1
+      setMessage(attemptRefresh
+        ? 'Verificando si los movimientos ya están disponibles.'
+        : 'Verificando la conexión...')
       const nextCredentials = await loadCredentials().catch(() => [])
       const nextCredential = findCredentialForWidgetRun(nextCredentials)
 
@@ -429,9 +434,7 @@ export function SyncfyConnect({
 
       return true
     } catch (error) {
-      const message = error instanceof Error && error.message
-        ? error.message
-        : 'No pudimos guardar la institución conectada.'
+      const message = formatConnectErrorMessage(error, 'No pudimos guardar la institución conectada.')
       setMessage(message)
       onStatus?.(message)
       return !(error instanceof ApiError) || error.status !== 422
@@ -473,7 +476,6 @@ export function SyncfyConnect({
       widgetRef.current = widget
 
       widget.on('success', (...args: unknown[]) => {
-        scheduleSyncfyNotificationCleanup()
         clearCredentialPolling()
         setMessage('Institución conectada. Guardando credencial y esperando movimientos.')
         onStatus?.('Institución conectada. Esperando movimientos.')
@@ -482,7 +484,6 @@ export function SyncfyConnect({
         })
       })
       widget.on('updated', (...args: unknown[]) => {
-        scheduleSyncfyNotificationCleanup()
         clearCredentialPolling()
         setMessage('Acceso actualizado. Buscando movimientos nuevos.')
         onStatus?.('Acceso actualizado.')
@@ -509,7 +510,6 @@ export function SyncfyConnect({
         onStatus?.(nextMessage)
       })
       widget.on('error', () => {
-        scheduleSyncfyNotificationCleanup()
         const rid = widget.getLastRid?.()
         const fallbackMessage = rid ? `La conexión reportó un error. RID: ${rid}` : 'La conexión reportó un error.'
         setMessage(rid
@@ -541,7 +541,6 @@ export function SyncfyConnect({
       })
       widget.on('closed', () => {
         clearCredentialPolling()
-        scheduleSyncfyNotificationCleanup(true)
         setSession(null)
         // Re-sync after the widget closes: an in-widget 2FA completion can leave
         // the stored credential in needs_user even though the institution has
@@ -622,7 +621,7 @@ export function SyncfyConnect({
 
       return response
     } catch (error) {
-      const nextMessage = error instanceof Error ? error.message : 'No pudimos iniciar la conexión bancaria.'
+      const nextMessage = formatConnectErrorMessage(error, 'No pudimos iniciar la conexión bancaria.')
       setMessage(nextMessage)
       onStatus?.(nextMessage)
       throw error
@@ -675,10 +674,10 @@ export function SyncfyConnect({
         ? 'Movimientos todavía no disponibles. FinovAI seguirá verificando.'
         : data?.retryAfterSeconds
           ? `Puedes volver a sincronizar en ${formatCooldown(data.retryAfterSeconds)}.`
-          : error instanceof Error ? error.message : 'No pudimos sincronizar movimientos.'
+          : formatConnectErrorMessage(error, 'No pudimos sincronizar movimientos.')
       setMessage(nextMessage)
       onStatus?.(nextMessage)
-      await loadCredentials()
+      await loadCredentials().catch(() => [])
     } finally {
       setIsRefreshing(false)
     }
@@ -706,7 +705,7 @@ export function SyncfyConnect({
       setMessage(nextMessage)
       onStatus?.(nextMessage)
     } catch (error) {
-      const nextMessage = error instanceof Error ? error.message : 'No pudimos eliminar la institución.'
+      const nextMessage = formatConnectErrorMessage(error, 'No pudimos eliminar la institución.')
       setMessage(nextMessage)
       onStatus?.(nextMessage)
     } finally {
@@ -791,8 +790,15 @@ export function SyncfyConnect({
           <div className="grid gap-2">
             {credentials.map((credential) => {
               const menuId = `credential-menu-${credential.syncfyCredentialId}`
-              const connectionState = getCredentialConnectionState(credential)
-              const issue = credential.connectionIssue
+              const isLinking = isWidgetSessionActive && isCredentialForWidgetRun(credential)
+              const rawConnectionState = getCredentialConnectionState(credential)
+              const connectionState = (isLinking && rawConnectionState === 'action_required')
+                ? 'verifying'
+                : rawConnectionState
+              const rawIssue = credential.connectionIssue
+              const issue = (isLinking && rawIssue?.kind === 'action_required')
+                ? null
+                : rawIssue
               const needsReconnect = connectionState === 'action_required' || connectionState === 'abandoned'
               const providerUnavailable = connectionState === 'provider_unavailable'
               const supportRequired = connectionState === 'support_required'
@@ -809,7 +815,10 @@ export function SyncfyConnect({
                     : isVerifying
                       ? credential.ready ? 'Verificar ahora' : 'Verificando'
                       : 'Sincronizar'
-              const primaryActionDisabled = isBusy || isBroken || (!needsReconnect && !credential.ready)
+              const primaryActionDisabled = isBusy || isBroken || isLinking || (!needsReconnect && !credential.ready)
+              const statusText = (isLinking && rawConnectionState === 'action_required')
+                ? 'Estamos verificando la conexión…'
+                : getCredentialStatusText(credential)
 
               return (
                 <div
@@ -835,11 +844,11 @@ export function SyncfyConnect({
                               : supportRequired
                                 ? 'FinovAI necesita revisar la respuesta'
                               : isVerifying
-                                ? 'Credencial guardada; verificando acceso'
+                                ? (isLinking ? 'Estamos verificando la conexión…' : 'Credencial guardada; verificando acceso')
                                 : 'Movimientos importados'}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {getCredentialStatusText(credential)}
+                          {statusText}
                         </p>
                       </div>
                     </div>

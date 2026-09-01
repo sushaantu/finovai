@@ -34,9 +34,11 @@ import {
 } from './lib/db'
 import {
   buildSyncfyExternalId,
+  buildSyncfyTransactionWindow,
   classifySyncfyCredentialBlocker,
   getOrCreateSyncfyUser,
   getSyncfyCredentialBlockerMessage,
+  getSyncfyTransactionLookbackMonths,
   parseSyncfyCredentialHealth,
 } from './lib/syncfy'
 import {
@@ -3542,4 +3544,24 @@ test('getSyncfyCredentialBlockerMessage points users at the reconnect flow', () 
     .toContain('código de seguridad')
   expect(getSyncfyCredentialBlockerMessage('provider_pending', null))
     .toContain('reintentando')
+})
+
+test('getSyncfyTransactionLookbackMonths defaults to 1 month and validates bounds', () => {
+  expect(getSyncfyTransactionLookbackMonths({})).toBe(1)
+  expect(getSyncfyTransactionLookbackMonths({ SYNCFY_TRANSACTION_LOOKBACK_MONTHS: '1' })).toBe(1)
+  expect(getSyncfyTransactionLookbackMonths({ SYNCFY_TRANSACTION_LOOKBACK_MONTHS: '6' })).toBe(6)
+  expect(getSyncfyTransactionLookbackMonths({ SYNCFY_TRANSACTION_LOOKBACK_MONTHS: '24' })).toBe(24)
+  expect(getSyncfyTransactionLookbackMonths({ SYNCFY_TRANSACTION_LOOKBACK_MONTHS: '0' })).toBe(1)
+  expect(getSyncfyTransactionLookbackMonths({ SYNCFY_TRANSACTION_LOOKBACK_MONTHS: '25' })).toBe(1)
+  expect(getSyncfyTransactionLookbackMonths({ SYNCFY_TRANSACTION_LOOKBACK_MONTHS: 'invalid' })).toBe(1)
+})
+
+test('buildSyncfyTransactionWindow defaults to 1 month lookback', () => {
+  const ref = new Date('2026-08-31T15:00:00Z')
+  const defaultWindow = buildSyncfyTransactionWindow(ref)
+  expect(defaultWindow.to).toBe(Math.floor(Date.parse('2026-08-31T15:00:00Z') / 1000))
+  expect(defaultWindow.from).toBe(Math.floor(Date.parse('2026-07-31T00:00:00Z') / 1000))
+
+  const customWindow = buildSyncfyTransactionWindow(ref, 3)
+  expect(customWindow.from).toBe(Math.floor(Date.parse('2026-05-31T00:00:00Z') / 1000))
 })

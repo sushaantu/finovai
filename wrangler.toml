@@ -125,7 +125,7 @@ CLOUDFLARE_AI_GATEWAY_COMPAT_MODEL = "anthropic/claude-opus-4-7"
 #   SYNCFY_API_BASE_URL defaults to https://sync.paybook.com/v1
 #   SYNCFY_AUTH_HEADER_NAME defaults to Authorization
 #   SYNCFY_AUTH_HEADER_VALUE defaults to "api_key api_key={api_key}"
-#   SYNCFY_TRANSACTION_LOOKBACK_MONTHS defaults to 6
+#   SYNCFY_TRANSACTION_LOOKBACK_MONTHS defaults to 1
 #   SYNCFY_TRANSACTIONS_PATH can override the default credential transaction path if needed
 # Webhook URL:
 #   https://finov.ai/api/syncfy/webhook
