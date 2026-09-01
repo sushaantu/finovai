@@ -1,5 +1,18 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ArrowRight, ArrowUp, CheckCircle2, ChevronDown, Lock, Menu, Repeat, ShieldCheck, X } from 'lucide-react'
+import {
+  ArrowRight,
+  ArrowUp,
+  CheckCircle2,
+  ChevronDown,
+  CreditCard,
+  Handshake,
+  Lock,
+  MailCheck,
+  Menu,
+  Repeat,
+  ShieldCheck,
+  X,
+} from 'lucide-react'
 import { Bar, BarChart, LabelList, XAxis, YAxis } from 'recharts'
 import {
   ChartContainer,
@@ -55,7 +68,7 @@ const faqItems: FaqItem[] = [
   {
     question: '¿Cuánto cuesta?',
     answer:
-      'Conectar tu banco y preguntarle a FinovAI es gratis. Más adelante FinovAI podrá conectarte con plataformas de inversión aliadas cuando tengas margen de ahorro identificado.',
+      'Los primeros 3 meses son gratis: entras con FinovAI Pro completo y sin tarjeta. Después, Básico cuesta $95 MXN/mes y Pro $150 MXN/mes, IVA incluido, o $950 y $1,500 al año. Los dos planes incluyen la conexión bancaria; Pro añade las apps de iPhone y Android cuando salgan. Te avisamos por correo antes de cualquier cobro y puedes cancelar cuando quieras.',
   },
   {
     question: '¿Dónde quedan mis credenciales bancarias?',
@@ -94,6 +107,7 @@ export default function LandingPage({ email, onConnect, onLogin, onSignup, onLog
         <HeroSection onConnect={handleStart} />
         <PressBar />
         <ConnectSection onConnect={handleStart} />
+        <PricingSection onConnect={handleStart} />
         <FaqSection />
         <FinalCtaSection onConnect={handleStart} />
       </main>
@@ -121,6 +135,7 @@ function LandingNav({
   const navLinks = [
     { label: 'Conectar', href: '#conectar' },
     { label: 'Preguntar', href: '#preguntar' },
+    { label: 'Precios', href: '#precios' },
     { label: 'Seguridad', href: '#seguridad' },
   ]
 
@@ -158,7 +173,7 @@ function LandingNav({
                 Iniciar sesión
               </button>
               <button className="landing-btn landing-btn-solid" type="button" onClick={onConnect}>
-                Empezar
+                Empezar gratis
                 <ArrowRight aria-hidden="true" />
               </button>
             </>
@@ -184,7 +199,7 @@ function LandingNav({
             </a>
           ))}
           <button className="landing-btn landing-btn-solid" type="button" onClick={onConnect}>
-            {email ? 'Abrir panel' : 'Empezar'}
+            {email ? 'Abrir panel' : 'Empezar gratis'}
             <ArrowRight aria-hidden="true" />
           </button>
         </div>
@@ -202,6 +217,12 @@ function HeroSection({ onConnect }: { onConnect: () => void }) {
       <div className="landing-hero-fade" aria-hidden="true" />
 
       <div className="landing-hero-inner">
+        <a className="landing-hero-badge" href="#precios">
+          <span className="landing-bento-pulse-dot" />
+          <span>Gratis 3 meses · acceso fundador</span>
+          <ArrowRight aria-hidden="true" />
+        </a>
+
         <DisplayTitle accent="Pregúntale" rest="a tu dinero." />
 
         <p className="landing-hero-lede">FinovAI es tu copiloto financiero con IA.</p>
@@ -392,6 +413,110 @@ function ConnectSection({ onConnect }: { onConnect: () => void }) {
   )
 }
 
+function PricingSection({ onConnect }: { onConnect: () => void }) {
+  return (
+    <section id="precios" className="landing-section landing-section-pricing">
+      <div className="landing-section-head">
+        <Eyebrow>Precios</Eyebrow>
+        <DisplayTitle accent="Gratis 3 meses." rest="Luego tú decides." size="md" />
+        <p>
+          Entras sin pagar y sin tarjeta. A los tres meses te escribimos, te enseñamos lo que FinovAI encontró
+          en tu dinero, y ahí decides si sigues.
+        </p>
+      </div>
+
+      {/* The offer is the only thing anyone acts on today, so it is the only
+          thing here built like a card. The strip underneath answers the three
+          things a free trial makes people suspicious about. */}
+      <div className="landing-founder-pass">
+        <div className="landing-founder-badge">
+          <span className="landing-bento-pulse-dot" />
+          <span>Acceso fundador</span>
+        </div>
+
+        <div className="landing-founder-main">
+          <div className="landing-founder-offer">
+            <div className="landing-founder-amount">
+              <span className="landing-founder-cur">$</span>0
+            </div>
+            <div className="landing-founder-terms">
+              <strong>los primeros 3 meses</strong>
+              <span>FinovAI Pro completo: conexión bancaria, detección de fugas y copiloto IA.</span>
+            </div>
+          </div>
+
+          <div className="landing-founder-action">
+            <button className="landing-btn landing-btn-solid landing-btn-lg" type="button" onClick={onConnect}>
+              Empezar gratis
+              <ArrowRight aria-hidden="true" />
+            </button>
+            <span className="landing-founder-action-meta">90 segundos · Solo lectura</span>
+          </div>
+        </div>
+
+        <ul className="landing-founder-assurances">
+          <li>
+            <CreditCard aria-hidden="true" />
+            <div>
+              <strong>Sin tarjeta</strong>
+              <span>No pedimos datos de pago para abrir tu cuenta.</span>
+            </div>
+          </li>
+          <li>
+            <MailCheck aria-hidden="true" />
+            <div>
+              <strong>Sin cobros sorpresa</strong>
+              <span>Te avisamos por correo antes de cualquier cargo.</span>
+            </div>
+          </li>
+          <li>
+            <Handshake aria-hidden="true" />
+            <div>
+              <strong>Sin permanencia</strong>
+              <span>Cancelas cuando quieras, sin contratos ni penalización.</span>
+            </div>
+          </li>
+        </ul>
+
+        {/* The prices are a band of the offer, not a second object: nobody
+            picks a plan for three months, so they are disclosure, not a
+            decision. Same column rhythm as the assurances above. */}
+        <div className="landing-founder-later">
+          <div className="landing-founder-later-head">
+            <span className="landing-founder-later-label">Después de los 3 meses</span>
+            <span className="landing-founder-later-note">IVA incluido</span>
+          </div>
+
+          <ul className="landing-founder-plans">
+            <li>
+              <strong>
+                Básico <b>$95</b> MXN/mes
+              </strong>
+              <span>Conexión bancaria, presupuestos, detección de fugas y copiloto IA.</span>
+            </li>
+            <li>
+              <strong>
+                Pro <b>$150</b> MXN/mes <em>tu plan estos 3 meses</em>
+              </strong>
+              <span>Todo lo de Básico, más las apps de iPhone y Android (próximamente).</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <p className="landing-pricing-note">
+        Hoy no eliges plan. Todos empiezan con Pro completo, gratis. Durante los tres meses te escribimos para
+        saber qué te falta y ajustarlo contigo.{' '}
+        <a href="mailto:contacto@finov.ai">
+          Escríbenos
+          <ArrowRight aria-hidden="true" />
+        </a>
+      </p>
+
+    </section>
+  )
+}
+
 function FaqSection() {
   const [openIndex, setOpenIndex] = useState(-1)
   const panelId = useId()
@@ -441,7 +566,7 @@ function FinalCtaSection({ onConnect }: { onConnect: () => void }) {
           Conectar mi banco
           <ArrowRight aria-hidden="true" />
         </button>
-        <span className="landing-final-meta">Gratis · Solo lectura · Sin tarjeta</span>
+        <span className="landing-final-meta">Gratis 3 meses · Solo lectura · Sin tarjeta</span>
       </div>
     </section>
   )

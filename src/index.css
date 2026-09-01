@@ -1489,6 +1489,38 @@ body {
   max-width: 860px;
 }
 
+/* Announces the offer above the title -- same dot-and-pill language as the
+   founder pass, so the hero and the pricing section read as one promise. */
+.finovai-landing .landing-hero-badge,
+.finovai-landing .landing-hero-badge:visited {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 30px;
+  padding: 6px 14px 6px 12px;
+  border: 1px solid rgba(0, 212, 170, 0.28);
+  border-radius: 999px;
+  background: rgba(0, 212, 170, 0.09);
+  color: var(--v2-teal);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: var(--v2-label-spacing);
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.finovai-landing .landing-hero-badge:hover {
+  border-color: rgba(0, 212, 170, 0.5);
+  background: rgba(0, 212, 170, 0.14);
+}
+
+.landing-hero-badge svg {
+  width: 12px;
+  height: 12px;
+  opacity: 0.75;
+}
+
 .landing-v2 .landing-hero-lede {
   margin-top: 28px;
   color: var(--v2-ink);
@@ -2261,6 +2293,373 @@ body {
   margin-top: 26px;
 }
 
+/* ------------------------------------------------------------- pricing */
+
+.landing-section-pricing {
+  position: relative;
+}
+
+/* -- founder pass: the $0 offer, which owns the section ------------------ */
+
+/* The one place on the page where a number is allowed to be display-sized.
+   It reads as an offer, not a price tag, so it uses the serif. */
+.landing-founder-pass {
+  position: relative;
+  max-width: 900px;
+  margin: 40px auto 0;
+  padding: 26px 36px 0;
+  border: 1px solid rgba(74, 144, 240, 0.3);
+  border-radius: 26px;
+  background:
+    radial-gradient(120% 140% at 8% 0%, rgba(74, 144, 240, 0.14) 0%, transparent 58%),
+    radial-gradient(110% 130% at 100% 0%, rgba(0, 212, 170, 0.1) 0%, transparent 55%),
+    var(--v2-bg-card);
+  box-shadow: 0 30px 80px -46px rgba(74, 144, 240, 0.55);
+  overflow: hidden;
+}
+
+/* A lit top edge, so the panel reads as raised rather than just outlined. */
+.landing-founder-pass::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(74, 144, 240, 0.55) 28%,
+    rgba(0, 212, 170, 0.5) 68%,
+    transparent 100%
+  );
+}
+
+.landing-founder-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 10px;
+  border: 1px solid rgba(0, 212, 170, 0.3);
+  border-radius: 999px;
+  background: rgba(0, 212, 170, 0.1);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--v2-label-spacing);
+  text-transform: uppercase;
+  color: var(--v2-teal);
+  white-space: nowrap;
+}
+
+.landing-founder-main {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+  margin-top: 18px;
+  padding-bottom: 26px;
+}
+
+.landing-founder-offer {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  min-width: 0;
+}
+
+.landing-founder-amount {
+  display: flex;
+  align-items: baseline;
+  font-family: var(--v2-serif);
+  font-size: clamp(58px, 8vw, 86px);
+  font-weight: 400;
+  line-height: 0.86;
+  letter-spacing: -0.02em;
+  color: var(--v2-ink);
+  flex-shrink: 0;
+}
+
+.landing-founder-cur {
+  font-size: 0.5em;
+  margin-right: 0.06em;
+  color: var(--v2-ink-muted);
+}
+
+.landing-founder-terms {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  max-width: 340px;
+}
+
+.landing-founder-terms strong {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--v2-ink);
+}
+
+.landing-founder-terms span {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--v2-ink-muted);
+  text-wrap: pretty;
+}
+
+.landing-founder-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.landing-founder-action-meta {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-ink-dim);
+}
+
+/* The three objections a free trial actually raises, answered in a row. */
+.landing-founder-assurances {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 0 -36px;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--v2-line);
+  background: rgba(255, 255, 255, 0.016);
+}
+
+.landing-founder-assurances li {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 16px 36px;
+}
+
+.landing-founder-assurances li + li {
+  border-left: 1px solid var(--v2-line-soft);
+}
+
+.landing-founder-assurances svg {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  flex-shrink: 0;
+  color: var(--v2-teal);
+}
+
+.landing-founder-assurances div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.landing-founder-assurances strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--v2-ink);
+}
+
+.landing-founder-assurances span {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--v2-ink-dim);
+  text-wrap: pretty;
+}
+
+/* -- what it costs later, as a third band of the offer ------------------- */
+
+.landing-founder-later {
+  margin: 0 -36px;
+  border-top: 1px solid var(--v2-line);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.landing-founder-later-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 36px 0;
+}
+
+.landing-founder-later-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--v2-label-spacing);
+  text-transform: uppercase;
+  color: var(--v2-ink-muted);
+}
+
+.landing-founder-later-note {
+  font-size: 12px;
+  color: var(--v2-ink-dim);
+}
+
+.landing-founder-plans {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.landing-founder-plans li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 36px 18px;
+}
+
+.landing-founder-plans li + li {
+  border-left: 1px solid var(--v2-line-soft);
+}
+
+.landing-founder-plans strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--v2-ink-dim);
+}
+
+.landing-founder-plans b {
+  margin: 0 3px 0 2px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--v2-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Lowercase and quiet, so the Pro line keeps the same weight as Basico. */
+.landing-founder-plans em {
+  margin-left: 6px;
+  font-size: 11.5px;
+  font-style: normal;
+  color: var(--v2-teal);
+}
+
+.landing-founder-plans span {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--v2-ink-dim);
+  text-wrap: pretty;
+}
+
+/* -- the promise to actually talk to people ------------------------------ */
+
+.landing-v2 .landing-pricing-note {
+  max-width: 660px;
+  margin: 22px auto 0;
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--v2-ink-dim);
+  text-wrap: pretty;
+}
+
+.finovai-landing .landing-pricing-note a,
+.finovai-landing .landing-pricing-note a:visited {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--v2-teal);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.finovai-landing .landing-pricing-note a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.landing-pricing-note a svg {
+  width: 12px;
+  height: 12px;
+  transform: translateY(1px);
+}
+
+@media (max-width: 900px) {
+  .landing-founder-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 24px;
+  }
+
+  .landing-founder-action {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .landing-founder-action .landing-btn {
+    width: 100%;
+  }
+
+  .landing-founder-action-meta {
+    text-align: center;
+  }
+}
+
+@media (max-width: 768px) {
+  .landing-founder-pass {
+    padding: 24px 22px 0;
+    border-radius: 22px;
+  }
+
+  .landing-founder-offer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .landing-founder-terms {
+    max-width: none;
+  }
+
+  .landing-founder-assurances {
+    grid-template-columns: 1fr;
+    margin: 0 -22px;
+  }
+
+  .landing-founder-assurances li {
+    padding: 14px 22px;
+  }
+
+  .landing-founder-assurances li + li {
+    border-left: 0;
+    border-top: 1px solid var(--v2-line-soft);
+  }
+
+  .landing-founder-later {
+    margin: 0 -22px;
+  }
+
+  /* The annual footnote has nowhere to sit beside the label on a phone. */
+  .landing-founder-later-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+    padding: 14px 22px 0;
+  }
+
+  .landing-founder-plans {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-founder-plans li {
+    padding: 10px 22px 16px;
+  }
+
+  .landing-founder-plans li + li {
+    border-left: 0;
+    border-top: 1px solid var(--v2-line-soft);
+    padding-top: 14px;
+  }
+}
+
 /* ------------------------------------------------------------------ faq */
 
 .landing-section-faq {
@@ -2455,6 +2854,12 @@ body {
 
   .landing-hero-meta {
     font-size: 10px;
+  }
+
+  .finovai-landing .landing-hero-badge {
+    margin-bottom: 24px;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
   }
 
   .landing-final {
