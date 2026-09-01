@@ -42,6 +42,20 @@ async function seedCredential(db: { prepare: (sql: string) => { bind: (...args: 
           over.createdAt ?? '2026-06-10T00:00:00Z').run()
 }
 
+async function seedWebhookEvents(
+  db: { prepare: (sql: string) => { bind: (...args: unknown[]) => { run: () => Promise<unknown> } } },
+  credentialId: string,
+  count: number,
+  timeOffset: string = '0 seconds'
+) {
+  for (let i = 0; i < count; i++) {
+    await db.prepare(`INSERT INTO syncfy_webhook_events
+      (id, event_type, syncfy_user_id, syncfy_credential_id, rid, payload_json, processed_at, created_at)
+      VALUES (?, 'credentials.refreshed', 'su-1', ?, ?, '{}', datetime('now'), datetime('now', ?))`)
+      .bind(`evt-${credentialId}-${i}`, credentialId, `rid-${i}`, timeOffset).run()
+  }
+}
+
 afterEach(() => {
   setSyncfyFetchForTests((input, init) => fetch(input, init))
 })
@@ -243,4 +257,60 @@ test('cron path with expired cooldown still pulls', async () => {
   await runScheduled(env)
 
   expect(calls.some((c) => c.method === 'PUT' && c.url.includes('/pulls'))).toBe(true)
+})
+
+test('runaway sync tripwire alerts when webhook events exceed hourly threshold', async () => {
+  const { db } = createTestDb(await loadSchema())
+  await seedCredential(db, { id: 'cred-loop', site: 'BBVA', email: 'user@example.com', state: 'healthy' })
+  await seedWebhookEvents(db, 'cred-loop', 7)
+
+  const sent: { subject: string; text?: string }[] = []
+  const env = makeEnv(db, () => ({ ok: true, status: 200, message: 'ok' }), {
+    onEmail: (msg) => sent.push(msg),
+    utcHour: 0,
+  })
+
+  await runScheduled(env)
+
+  const alert = sent.find((m) => m.subject.includes('Posible loop de sincronización Syncfy'))
+  expect(alert).toBeDefined()
+  expect(alert?.text).toContain('cred-loop')
+  expect(alert?.text).toContain('BBVA')
+  expect(alert?.text).toContain('user@example.com')
+  expect(alert?.text).toContain('7')
+  expect(alert?.text).toContain('healthy')
+})
+
+test('runaway sync tripwire does not alert when webhook events are at or below threshold', async () => {
+  const { db } = createTestDb(await loadSchema())
+  await seedCredential(db, { id: 'cred-normal', site: 'BBVA', email: 'user@example.com', state: 'healthy' })
+  await seedWebhookEvents(db, 'cred-normal', 6)
+
+  const sent: { subject: string }[] = []
+  const env = makeEnv(db, () => ({ ok: true, status: 200, message: 'ok' }), {
+    onEmail: (msg) => sent.push(msg),
+    utcHour: 0,
+  })
+
+  await runScheduled(env)
+
+  const alert = sent.find((m) => m.subject.includes('Posible loop de sincronización Syncfy'))
+  expect(alert).toBeUndefined()
+})
+
+test('runaway sync tripwire ignores webhook events older than 1 hour', async () => {
+  const { db } = createTestDb(await loadSchema())
+  await seedCredential(db, { id: 'cred-old', site: 'BBVA', email: 'user@example.com', state: 'healthy' })
+  await seedWebhookEvents(db, 'cred-old', 10, '-2 hours')
+
+  const sent: { subject: string }[] = []
+  const env = makeEnv(db, () => ({ ok: true, status: 200, message: 'ok' }), {
+    onEmail: (msg) => sent.push(msg),
+    utcHour: 0,
+  })
+
+  await runScheduled(env)
+
+  const alert = sent.find((m) => m.subject.includes('Posible loop de sincronización Syncfy'))
+  expect(alert).toBeUndefined()
 })

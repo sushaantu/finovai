@@ -96,8 +96,51 @@ async function runDailyHealthTick(env: Env): Promise<void> {
   )
 }
 
+export const SYNCFY_HOURLY_EVENT_ALERT_THRESHOLD = 6
+
+interface RunawaySyncfyCredentialRow {
+  syncfy_credential_id: string
+  site_name: string | null
+  email: string | null
+  state: string | null
+  event_count: number
+}
+
+export async function checkSyncfyRunawayLoop(env: Env): Promise<void> {
+  const runaway = await env.DB.prepare(
+    `SELECT
+       w.syncfy_credential_id,
+       c.site_name,
+       c.email,
+       c.state,
+       COUNT(*) AS event_count
+     FROM syncfy_webhook_events w
+     LEFT JOIN syncfy_credentials c
+       ON w.syncfy_credential_id = c.syncfy_credential_id
+     WHERE w.created_at >= datetime('now', '-1 hour')
+       AND w.syncfy_credential_id IS NOT NULL
+     GROUP BY w.syncfy_credential_id
+     HAVING COUNT(*) > ?`
+  )
+    .bind(SYNCFY_HOURLY_EVENT_ALERT_THRESHOLD)
+    .all<RunawaySyncfyCredentialRow>()
+
+  if (!runaway.results || runaway.results.length === 0) return
+
+  const lines = runaway.results.map((row) =>
+    `credential: ${row.syncfy_credential_id}, site: ${row.site_name ?? 'unknown'}, email: ${row.email ?? 'unknown'}, eventsLastHour: ${row.event_count}, state: ${row.state ?? 'unknown'}`
+  )
+
+  await sendOpsAlertEmail(
+    env,
+    '[FinovAI] Posible loop de sincronización Syncfy',
+    lines
+  )
+}
+
 export async function runScheduled(env: Env): Promise<void> {
   const result = await refreshDueSyncfyCredentials(env)
   console.log('Scheduled connection refresh complete', result)
   await runDailyHealthTick(env)
+  await checkSyncfyRunawayLoop(env)
 }
