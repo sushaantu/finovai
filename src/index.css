@@ -1176,15 +1176,18 @@ body {
 }
 
 .landing-v2 .landing-display-lg {
-  font-size: clamp(48px, 7.4vw, 104px);
+  font-size: clamp(38px, 5.2vw, 72px);
+  line-height: 1.1;
 }
 
 .landing-v2 .landing-display-md {
-  font-size: clamp(38px, 5.2vw, 72px);
+  font-size: clamp(32px, 4.2vw, 56px);
+  line-height: 1.14;
 }
 
 .landing-v2 .landing-display-sm {
-  font-size: clamp(30px, 3.8vw, 50px);
+  font-size: clamp(26px, 3.2vw, 42px);
+  line-height: 1.2;
 }
 
 /* ----------------------------------------------------------------- nav */
@@ -1426,9 +1429,9 @@ body {
 }
 
 .landing-v2 .landing-hero-lede {
-  margin-top: 38px;
+  margin-top: 28px;
   color: var(--v2-ink);
-  font-size: clamp(17px, 2vw, 20px);
+  font-size: clamp(16px, 1.8vw, 19px);
   font-weight: 500;
   letter-spacing: -0.01em;
 }
@@ -1576,19 +1579,85 @@ body {
   color: #8B7CF6;
 }
 
+/* ---------------------------------------------------------- press trust bar */
+
+.landing-press-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 36px 24px 8px;
+  position: relative;
+  z-index: 2;
+}
+
+.landing-press-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--v2-label-spacing);
+  color: var(--v2-ink-dim);
+  white-space: nowrap;
+}
+
+.landing-press-logos {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  flex-wrap: wrap;
+}
+
+.landing-press-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  opacity: 0.38;
+  filter: brightness(0) invert(1);
+  transition: opacity 200ms ease, transform 200ms ease;
+  padding: 4px;
+}
+
+.landing-press-item:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.landing-press-item img {
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
+@media (max-width: 720px) {
+  .landing-press-bar {
+    flex-direction: column;
+    gap: 14px;
+    padding: 24px 16px 0;
+  }
+
+  .landing-press-logos {
+    gap: 24px;
+  }
+}
+
 /* --------------------------------------------------------- bank marquee */
 
 .landing-marquee {
-  margin-top: 64px;
+  margin-top: 48px;
   overflow: hidden;
-  mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
 }
 
 .landing-marquee-track {
   display: flex;
-  gap: 18px;
+  align-items: center;
+  gap: 36px;
   width: max-content;
-  animation: v2-marquee 42s linear infinite;
+  animation: v2-marquee 40s linear infinite;
 }
 
 .landing-marquee:hover .landing-marquee-track {
@@ -1601,174 +1670,424 @@ body {
 }
 
 .landing-marquee-item {
-  display: grid;
-  place-items: center;
-  width: 132px;
-  height: 68px;
-  border: 1px solid var(--v2-line-soft);
-  border-radius: 14px;
-  background: var(--v2-bg-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  background: transparent;
 }
 
-/* Bank marks are dark-on-white SVGs; flatten them to white silhouettes so they
-   stay legible on the dark canvas, and restore brand colour on hover. */
 .landing-marquee-item img {
-  width: 76px;
-  height: 28px;
+  width: auto;
+  height: 24px;
+  max-width: 100px;
   object-fit: contain;
-  opacity: 0.55;
+  opacity: 0.45;
   filter: brightness(0) invert(1);
-  transition: opacity 200ms ease, filter 200ms ease;
+  transition: opacity 200ms ease;
 }
 
 .landing-marquee-item:hover img {
   opacity: 0.95;
 }
 
-/* ---------------------------------------------------------- proof cards */
+/* ---------------------------------------------------------- bento grid */
 
-.landing-cards {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-  margin-top: 64px;
-}
-
-.landing-card {
+.landing-bento-grid {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  gap: 24px;
+  margin-top: 56px;
+}
+
+.landing-bento-hero-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+}
+
+.landing-bento-sub-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.landing-bento-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 40px 32px;
   border: 1px solid var(--v2-line-soft);
-  border-radius: 22px;
-  background: var(--v2-bg-card);
-  transition: border-color 220ms ease, transform 220ms ease;
-}
-
-.landing-card:hover {
-  border-color: var(--v2-line);
-  transform: translateY(-3px);
-}
-
-.landing-card-visual {
-  position: relative;
-  height: 268px;
-  padding: 22px 22px 0;
+  border-radius: 26px;
+  background: radial-gradient(130% 120% at 50% 0%, rgba(255, 255, 255, 0.04) 0%, var(--v2-bg-card) 75%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 12px 36px -12px rgba(0, 0, 0, 0.5);
   overflow: hidden;
-  background:
-    radial-gradient(90% 70% at 50% 0%, rgba(74, 144, 240, 0.14), transparent 62%),
-    var(--v2-bg-raise);
+  position: relative;
 }
 
-.landing-card-copy {
-  padding: 24px 24px 28px;
-  border-top: 1px solid var(--v2-line-soft);
+.landing-bento-head {
+  text-align: left;
+  width: 100%;
 }
 
-.landing-card-copy > span {
-  color: var(--v2-ink-dim);
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.landing-card-copy h3 {
-  margin-top: 12px;
-  font-size: 19px;
+.landing-bento-live-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--v2-label-spacing);
+  color: #00D4AA;
+  background: rgba(0, 212, 170, 0.1);
+  border: 1px solid rgba(0, 212, 170, 0.22);
+  padding: 4px 11px;
+  border-radius: 999px;
+  margin-bottom: 14px;
+}
+
+.landing-bento-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #00D4AA;
+  box-shadow: 0 0 8px #00D4AA;
+  animation: v2-pulse 2s infinite;
+}
+
+@keyframes v2-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.landing-bento-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--v2-label-spacing);
+  color: var(--v2-blue);
+  background: rgba(74, 144, 240, 0.1);
+  border: 1px solid rgba(74, 144, 240, 0.22);
+  padding: 4px 11px;
+  border-radius: 999px;
+  margin-bottom: 14px;
+}
+
+.landing-bento-title {
+  font-family: var(--v2-sans);
+  font-size: clamp(20px, 2.2vw, 26px);
+  font-weight: 600;
+  line-height: 1.28;
+  color: var(--v2-ink);
+  letter-spacing: -0.015em;
+}
+
+.landing-bento-body {
+  margin-top: 10px;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--v2-ink-muted);
+  max-width: 480px;
+}
+
+.landing-bento-title-sm {
+  font-family: var(--v2-sans);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--v2-ink);
   letter-spacing: -0.01em;
 }
 
-.landing-card-copy p {
-  margin-top: 9px;
-  font-size: 14.5px;
-  line-height: 1.58;
+.landing-bento-body-sm {
+  margin-top: 8px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--v2-ink-muted);
 }
 
-/* -------------------------------------------------------- product mocks */
+.landing-bento-visual {
+  margin-top: 28px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+}
 
-.landing-mock {
+/* Transactions list in left hero bento */
+.landing-origin-tx-container {
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  height: 100%;
-  padding: 16px;
-  border: 1px solid var(--v2-line);
-  border-radius: 16px 16px 0 0;
-  background: rgba(8, 9, 12, 0.72);
-  backdrop-filter: blur(10px);
+  gap: 10px;
+  width: 100%;
 }
 
-.landing-mock-label {
-  margin-bottom: 4px;
-  color: var(--v2-ink-dim);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.landing-mock-row {
+.landing-origin-tx-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  padding: 9px 0;
-  border-bottom: 1px solid var(--v2-line-soft);
+  padding: 13px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(8px);
 }
 
-.landing-mock-row:last-child {
-  border-bottom: 0;
+.landing-origin-tx-row.is-income {
+  border-color: rgba(0, 212, 170, 0.2);
+  background: rgba(0, 212, 170, 0.04);
 }
 
-.landing-mock-row strong {
+.landing-origin-tx-left {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  text-align: left;
+}
+
+.landing-origin-tx-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.landing-origin-tx-left strong {
   display: block;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--v2-ink);
-  font-size: 13px;
-  font-weight: 500;
 }
 
-.landing-mock-row span {
+.landing-origin-tx-left span {
+  display: block;
+  font-size: 12px;
+  color: var(--v2-ink-muted);
+  margin-top: 1px;
+}
+
+.landing-origin-tx-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.landing-origin-tx-repeat {
+  width: 14px;
+  height: 14px;
   color: var(--v2-ink-dim);
-  font-size: 11.5px;
 }
 
-.landing-mock-row b {
+.landing-origin-tx-right b {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--v2-ink);
+}
+
+.landing-origin-tx-right b.is-positive {
+  color: var(--v2-teal);
+}
+
+/* Sankey container in right hero bento */
+.landing-origin-sankey-container {
+  width: 100%;
+  padding: 10px 4px;
+}
+
+.landing-origin-sankey-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Leaks sub bento */
+.landing-bento-leaks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.landing-bento-leak-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+  text-align: left;
+}
+
+.landing-bento-leak-info strong {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--v2-ink);
+}
+
+.landing-bento-leak-info span {
+  display: block;
+  font-size: 11.5px;
+  color: var(--v2-ink-muted);
+  margin-top: 1px;
+}
+
+.landing-bento-leak-val {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #F87171;
+}
+
+.landing-bento-leak-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 16px;
+  border: 1px solid rgba(0, 212, 170, 0.25);
+  border-radius: 14px;
+  background: rgba(0, 212, 170, 0.08);
+}
+
+.landing-bento-leak-pill span {
+  font-size: 12px;
+  font-weight: 500;
+  color: #00D4AA;
+}
+
+.landing-bento-leak-pill strong {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #00D4AA;
+}
+
+/* Conversational Copilot sub bento */
+.landing-bento-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.landing-bento-chat-msg {
+  padding: 13px 16px;
+  border-radius: 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.landing-bento-chat-user {
+  align-self: flex-end;
+  max-width: 88%;
+  background: rgba(74, 144, 240, 0.15);
+  border: 1px solid rgba(74, 144, 240, 0.3);
+  color: var(--v2-ink);
+}
+
+.landing-bento-chat-ai {
+  align-self: flex-start;
+  max-width: 95%;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--v2-ink-muted);
+}
+
+.landing-bento-chat-ai-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #00D4AA;
+  margin-bottom: 5px;
+}
+
+.landing-bento-chat-ai p {
+  margin: 0;
   color: var(--v2-ink);
   font-size: 12.5px;
-  font-weight: 500;
-  white-space: nowrap;
 }
 
-.landing-mock-row b.is-positive {
-  color: var(--v2-teal);
+.landing-bento-chat-ai p b {
+  color: #00D4AA;
 }
 
-.landing-pattern-card {
-  padding: 13px;
-  border: 1px solid var(--v2-line-soft);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+/* Security sub bento */
+.landing-bento-security {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
 }
 
-.landing-pattern-card strong {
+.landing-bento-sec-badge {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 14px 16px;
+  border: 1px solid rgba(74, 144, 240, 0.2);
+  border-radius: 16px;
+  background: rgba(74, 144, 240, 0.06);
+  text-align: left;
+}
+
+.landing-bento-sec-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(74, 144, 240, 0.15);
+  color: var(--v2-blue);
+  flex-shrink: 0;
+}
+
+.landing-bento-sec-badge strong {
   display: block;
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--v2-ink);
-  font-size: 13px;
-  font-weight: 500;
 }
 
-.landing-pattern-card span {
+.landing-bento-sec-badge span {
   display: block;
-  margin-top: 3px;
-  color: var(--v2-ink-dim);
   font-size: 11.5px;
+  color: var(--v2-ink-muted);
+  margin-top: 1px;
 }
 
-.landing-pattern-card b {
-  display: block;
-  margin-top: 9px;
-  color: var(--v2-teal);
-  font-size: 13px;
-  font-weight: 500;
+.landing-bento-sec-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 4px;
+}
+
+.landing-bento-sec-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--v2-ink-muted);
+  text-align: left;
+}
+
+@media (max-width: 1024px) {
+  .landing-bento-hero-row,
+  .landing-bento-sub-row {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+@media (max-width: 720px) {
+  .landing-bento-card {
+    padding: 32px 20px;
+    border-radius: 22px;
+  }
 }
 
 /* ------------------------------------------------------------ bar rows */
