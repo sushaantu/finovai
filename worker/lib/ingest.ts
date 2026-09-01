@@ -45,6 +45,7 @@ import {
   classifySyncfyCredentialBlocker,
   enrichSyncfyCredentialInstitutionById,
   fetchSyncfyCredentialHealth,
+  getSyncfyCredentialCooldownSeconds,
   getSyncfyTransactionLookbackMonths,
   normalizeSyncfyRequestPath,
   syncfyRequest,
@@ -912,7 +913,8 @@ export async function storeSyncfyCredentialStateError(
 
 export async function refreshSyncfyCredential(
   env: Env,
-  credential: SyncfyCredentialRow
+  credential: SyncfyCredentialRow,
+  options: { allowStartPull?: boolean } = {}
 ): Promise<{ imported: number; failed: boolean }> {
   if (credential.deleted_at) return { imported: 0, failed: false }
   if (credential.state === 'needs_user' || credential.state === 'abandoned') {
@@ -939,6 +941,17 @@ export async function refreshSyncfyCredential(
       return { imported: 0, failed: true }
     }
 
+    const allowStartPull = options.allowStartPull ?? true
+    const cooldownSeconds = getSyncfyCredentialCooldownSeconds({
+      ...credential,
+      last_pull_at: credential.last_pull_attempt_at || credential.last_pull_at,
+    })
+    const isCooldownActive = cooldownSeconds > 0
+    const startPull = allowStartPull && !isCooldownActive && (
+      blocker !== 'provider_pending'
+        || isSyncfyProviderPullRetryDue(credential.last_pull_attempt_at)
+    )
+
     const result = await importSyncfyTransactionsForCredential(
       env,
       credential.email,
@@ -946,8 +959,7 @@ export async function refreshSyncfyCredential(
       credential.syncfy_credential_id,
       {
         jobStatusPaths: getSyncfyCredentialJobStatusPaths(credential),
-        startPull: blocker !== 'provider_pending'
-          || isSyncfyProviderPullRetryDue(credential.last_pull_attempt_at),
+        startPull,
       }
     )
     const importState = await resolveSyncfyTransactionImportState(

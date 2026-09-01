@@ -2562,6 +2562,116 @@ test('syncfy webhook acknowledges before importing transactions in the backgroun
   }
 })
 
+test('webhook-triggered refresh never starts a pull', async () => {
+  const env = createEnv('test', {
+    SYNCFY_API_KEY: 'test-key',
+    SYNCFY_WEBHOOK_SECRET: 'webhook-secret',
+  })
+  await seedSyncfyUsers(env.DB, {
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_external_id: 'finovai:user@example.com',
+    name: null,
+    mode: 'live',
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: null,
+    last_session_at: null,
+  })
+  await seedSyncfyCredentials(env.DB, {
+    id: 'credential-row-1',
+    email: 'user@example.com',
+    syncfy_user_id: 'syncfy-user-1',
+    syncfy_credential_id: 'credential-1',
+    syncfy_site_id: '56cf5728784806f72b8b4568',
+    site_name: 'Acme Bank',
+    status: 'synced',
+    state: 'healthy',
+    last_successful_sync_at: '2026-06-01T00:00:00Z',
+    last_pull_at: '2026-06-01T00:00:00Z',
+    last_pull_attempt_at: '2026-06-01T00:00:00Z',
+    last_rid: null,
+    raw_json: null,
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: '2026-06-01T00:00:00Z',
+  })
+
+  const payload = {
+    rid: 'webhook-no-pull-rid',
+    events: [{
+      header: {
+        event: { name: 'credentials.refreshed' },
+        user: { id_user: 'syncfy-user-1' },
+      },
+      payload: {
+        status: 'SUCCESS',
+        id_credential: 'credential-1',
+        id_user: 'syncfy-user-1',
+        id_site: '56cf5728784806f72b8b4568',
+        endpoints: {
+          transactions: ['/v1/transactions?id_credential=credential-1&limit=5000&skip=0&wbhk=1'],
+        },
+      },
+    }],
+  }
+
+  const waitUntilPromises: Promise<unknown>[] = []
+  const ctx = {
+    waitUntil(promise: Promise<unknown>) {
+      waitUntilPromises.push(promise)
+    },
+  } as unknown as ExecutionContext
+
+  const calls: Array<{ url: string; method: string }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    const method = init?.method || 'GET'
+    calls.push({ url, method })
+
+    if (url.includes('/transactions')) {
+      return new Response(JSON.stringify({
+        response: {
+          transactions: [{
+            id_transaction: 'txn-from-webhook-no-pull',
+            id_credential: 'credential-1',
+            id_user: 'syncfy-user-1',
+            dt_transaction: 1772150400,
+            description: 'Webhook Expense',
+            amount: -150.0,
+            currency: 'MXN',
+          }],
+        },
+      }), { headers: { 'Content-Type': 'application/json' } })
+    }
+
+    return new Response(JSON.stringify({ response: [] }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    const response = await worker.fetch(new Request('http://local.test/api/syncfy/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-finovai-webhook-secret': 'webhook-secret',
+      },
+      body: JSON.stringify(payload),
+    }), env, ctx)
+
+    expect(response.status).toBe(202)
+    expect(waitUntilPromises).toHaveLength(1)
+
+    await waitUntilPromises[0]
+
+    expect(calls.some((call) => call.url.includes('/pulls') || call.method === 'PUT')).toBe(false)
+    expect(await readTransactions(env.DB)).toHaveLength(1)
+    expect((await readSyncfyWebhookEvents(env.DB))[0].processed_at).toBeTruthy()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('syncfy deleted webhook removes local credential instead of recreating it', async () => {
   const env = createEnv('test', {
     SYNCFY_API_KEY: 'test-key',

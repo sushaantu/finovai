@@ -35,10 +35,11 @@ function makeEnv(db: unknown, vendor: VendorScript, opts: { onEmail?: (m: { subj
 async function seedCredential(db: { prepare: (sql: string) => { bind: (...args: unknown[]) => { run: () => Promise<unknown> } } }, over: Partial<Record<string, unknown>> = {}) {
   const credentialId = over.id ?? 'cred-1'
   await db.prepare(`INSERT INTO syncfy_credentials
-    (id, email, syncfy_user_id, syncfy_credential_id, site_name, status, state, attempt_count, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'pending_transactions', ?, ?, ?, datetime('now'))`)
+    (id, email, syncfy_user_id, syncfy_credential_id, site_name, status, state, attempt_count, last_pull_at, last_pull_attempt_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'pending_transactions', ?, ?, ?, ?, ?, datetime('now'))`)
     .bind(credentialId, over.email ?? 'u@x.co', 'su-1', credentialId, over.site ?? 'BBVA',
-          over.state ?? 'pending', over.attempts ?? 0, over.createdAt ?? '2026-06-10T00:00:00Z').run()
+          over.state ?? 'pending', over.attempts ?? 0, over.last_pull_at ?? null, over.last_pull_attempt_at ?? null,
+          over.createdAt ?? '2026-06-10T00:00:00Z').run()
 }
 
 afterEach(() => {
@@ -173,4 +174,73 @@ test('healthy day sends no email', async () => {
   })
   await runScheduled(env)
   expect(sent.length).toBe(0)
+})
+
+test('cooldown suppresses startPull for the cron path', async () => {
+  const { db } = createTestDb(await loadSchema())
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+  const twentyFiveHoursAgo = '2026-06-01T00:00:00Z'
+  await seedCredential(db, {
+    id: 'cred-cooldown',
+    state: 'healthy',
+    last_pull_at: twentyFiveHoursAgo,
+    last_pull_attempt_at: fiveMinAgo,
+  })
+
+  const calls: { url: string; method: string }[] = []
+  setSyncfyFetchForTests(async (input, init) => {
+    const url = String(input)
+    const method = init?.method || 'GET'
+    calls.push({ url, method })
+    return new Response(
+      JSON.stringify({ code: 200, status: true, message: 'ok', response: [] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    )
+  })
+
+  const env = {
+    DB: db,
+    SYNCFY_API_KEY: 'test-key',
+    OPS_ALERT_EMAIL: 'ops@test.local',
+    EMAIL: { send: async () => {} },
+  } as unknown as Env
+
+  await runScheduled(env)
+
+  expect(calls.length).toBeGreaterThan(0)
+  expect(calls.some((c) => c.method === 'PUT' || c.url.includes('/pulls'))).toBe(false)
+})
+
+test('cron path with expired cooldown still pulls', async () => {
+  const { db } = createTestDb(await loadSchema())
+  const thirtyFiveMinAgo = new Date(Date.now() - 35 * 60 * 1000).toISOString()
+  const twentyFiveHoursAgo = '2026-06-01T00:00:00Z'
+  await seedCredential(db, {
+    id: 'cred-expired-cooldown',
+    state: 'healthy',
+    last_pull_at: twentyFiveHoursAgo,
+    last_pull_attempt_at: thirtyFiveMinAgo,
+  })
+
+  const calls: { url: string; method: string }[] = []
+  setSyncfyFetchForTests(async (input, init) => {
+    const url = String(input)
+    const method = init?.method || 'GET'
+    calls.push({ url, method })
+    return new Response(
+      JSON.stringify({ code: 200, status: true, message: 'ok', response: [] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    )
+  })
+
+  const env = {
+    DB: db,
+    SYNCFY_API_KEY: 'test-key',
+    OPS_ALERT_EMAIL: 'ops@test.local',
+    EMAIL: { send: async () => {} },
+  } as unknown as Env
+
+  await runScheduled(env)
+
+  expect(calls.some((c) => c.method === 'PUT' && c.url.includes('/pulls'))).toBe(true)
 })

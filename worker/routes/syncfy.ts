@@ -275,7 +275,7 @@ async function processSyncfyWebhookEvent(
         : null
     )
     if (known) {
-      await refreshSyncfyCredential(env, known)
+      await refreshSyncfyCredential(env, known, { allowStartPull: false })
     }
 
     await markSyncfyWebhookEventProcessed(env, event.id)
